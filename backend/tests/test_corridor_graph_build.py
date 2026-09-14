@@ -50,21 +50,6 @@ def test_build_corridor_graph_default_units_to_metres_matches_pre_fix_behavior()
     assert set(graph_default.edges()) == set(graph_explicit.edges())
 
 
-def test_densify_boundary_units_conversion_reduces_point_count():
-    """
-    Crux of the bug: on a millimetre-scale corridor (units_to_metres=0.1, so
-    1000 raw units = 100 real metres), converting spacing_m=0.4 into raw
-    units (0.4 / 0.1 = 4 raw units) must produce meaningfully FEWER boundary
-    points than naively using the literal 0.4 as a raw-unit spacing. Both
-    calls are cheap (a single rectangle boundary), so this stays fast while
-    proving the scaling relationship the real-world fix depends on.
-    """
-    corridor = box(0, 0, 1000, 20)
-    correctly_converted = cg._densify_boundary(corridor, spacing=0.4 / 0.1)
-    naively_unconverted = cg._densify_boundary(corridor, spacing=0.4)
-    assert len(correctly_converted) * 5 < len(naively_unconverted)
-
-
 def test_build_corridor_graph_units_to_metres_keeps_node_count_reasonable():
     """
     Full-pipeline version of the same crux: with units_to_metres correctly

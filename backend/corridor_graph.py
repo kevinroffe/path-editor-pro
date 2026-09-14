@@ -165,3 +165,78 @@ def build_walkable_polygon(walls: list, doors: list, other_obstacles: list, foot
 
     walkable = area.difference(obstacle_union)
     return None if walkable.is_empty else walkable
+
+
+def _densify_boundary(polygon, spacing: float) -> list:
+    """
+    Sample points along every ring (exterior + holes, across all
+    sub-polygons if `polygon` is a MultiPolygon) at roughly `spacing`
+    intervals — the Voronoi skeleton's resolution is bounded by how densely
+    its input boundary is sampled, so this needs to be finer than the
+    narrowest real corridor width we care about resolving.
+    """
+    geoms = list(polygon.geoms) if hasattr(polygon, "geoms") else [polygon]
+    rings = []
+    for geom in geoms:
+        if geom.is_empty:
+            continue
+        rings.append(geom.exterior)
+        rings.extend(geom.interiors)
+
+    pts = []
+    for ring in rings:
+        length = ring.length
+        if length <= 0:
+            continue
+        n = max(4, int(length / max(spacing, 1e-9)))
+        for i in range(n):
+            pt = ring.interpolate(i / n * length)
+            pts.append((pt.x, pt.y))
+
+    seen = set()
+    unique = []
+    for x, y in pts:
+        key = (round(x, 6), round(y, 6))
+        if key not in seen:
+            seen.add(key)
+            unique.append((x, y))
+    return unique
+
+
+def _voronoi_skeleton(polygon, boundary_pts: list) -> "nx.Graph":
+    """
+    Cheap medial-axis approximation: run scipy's Voronoi diagram over the
+    walkable polygon's densified boundary, keep only the ridges whose
+    midpoint falls strictly inside the polygon. This is the raw, noisy
+    skeleton — Task 5 cleans it up into a real corridor-centerline graph.
+    """
+    graph = nx.Graph()
+    if len(boundary_pts) < 4:
+        return graph
+
+    vor = Voronoi(np.array(boundary_pts))
+    inflated = polygon.buffer(1e-6)
+
+    for i, j in vor.ridge_vertices:
+        if i < 0 or j < 0:
+            continue
+        a = tuple(round(c, 6) for c in vor.vertices[i])
+        b = tuple(round(c, 6) for c in vor.vertices[j])
+        if a == b:
+            continue
+        # Filter to keep only vertices inside the polygon
+        if not inflated.contains(Point(a)) or not inflated.contains(Point(b)):
+            continue
+        # Filter out vertices too close to the boundary (noise artifacts)
+        if (polygon.exterior.distance(Point(a)) < 0.3 or
+            polygon.exterior.distance(Point(b)) < 0.3):
+            continue
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        if not inflated.contains(Point(mid)):
+            continue
+        dist = math.hypot(a[0] - b[0], a[1] - b[1])
+        if dist < 1e-9:
+            continue
+        graph.add_edge(a, b, weight=dist)
+
+    return graph

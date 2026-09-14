@@ -233,3 +233,151 @@ def _voronoi_skeleton(polygon, boundary_pts: list) -> "nx.Graph":
         graph.add_edge(a, b, weight=dist)
 
     return graph
+
+
+def _merge_close_nodes(graph, tol: float) -> "nx.Graph":
+    """
+    Collapse clusters of Voronoi vertices within `tol` of each other into a
+    single node at their centroid — raw Voronoi output often produces
+    several near-duplicate vertices right at a real junction/corner instead
+    of one clean point ("T-junction"/corner noise).
+    """
+    if tol <= 0 or graph.number_of_nodes() == 0:
+        return graph
+
+    nodes = list(graph.nodes())
+    parent = {n: n for n in nodes}
+
+    def find(n):
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    tree = cKDTree(np.array(nodes))
+    for i, j in tree.query_pairs(tol):
+        union(nodes[i], nodes[j])
+
+    clusters = {}
+    for n in nodes:
+        clusters.setdefault(find(n), []).append(n)
+
+    rep_of = {}
+    for members in clusters.values():
+        cx = sum(m[0] for m in members) / len(members)
+        cy = sum(m[1] for m in members) / len(members)
+        rep = (cx, cy)
+        for m in members:
+            rep_of[m] = rep
+
+    merged = nx.Graph()
+    for u, v, data in graph.edges(data=True):
+        ru, rv = rep_of[u], rep_of[v]
+        if ru == rv:
+            continue
+        w = math.hypot(ru[0] - rv[0], ru[1] - rv[1])
+        if merged.has_edge(ru, rv):
+            if w < merged[ru][rv]["weight"]:
+                merged[ru][rv]["weight"] = w
+        else:
+            merged.add_edge(ru, rv, weight=w)
+    return merged
+
+
+def _remove_short_stub_segments(graph, min_len: float) -> "nx.Graph":
+    """
+    Iteratively drop degree-1 (dead-end) nodes whose single edge is shorter
+    than `min_len` — Voronoi skeletons fan out short spurious branches from
+    every concave polygon corner (furniture corners, door-notch corners,
+    etc.) that aren't real corridors. Repeats until stable, since removing
+    one stub can expose a new (now shorter) dead end behind it.
+    """
+    graph = graph.copy()
+    changed = True
+    while changed:
+        changed = False
+        for node in list(graph.nodes()):
+            deg = graph.degree(node)
+            if deg == 0:
+                # a node left with no edges at all (e.g. the far endpoint of
+                # a short, topologically isolated stub whose only neighbor
+                # was just pruned) is not a usable routing node either.
+                graph.remove_node(node)
+                changed = True
+                continue
+            if deg != 1:
+                continue
+            (neighbor,) = graph.neighbors(node)
+            if graph[node][neighbor]["weight"] < min_len:
+                graph.remove_node(node)
+                changed = True
+    return graph
+
+
+def _rdp(points: list, epsilon: float) -> list:
+    """Standard Ramer-Douglas-Peucker polyline simplification."""
+    if len(points) < 3:
+        return points
+    a, b = points[0], points[-1]
+    max_dist, idx = -1.0, -1
+    for i in range(1, len(points) - 1):
+        d = _point_seg_dist(points[i], a, b)
+        if d > max_dist:
+            max_dist, idx = d, i
+    if max_dist <= epsilon:
+        return [a, b]
+    left = _rdp(points[:idx + 1], epsilon)
+    right = _rdp(points[idx:], epsilon)
+    return left[:-1] + right
+
+
+def _simplify_branches(graph, epsilon: float) -> "nx.Graph":
+    """
+    RDP-simplify every maximal chain of degree-2 nodes running between two
+    junctions (or a junction and a dead end) — this is what turns the raw,
+    vertex-dense skeleton into a small number of straight-ish corridor
+    segments ("straightening corners").
+    """
+    graph = graph.copy()
+    junctions = {n for n in graph.nodes() if graph.degree(n) != 2}
+    if not junctions:
+        # a pure cycle with no junction at all — nothing safe to anchor a
+        # chain-walk on, leave it as-is (rare for a real building layout).
+        return graph
+
+    visited_edges = set()
+    for start in list(junctions):
+        for first_neighbor in list(graph.neighbors(start)):
+            edge_key = frozenset((start, first_neighbor))
+            if edge_key in visited_edges:
+                continue
+            visited_edges.add(edge_key)
+            chain = [start, first_neighbor]
+            prev, cur = start, first_neighbor
+            while graph.degree(cur) == 2 and cur not in junctions:
+                nxt = next(n for n in graph.neighbors(cur) if n != prev)
+                e_key = frozenset((cur, nxt))
+                if e_key in visited_edges:
+                    break
+                visited_edges.add(e_key)
+                chain.append(nxt)
+                prev, cur = cur, nxt
+
+            if len(chain) <= 2:
+                continue
+
+            simplified = _rdp(chain, epsilon)
+            for a, b in zip(chain, chain[1:]):
+                if graph.has_edge(a, b):
+                    graph.remove_edge(a, b)
+            for a, b in zip(simplified, simplified[1:]):
+                w = math.hypot(a[0] - b[0], a[1] - b[1])
+                graph.add_edge(a, b, weight=w)
+
+    graph.remove_nodes_from([n for n in list(graph.nodes()) if graph.degree(n) == 0])
+    return graph

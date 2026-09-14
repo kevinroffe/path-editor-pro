@@ -1,4 +1,4 @@
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import Point
 import corridor_graph as cg
 
 

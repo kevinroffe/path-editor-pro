@@ -34,3 +34,47 @@ def test_build_corridor_graph_on_simple_room():
 def test_build_corridor_graph_none_for_empty_polygon():
     from shapely.geometry import Polygon
     assert cg.build_corridor_graph(Polygon(), doors=[]) is None
+
+
+def test_build_corridor_graph_default_units_to_metres_matches_pre_fix_behavior():
+    """
+    No units_to_metres passed -> must default to 1.0 and behave EXACTLY as
+    before the units-conversion fix (every existing caller/test that doesn't
+    pass units_to_metres relies on this).
+    """
+    room = box(0, 0, 10, 10)
+    graph_default = cg.build_corridor_graph(room, doors=[])
+    graph_explicit = cg.build_corridor_graph(room, doors=[], units_to_metres=1.0)
+    assert graph_default is not None
+    assert set(graph_default.nodes()) == set(graph_explicit.nodes())
+    assert set(graph_default.edges()) == set(graph_explicit.edges())
+
+
+def test_densify_boundary_units_conversion_reduces_point_count():
+    """
+    Crux of the bug: on a millimetre-scale corridor (units_to_metres=0.1, so
+    1000 raw units = 100 real metres), converting spacing_m=0.4 into raw
+    units (0.4 / 0.1 = 4 raw units) must produce meaningfully FEWER boundary
+    points than naively using the literal 0.4 as a raw-unit spacing. Both
+    calls are cheap (a single rectangle boundary), so this stays fast while
+    proving the scaling relationship the real-world fix depends on.
+    """
+    corridor = box(0, 0, 1000, 20)
+    correctly_converted = cg._densify_boundary(corridor, spacing=0.4 / 0.1)
+    naively_unconverted = cg._densify_boundary(corridor, spacing=0.4)
+    assert len(correctly_converted) * 5 < len(naively_unconverted)
+
+
+def test_build_corridor_graph_units_to_metres_keeps_node_count_reasonable():
+    """
+    Full-pipeline version of the same crux: with units_to_metres correctly
+    applied, a long thin synthetic corridor (1000 raw units == 100m real,
+    matching a millimetre-scale DXF's order of magnitude) must produce a
+    graph with a small, reasonable node count — not the ~10x-larger one the
+    unconverted (pre-fix) code path would produce for this geometry. Sized
+    so even the "wrong" behavior completes in well under a second.
+    """
+    corridor = box(0, 0, 1000, 20)
+    graph = cg.build_corridor_graph(corridor, doors=[], units_to_metres=0.1)
+    assert graph is not None
+    assert graph.number_of_nodes() < 300

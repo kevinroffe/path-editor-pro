@@ -174,7 +174,7 @@ def _get_circ_graph_and_polygon(clearance_m: float):
                 walls, doors, other, footprint, bounds,
                 clearance_m=clearance_m, units_to_metres=_LAST_UNITS_TO_METRES,
             )
-            graph = build_corridor_graph(polygon, doors) if polygon is not None else None
+            graph = build_corridor_graph(polygon, doors, units_to_metres=_LAST_UNITS_TO_METRES) if polygon is not None else None
         except Exception:
             log.exception("Corridor graph build failed — Smart Path will use grid A* for this request")
             polygon, graph = None, None

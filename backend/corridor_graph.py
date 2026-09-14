@@ -425,26 +425,47 @@ def _bridge_doors_across_components(graph, doors: list, max_bridge_m: float) -> 
 
 def build_corridor_graph(walkable_polygon, doors: list, spacing_m: float = 0.4,
                           merge_tol_m: float = 0.3, stub_min_len_m: float = 0.5,
-                          simplify_epsilon_m: float = 0.15, max_bridge_m: float = 3.5):
+                          simplify_epsilon_m: float = 0.15, max_bridge_m: float = 3.5,
+                          units_to_metres: float = 1.0):
     """
     Full pipeline: walkable polygon -> densified boundary -> raw Voronoi
     skeleton -> cleanup (merge/destub/simplify) -> door bridging. Returns
     None if no usable graph resulted (empty polygon, degenerate boundary,
     or a graph left with no edges) — the caller (app.py) must fall back to
     grid A* in that case.
+
+    spacing_m/merge_tol_m/stub_min_len_m/simplify_epsilon_m/max_bridge_m are
+    all expressed in METRES and are converted to walkable_polygon's raw
+    coordinate units via units_to_metres before use, mirroring
+    build_walkable_polygon's clearance_m convention. This matters: without
+    the conversion, these values get used as literal raw-unit distances
+    regardless of the drawing's real-world scale. For a millimetre-scale DXF
+    (units_to_metres=0.001), a 0.4m boundary-sample spacing would otherwise
+    be applied as 0.4mm — turning what should be a ~2,600-point boundary
+    densification into a ~2.6-million-point one, which makes the downstream
+    scipy Voronoi computation intractable. This exact bug was confirmed
+    against the real QQQQ_TEST-0001 DXF (units_to_metres=0.001), where it
+    caused the Flask dev server to hang indefinitely.
     """
     if walkable_polygon is None or walkable_polygon.is_empty:
         return None
 
-    boundary_pts = _densify_boundary(walkable_polygon, spacing_m)
+    scale = max(units_to_metres, 1e-9)
+    spacing = spacing_m / scale
+    merge_tol = merge_tol_m / scale
+    stub_min_len = stub_min_len_m / scale
+    simplify_epsilon = simplify_epsilon_m / scale
+    max_bridge = max_bridge_m / scale
+
+    boundary_pts = _densify_boundary(walkable_polygon, spacing)
     if len(boundary_pts) < 4:
         return None
 
     graph = _voronoi_skeleton(walkable_polygon, boundary_pts)
-    graph = _merge_close_nodes(graph, merge_tol_m)
-    graph = _remove_short_stub_segments(graph, stub_min_len_m)
-    graph = _simplify_branches(graph, simplify_epsilon_m)
-    graph = _bridge_doors_across_components(graph, doors, max_bridge_m)
+    graph = _merge_close_nodes(graph, merge_tol)
+    graph = _remove_short_stub_segments(graph, stub_min_len)
+    graph = _simplify_branches(graph, simplify_epsilon)
+    graph = _bridge_doors_across_components(graph, doors, max_bridge)
 
     return graph if graph.number_of_edges() > 0 else None
 

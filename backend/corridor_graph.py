@@ -514,12 +514,18 @@ def _snap_to_nearest_edge(graph, point):
     return proj
 
 
-def _los_clear_poly(p1, p2, walkable_polygon) -> bool:
+def _los_clear_poly(p1, p2, inflated_polygon) -> bool:
     """Polygon-space equivalent of autopath.py's grid-based _los_clear:
     true if the straight segment p1->p2 stays entirely inside the walkable
-    area."""
+    area. Takes an ALREADY-buffered/inflated polygon — the caller is
+    responsible for computing `walkable_polygon.buffer(1e-6)` once (this used
+    to buffer internally on every call, which is cheap for a simple synthetic
+    polygon but became a ~0.4s operation per call on a real DXF's
+    64k-vertex walkable polygon; called O(n^2) times from
+    _reduce_to_max_pts_poly's reduction loop, that turned a real route into
+    a many-minutes-long hang)."""
     line = LineString([p1, p2])
-    return walkable_polygon.buffer(1e-6).contains(line)
+    return inflated_polygon.contains(line)
 
 
 def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
@@ -529,12 +535,19 @@ def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
     first, only when the resulting segment stays inside the walkable area),
     just backed by a polygon containment check instead of a raster grid
     lookup, since the corridor-graph path has no occupancy grid at all.
+
+    `walkable_polygon` is buffered ONCE here, up front, rather than inside
+    _los_clear_poly per call — this loop calls _los_clear_poly O(n^2) times
+    for a path of length n, and re-buffering a real DXF's complex walkable
+    polygon (tens of thousands of vertices) on every single call made this
+    function take tens of minutes on a real file instead of seconds.
     """
+    inflated = walkable_polygon.buffer(1e-6)
     pts = list(pts)
     while len(pts) > max_pts:
         best_i, best_cost = None, None
         for i in range(1, len(pts) - 1):
-            if not _los_clear_poly(pts[i - 1], pts[i + 1], walkable_polygon):
+            if not _los_clear_poly(pts[i - 1], pts[i + 1], inflated):
                 continue
             cost = _point_seg_dist(pts[i], pts[i - 1], pts[i + 1])
             if best_cost is None or cost < best_cost:

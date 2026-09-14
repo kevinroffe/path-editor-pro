@@ -1,0 +1,13 @@
+schemaVersion: 1
+name: Revit Walkthrough Tool
+slug: revit-walkthrough
+description: Upload a Revit/IFC export, generate a smooth walkthrough path, and
+  export frames as JSON or Enscape XML.
+category: Floor Plans
+runtime: flask
+entryPoint: backend/app.py
+buildCommand: null
+outputDir: null
+startCommand: gunicorn backend.app:app --bind 0.0.0.0:8000
+port: 8000
+createdAt: 2026-09-01T08:42:31.480Z

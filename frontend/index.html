@@ -1,0 +1,1923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Path Editor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #f6f7f9;
+  --surface:   #ffffff;
+  --surface2:  #f6f7f9;
+  --border:    #e6e8ec;
+  --border2:   #d7dae0;
+  --text:      #1f2733;
+  --text2:     #7b828e;
+  --text3:     #a7adb6;
+  --blue:      #2f6bff;
+  --blue-lt:   #eaf1ff;
+  --blue-md:   #d9e6ff;
+  --blue-dk:   #1f52d6;
+  --green:     #31a354;
+  --green-lt:  #e8f5ec;
+  --red:       #d64545;
+  --red-lt:    #fbeaea;
+  --amber:     #d99000;
+  --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+  --shadow:    0 8px 24px rgba(16,24,40,.08);
+  --r:         12px;
+  --r-sm:      8px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; font-size: 13px; line-height: 1.55;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; height: 58px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; z-index: 20;
+  box-shadow: var(--shadow-sm);
+}
+.level-tag {
+  font-size: 11px; padding: 3px 11px; border-radius: 20px;
+  background: var(--blue-lt); color: var(--blue);
+  border: 1px solid var(--blue-md); font-weight: 600;
+}
+.header-sep { flex: 1; }
+
+/* Load plan button in header */
+.load-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-radius: var(--r-sm); border: 1.5px dashed var(--border2);
+  background: var(--bg); color: var(--text2); cursor: pointer;
+  font-size: 12px; font-weight: 500; font-family: inherit;
+  transition: all .18s;
+}
+.load-btn:hover { border-color: var(--blue); background: var(--blue-lt); color: var(--blue); }
+.load-btn.loaded { border-style: solid; border-color: var(--border2); color: var(--text2); }
+.load-folder-btn { border-color: var(--green); color: var(--green); background: var(--green-lt); }
+.load-folder-btn:hover { border-color: #047857; background: #d1fae5; color: #047857; }
+.load-folder-btn.loaded { border-style: solid; border-color: #a7f3d0; color: var(--green); background: var(--green-lt); }
+.load-btn input { display: none; }
+
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.body { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.panel {
+  width: 284px; flex-shrink: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.panel-inner {
+  overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 8px 8px 10px;
+}
+.section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 11px; box-shadow: var(--shadow-sm);
+  padding: 9px 11px;
+}
+.sec-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: none; border: none; padding: 0; margin: 0 0 7px; font-family: inherit;
+  font-size: 12px; font-weight: 600; color: var(--text); text-align: left; cursor: pointer;
+}
+.section.collapsed .sec-head { margin-bottom: 0; }
+.sec-icon {
+  width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0;
+  background: var(--blue-lt); color: var(--blue);
+  display: flex; align-items: center; justify-content: center;
+}
+.sec-icon svg { width: 11px; height: 11px; }
+.chevron { margin-left: auto; flex-shrink: 0; color: var(--text3); transition: transform .18s; }
+.section.collapsed .chevron { transform: rotate(-90deg); }
+.card-body { overflow: hidden; }
+.section.collapsed .card-body { display: none; }
+
+/* ── Mode tabs ───────────────────────────────────────────────── */
+.tabs {
+  display: flex; background: var(--bg); border-radius: 9px;
+  padding: 3px; gap: 3px; border: 1px solid var(--border);
+}
+.tab {
+  flex: 1; padding: 6px 10px; border-radius: 7px; border: none;
+  background: transparent; color: var(--text2);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all .18s; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.tab.active {
+  background: var(--blue); color: #fff;
+  box-shadow: 0 2px 8px rgba(47,107,255,.3);
+}
+.tab:not(.active):hover { background: var(--surface); color: var(--text); }
+
+/* ── Waypoints ───────────────────────────────────────────────── */
+.wp-scroll { max-height: 220px; overflow-y: auto; margin-top: 8px; }
+.wp-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 5px; border-radius: var(--r-sm); transition: background .1s;
+}
+.wp-row:hover { background: var(--surface2); }
+.wp-num {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: var(--blue-lt); color: var(--blue);
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--blue-md);
+}
+.wp-xy { flex: 1; font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.wp-yaw-box { display: flex; align-items: center; gap: 2px; }
+.wp-yaw-box input {
+  width: 46px; padding: 3px 5px; border-radius: 5px;
+  border: 1px solid var(--border2); background: var(--bg);
+  color: var(--amber); font-size: 11px; outline: none; text-align: center;
+  font-variant-numeric: tabular-nums; transition: border-color .12s;
+}
+.wp-yaw-box input:focus { border-color: var(--amber); }
+.wp-yaw-unit { font-size: 10px; color: var(--text3); }
+.wp-tod-box { display: flex; align-items: center; gap: 3px; }
+.wp-tod-box input[type=time] {
+  width: 72px; padding: 3px 5px; border-radius: 5px;
+  border: 1px solid var(--border2); background: var(--bg);
+  color: #0891b2; font-size: 11px; outline: none;
+  font-variant-numeric: tabular-nums; transition: border-color .12s;
+  cursor: pointer;
+}
+.wp-tod-box input[type=time]:focus { border-color: #0891b2; }
+.wp-tod-box input[type=time]::-webkit-calendar-picker-indicator { opacity: .4; cursor: pointer; width: 10px; }
+.wp-tod-lbl { font-size: 9.5px; color: var(--text3); white-space: nowrap; }
+.wp-del { color: var(--text3); cursor: pointer; font-size: 15px; padding: 2px 4px; border-radius: 4px; transition: all .1s; flex-shrink: 0; }
+.wp-del:hover { color: var(--red); background: var(--red-lt); }
+.wp-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 18px 0; }
+
+/* ── Cut / jump toggle between two waypoint rows ──────────────── */
+.wp-cut-row { display: flex; align-items: center; gap: 6px; padding: 1px 6px; }
+.wp-cut-line { flex: 1; height: 1px; background: var(--border); }
+.wp-cut-btn {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 2px 7px; border-radius: 20px; border: 1px solid transparent;
+  background: transparent; color: var(--text3); font-size: 9.5px; font-weight: 600;
+  cursor: pointer; font-family: inherit; opacity: .55; transition: all .12s;
+}
+.wp-cut-row:hover .wp-cut-btn { opacity: 1; }
+.wp-cut-btn:hover { background: var(--surface2); color: var(--text2); }
+.wp-cut-btn.active {
+  background: #fdf2e3; color: var(--amber); border-color: #f6dfb3; opacity: 1;
+}
+.wp-cut-btn.active:hover { background: #fbe8cc; }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 16px; border-radius: var(--r-sm); border: none;
+  font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .15s;
+  width: 100%; margin-top: 8px; font-family: inherit;
+}
+.btn:disabled { opacity: .3; cursor: not-allowed; pointer-events: none; }
+.btn-blue { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.3); }
+.btn-blue:hover { background: var(--blue-dk); }
+.btn-ghost { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); margin-top: 6px; }
+.btn-ghost:hover { background: var(--border); color: var(--text); }
+.btn-red  { background: var(--red-lt); color: var(--red); border: 1px solid #fca5a5; }
+.btn-red:hover { background: #fee2e2; }
+
+/* ── Camera sliders ──────────────────────────────────────────── */
+.slider-block { margin-top: 4px; }
+.slider-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 3px 8px;
+  margin-bottom: 10px;
+}
+.slider-item:last-child { margin-bottom: 0; }
+.slider-label {
+  font-size: 12px; font-weight: 500; color: var(--text2);
+  display: flex; align-items: center; gap: 6px;
+}
+.slider-value {
+  font-size: 14px; font-weight: 700; color: var(--blue);
+  text-align: right; line-height: 1; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.slider-item input[type=range] {
+  grid-column: 1 / -1;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer; width: 100%; height: 20px;
+}
+.slider-item input[type=range]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 3px;
+  background: linear-gradient(to right, var(--blue) var(--pct,50%), var(--border2) var(--pct,50%));
+}
+.slider-item input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 2.5px solid var(--blue); margin-top: -6px;
+  box-shadow: 0 1px 5px rgba(37,99,235,.3);
+  transition: box-shadow .12s;
+}
+.slider-item input[type=range]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 5px rgba(37,99,235,.12);
+}
+.slider-item input[type=range]::-moz-range-track {
+  height: 4px; border-radius: 3px; background: var(--border2);
+}
+.slider-item input[type=range]::-moz-range-progress { height: 4px; background: var(--blue); border-radius: 3px; }
+.slider-item input[type=range]::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 2.5px solid var(--blue); box-shadow: 0 1px 5px rgba(37,99,235,.3);
+}
+
+/* ── Video presets ─────────────────────────────────────────────── */
+.preset-row { display: flex; gap: 5px; margin-bottom: 8px; }
+.preset-btn {
+  flex: 1; padding: 6px 4px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--bg); color: var(--text2);
+  font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: all .15s;
+}
+.preset-btn:hover { border-color: var(--border2); color: var(--text); }
+.preset-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* ── Duration strip ──────────────────────────────────────────── */
+.dur-card {
+  background: var(--blue-lt);
+  border: 1px solid var(--blue-md); border-radius: var(--r-sm);
+  padding: 6px 10px; margin-bottom: 8px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.dur-time {
+  font-size: 16px; font-weight: 700; color: var(--blue-dk);
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+.dur-detail { flex: 1; display: flex; align-items: baseline; gap: 6px; }
+.dur-label { font-size: 9.5px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+.dur-sub   { font-size: 10.5px; color: var(--text2); }
+
+/* ── Canvas ───────────────────────────────────────────────────── */
+.canvas-area {
+  flex: 1; position: relative; overflow: hidden;
+  background: var(--bg);
+  background-image: radial-gradient(circle, var(--border2) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: default;
+}
+.canvas-area.mode-waypoint { cursor: crosshair; }
+.canvas-area.mode-freehand { cursor: cell; }
+#svg-wrap { width: 100%; height: 100%; }
+#svg-wrap svg { width: 100%; height: 100%; display: block; }
+
+/* Heading handle */
+.yaw-handle { fill: #d97706; stroke: #fff; stroke-width: 1.5; cursor: grab; }
+.yaw-handle:active { cursor: grabbing; }
+.yaw-handle:hover { fill: #f59e0b; }
+.wp-dot.selected { fill: var(--blue-md) !important; stroke: var(--blue-dk) !important; stroke-width: 2.5px !important; }
+.wp-dot.cut       { stroke: var(--amber) !important; stroke-dasharray: 2,1.5; }
+
+/* SVG route */
+.route-raw    { fill: none; stroke: var(--blue); stroke-dasharray: 3,2; opacity: .2; pointer-events: none; }
+.route-spline { fill: none; stroke: var(--blue); opacity: .9; pointer-events: none; }
+.route-arrow  { fill: var(--blue); opacity: .75; pointer-events: none; }
+.wp-dot       { fill: rgba(255,255,255,.96); stroke: var(--blue); stroke-width: 1.5; cursor: move; }
+.wp-dot:hover { fill: var(--blue-lt); stroke: var(--blue-dk); }
+.wp-lbl       { fill: var(--blue-dk); font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.wp-yaw-line  { stroke: #d97706; stroke-linecap: round; pointer-events: none; }
+.fh-preview   { fill: none; stroke: #f97316; opacity: .75; stroke-linecap: round; pointer-events: none; }
+
+/* ── Bottom toolbar ───────────────────────────────────────────── */
+.toolbar {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,.9);
+  border: 1px solid var(--border);
+  border-radius: 30px; padding: 6px 12px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+.tb-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: transparent; color: var(--text2); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; transition: all .14s;
+}
+.tb-btn:hover { background: var(--blue-lt); color: var(--blue); }
+.tb-btn-auto {
+  display: flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 14px; border-radius: 20px; border: none;
+  background: var(--blue-lt); color: var(--blue-dk); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s; font-family: inherit;
+}
+.tb-btn-auto:hover { background: var(--blue-md); }
+.tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
+.tb-btn-auto:disabled { opacity: .5; cursor: not-allowed; }
+.tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
+
+/* ── Empty state ──────────────────────────────────────────────── */
+.empty-state {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; pointer-events: none;
+}
+.empty-icon { color: var(--text3); opacity: .5; }
+.empty-text { font-size: 14px; color: var(--text3); text-align: center; line-height: 1.8; }
+.empty-text strong { color: var(--text2); font-weight: 600; }
+
+/* ── Loading ──────────────────────────────────────────────────── */
+.loading {
+  position: absolute; inset: 0; background: rgba(246,247,249,.85);
+  display: none; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  backdrop-filter: blur(4px);
+}
+.loading.show { display: flex; }
+.spinner {
+  width: 32px; height: 32px;
+  border: 2.5px solid var(--border2);
+  border-top-color: var(--blue); border-radius: 50%;
+  animation: spin .65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 12px; color: var(--text2); }
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  z-index: 1000; pointer-events: none;
+}
+.toast {
+  padding: 9px 20px; border-radius: 22px; font-size: 12px; font-weight: 500;
+  animation: fadeUp .22s ease; white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+.toast.ok  { background: var(--green-lt); color: var(--green); border: 1px solid #a7f3d0; }
+.toast.err { background: var(--red-lt);   color: var(--red);   border: 1px solid #fca5a5; }
+.toast.inf { background: var(--blue-lt);  color: var(--blue);  border: 1px solid var(--blue-md); }
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+/* ── 3D Preview panel ─────────────────────────────────────────── */
+/* ── Resize handle between canvas and 3D panel ──────────────── */
+.resize-handle {
+  width: 0; flex-shrink: 0; cursor: col-resize; position: relative; z-index: 6;
+  background: transparent;
+}
+.resize-handle.active { width: 6px; }
+.resize-handle.active:hover, .resize-handle.dragging { background: var(--blue-lt); }
+.resize-handle.active::after {
+  content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 3px; height: 34px; border-radius: 2px; background: var(--border2);
+}
+
+.preview-3d {
+  display: none; flex-direction: column;
+  width: 0; flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  transition: width .25s ease;
+  overflow: hidden;
+}
+.preview-3d.dragging { transition: none; }
+.preview-3d.visible {
+  display: flex;
+  width: 42%;
+  flex-shrink: 0;
+}
+.p3d-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; height: 42px;
+}
+.p3d-title { font-size: 12.5px; font-weight: 600; color: var(--text); flex: 1; }
+.p3d-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #1a1e2e; }
+#preview-canvas { width: 100%; height: 100%; display: block; }
+.p3d-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 2; }
+.p3d-empty {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  pointer-events: none; color: #4a5580;
+  font-size: 12px; text-align: center; line-height: 1.6;
+}
+.p3d-empty strong { color: #6b7db3; }
+.p3d-controls {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface); border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.p3d-play-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: none; flex-shrink: 0;
+  background: var(--blue); color: #fff; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(47,107,255,.35); transition: background .15s;
+}
+.p3d-play-btn:hover { background: var(--blue-dk); }
+.p3d-play-btn:disabled { background: var(--border2); cursor: not-allowed; box-shadow: none; }
+.p3d-time { font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; min-width: 80px; }
+.p3d-speed-row { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.p3d-speed-row span { font-size: 10px; color: var(--text3); }
+.p3d-speed-row input[type=range] {
+  -webkit-appearance: none; appearance: none; width: 72px; height: 16px; background: transparent; cursor: pointer;
+}
+.p3d-speed-row input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(to right, var(--blue) var(--pct,50%), var(--border2) var(--pct,50%));
+}
+.p3d-speed-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--blue); margin-top: -5px;
+}
+.p3d-speed-val { font-size: 12px; font-weight: 700; color: var(--blue); min-width: 26px; }
+.p3d-refresh-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text2); font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all .15s; font-family: inherit;
+}
+.p3d-refresh-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-lt); }
+.btn-3d-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg);
+  color: var(--text2); font-size: 12px; font-weight: 500;
+  cursor: pointer; font-family: inherit; transition: .15s; margin-left: 6px;
+}
+.btn-3d-toggle:hover, .btn-3d-toggle.active {
+  background: #1e2440; color: #5b9cf6; border-color: #2a3050;
+}
+
+/* ── Header export group ─────────────────────────────────────── */
+.header-export {
+  display: flex; align-items: center; gap: 6px;
+  padding-left: 14px; margin-left: 6px; border-left: 1px solid var(--border);
+}
+.export-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text2);
+  font-family: inherit;
+}
+.export-btn:disabled { opacity: .4; cursor: not-allowed; }
+.export-btn:not(:disabled):hover { border-color: var(--border2); color: var(--text); background: var(--bg); }
+.export-btn.is-primary { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: var(--shadow-sm); }
+.export-btn.is-primary:not(:disabled):hover { background: var(--blue-dk); border-color: var(--blue-dk); }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <svg height="36" viewBox="0 0 2184 546" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+    <path d="M0 0 C0.66008515 -0.00205263 1.3201703 -0.00410527 2.00025803 -0.0062201 C4.22172476 -0.01189407 6.44312957 -0.01043236 8.66460228 -0.00901413 C10.26960044 -0.01159755 11.87459796 -0.01461064 13.47959459 -0.01801753 C17.89786806 -0.02609369 22.3161253 -0.02787745 26.73440528 -0.028615 C31.49667469 -0.03046451 36.25893565 -0.03801137 41.02120018 -0.04475021 C51.43865674 -0.05833889 61.85610945 -0.06435921 72.2735734 -0.06876087 C78.77774099 -0.07152264 85.2819071 -0.0757599 91.78607368 -0.08026505 C109.79219087 -0.09245889 127.79830687 -0.10275766 145.8044281 -0.10614014 C146.95714038 -0.1063597 148.10985267 -0.10657927 149.29749563 -0.10680549 C150.45297835 -0.10702377 151.60846107 -0.10724204 152.79895842 -0.10746694 C155.14043403 -0.1079104 157.48190963 -0.10835697 159.82338524 -0.10880661 C160.98483989 -0.10902804 162.14629454 -0.10924947 163.34294479 -0.10947761 C182.16001125 -0.11342508 200.97703897 -0.13087703 219.79409046 -0.15416613 C239.11069891 -0.17788061 258.42728791 -0.19034205 277.74391115 -0.19150805 C288.59046816 -0.19242481 299.43697472 -0.19817722 310.28351784 -0.21632767 C319.52043873 -0.23173 328.75729357 -0.23684835 337.99422486 -0.22858956 C342.70631132 -0.22468342 347.41826477 -0.22561094 352.13033485 -0.23964691 C356.44719612 -0.25238793 360.76382447 -0.25118653 365.08068542 -0.2390562 C366.63928212 -0.23709954 368.19789534 -0.2401762 369.75646885 -0.24890056 C381.88145706 -0.31245463 392.30534784 0.41927383 401.44496727 9.13142776 C406.73871838 15.11215421 408.69278042 21.00324167 408.70223618 29.02905369 C408.70574225 29.70187636 408.70924832 30.37469904 408.71286064 31.06791028 C408.72215885 33.32071782 408.71725549 35.57326596 408.71239281 37.82608414 C408.71612986 39.45827132 408.72073161 41.09045671 408.72612345 42.72263926 C408.73836197 47.2067514 408.73809198 51.69078897 408.7357347 56.174914 C408.73532675 61.0114384 408.74636357 65.84793882 408.75584984 70.68445206 C408.77246534 80.15963884 408.77795963 89.63480075 408.77907459 99.11000089 C408.78002478 106.81144394 408.7841336 114.51287878 408.79047585 122.21431923 C408.80808954 144.04694479 408.81731448 165.87955068 408.8158149 187.71218339 C408.81573499 188.88927671 408.81565507 190.06637003 408.81557274 191.27913284 C408.81549098 192.45766249 408.81540922 193.63619214 408.81532498 194.8504348 C408.81451198 213.95259282 408.83365283 233.05467201 408.86184947 252.15680722 C408.89056984 271.76841147 408.90439024 291.37997726 408.90266192 310.99160308 C408.90199774 322.00299037 408.90750237 333.01429501 408.92901802 344.02566338 C408.94721862 353.40055625 408.95158633 362.775329 408.93799917 372.15023188 C408.93146397 376.93312699 408.93137233 381.71579159 408.94870567 386.49866486 C408.96441687 390.87898872 408.96159278 395.25889891 408.94413741 399.63921257 C408.94106322 401.22195726 408.94471573 402.80473268 408.95585756 404.38744114 C409.02904779 415.52368764 407.9133014 424.19437917 400.14027977 432.63142776 C390.84388888 440.85680588 378.53547124 440.42476204 366.87839317 440.3988533 C365.28445381 440.40259253 363.69051628 440.40719514 362.09658164 440.41258395 C357.72732422 440.42479574 353.35814347 440.42455562 348.98887289 440.4221952 C344.27228074 440.42178657 339.55571303 440.43283062 334.83913231 440.44231033 C325.60217509 440.45891158 316.3652434 440.46441949 307.12827251 440.46553509 C299.61808247 440.46648603 292.10790085 440.47059861 284.59771347 440.47693634 C263.29520452 440.49454676 241.9927157 440.50377558 220.69019941 440.50227539 C219.54217075 440.50219548 218.3941421 440.50211557 217.21132469 440.50203323 C216.06189082 440.50195147 214.91245695 440.50186971 213.72819176 440.50178547 C195.10415195 440.50097274 176.48019306 440.52010766 157.85617665 440.54830997 C138.72361489 440.57705325 119.59109257 440.59084945 100.45850867 440.58912241 C89.72089037 440.58845899 78.98335688 440.59393048 68.24575806 440.61547852 C59.1026912 440.63370934 49.95974758 440.63802204 40.8166704 440.62445967 C36.15477957 440.6179395 31.49312507 440.61777836 26.83125687 440.63516617 C22.55689141 440.6509442 18.28294873 440.64798528 14.00859328 440.6305979 C12.46890549 440.62753837 10.92918576 440.63112061 9.38953564 440.64231806 C-2.64112636 440.72396288 -14.93709274 439.91038168 -23.96909523 431.06892776 C-28.76849267 425.20562449 -30.67865034 419.10316764 -30.68646049 411.60015202 C-30.68851313 410.93049128 -30.69056576 410.26083054 -30.6926806 409.57087705 C-30.69836728 407.31083507 -30.6968913 405.05085372 -30.69547462 402.79080582 C-30.69805731 401.16049653 -30.7010702 399.53018788 -30.70447803 397.89988011 C-30.71256273 393.40707667 -30.71433842 388.9142892 -30.71507549 384.42147934 C-30.71692351 379.58083867 -30.72446961 374.74020633 -30.73121071 369.89957047 C-30.74480533 359.30864077 -30.7508206 348.71771486 -30.75522137 338.12677789 C-30.75798207 331.51592761 -30.76221912 324.9050788 -30.76672554 318.29422951 C-30.77892003 299.99734241 -30.78921876 281.70045648 -30.79260063 263.40356541 C-30.7928202 262.23200921 -30.79303976 261.06045301 -30.79326598 259.85339512 C-30.79348426 258.67900369 -30.79370254 257.50461226 -30.79392743 256.29463321 C-30.7943709 253.91479194 -30.79481746 251.53495067 -30.79526711 249.15510941 C-30.79548853 247.97462094 -30.79570996 246.79413248 -30.7959381 245.57787164 C-30.79988625 226.44899751 -30.81733996 207.32016146 -30.84062663 188.19130204 C-30.86433166 168.56059149 -30.87680211 148.92990006 -30.87796855 129.29917496 C-30.87888583 118.27381485 -30.88465129 107.24850435 -30.90278816 96.22315788 C-30.91817775 86.83464097 -30.92331638 77.446189 -30.91505006 68.05766187 C-30.91113942 63.26684561 -30.91209334 58.47616018 -30.92610741 53.68535995 C-30.9388215 49.2988653 -30.93767074 44.91260013 -30.92551669 40.5261059 C-30.92355536 38.93992427 -30.92665824 37.35372652 -30.93536106 35.76756755 C-30.99206817 24.73284077 -30.44925238 16.38225454 -22.65659523 7.95955276 C-16.01969546 2.18619014 -8.61045123 0.00911277 0 0 Z M67.44496727 101.13142776 C64.24786266 104.6637127 61.30295775 108.32077379 58.44496727 112.13142776 C57.70633446 113.11627151 56.96770164 114.10111526 56.20668602 115.11580276 C38.52212141 139.6726075 29.2212977 167.74071543 29.19496727 198.00642776 C29.19429253 198.70117203 29.19361778 199.39591629 29.19292259 200.11171341 C29.20935023 210.75651561 29.76790713 220.77797831 32.44496727 231.13142776 C32.61657372 231.81769241 32.78818016 232.50395706 32.9649868 233.21101761 C38.36079771 254.45189969 48.05629239 273.53346816 62.44496727 290.13142776 C63.48910789 291.3573262 63.48910789 291.3573262 64.55434227 292.60799026 C80.35516215 310.70609246 101.25137979 325.95133551 124.44496727 333.13142776 C125.43496727 333.13142776 126.42496727 333.13142776 127.44496727 333.13142776 C127.44496727 334.78142776 127.44496727 336.43142776 127.44496727 338.13142776 C104.52480749 341.46883437 81.66460361 344.10951729 58.56606102 345.82283401 C53.48081921 346.20066999 48.39856018 346.61289371 43.31606102 347.02595901 C38.69280957 347.40000849 34.06882133 347.76490275 29.44496727 348.13142776 C29.44496727 359.02142776 29.44496727 369.91142776 29.44496727 381.13142776 C136.03496727 381.13142776 242.62496727 381.13142776 352.44496727 381.13142776 C352.44496727 370.24142776 352.44496727 359.35142776 352.44496727 348.13142776 C297.33496727 348.13142776 242.22496727 348.13142776 185.44496727 348.13142776 C185.44496727 346.15142776 185.44496727 344.17142776 185.44496727 342.13142776 C186.42852196 341.9238887 187.41207664 341.71634964 188.42543602 341.50252151 C229.89311015 332.43400374 266.83582654 312.42865994 290.44496727 276.13142776 C311.3625307 243.09193775 318.03653799 204.48042272 309.73402977 166.26814651 C301.12695703 130.16891036 278.19423453 98.20699152 246.81777 78.4561348 C188.2149931 42.87123911 115.39141307 52.55410768 67.44496727 101.13142776 Z" fill="#CBEDFA" transform="translate(411.55503273010254,52.86857223510742)"/>
+    <path d="M0 0 C1.26457031 1.15628906 1.26457031 1.15628906 2.5546875 2.3359375 C3.08803711 2.8215918 3.62138672 3.30724609 4.17089844 3.80761719 C23.8822079 21.97983946 37.94502909 46.41849395 39.77758789 73.64794922 C40.75975887 103.82584189 34.99700942 132.11846289 14.5546875 155.3359375 C13.89082031 156.14289063 13.22695313 156.94984375 12.54296875 157.78125 C-3.74203389 176.98611448 -28.30254932 190.63750259 -53.4453125 193.3359375 C-85.09888727 195.25393328 -115.06116061 189.81038387 -139.4453125 168.3359375 C-140.67314453 167.32273437 -140.67314453 167.32273437 -141.92578125 166.2890625 C-161.58771536 149.58403941 -174.60793681 123.89473084 -177.4453125 98.3359375 C-179.49421195 68.0235821 -173.13603753 38.41196784 -152.890625 14.9921875 C-145.35208875 6.80336218 -137.97738486 -0.76793527 -128.4453125 -6.6640625 C-127.45660156 -7.30859375 -126.46789062 -7.953125 -125.44921875 -8.6171875 C-87.51930554 -32.02740484 -34.22899594 -29.15803358 0 0 Z" fill="#CBEDFA" transform="translate(651.4453125,166.6640625)"/>
+    <path d="M0 0 C14.52 0 29.04 0 44 0 C44.33 41.58 44.66 83.16 45 126 C48.96 121.05 48.96 121.05 53 116 C71.77640009 96.06858477 99.40959897 86.4843853 126.34765625 85.6640625 C128.91913021 85.63418276 131.49085466 85.62162956 134.0625 85.625 C135.07339188 85.62531723 135.07339188 85.62531723 136.10470581 85.62564087 C168.58601059 85.72683172 197.42169045 97.47193699 220.57714844 120.51123047 C241.34879927 142.24519182 252.90369318 174.02110515 253.23828125 203.8828125 C253.25297203 204.97541382 253.25297203 204.97541382 253.26795959 206.09008789 C253.44220494 222.41341803 253.27872312 238.12316398 249 254 C248.79632812 254.77359863 248.59265625 255.54719727 248.3828125 256.34423828 C240.53609225 285.06105474 221.99443618 311.81543788 196.00683594 326.88720703 C165.98544307 343.5341059 129.68991918 346.51876521 96.7331543 337.40795898 C76.92249773 331.45964046 56.66242687 319.49364031 45 302 C44.67 315.2 44.34 328.4 44 342 C29.48 342 14.96 342 0 342 C0 229.14 0 116.28 0 0 Z M74 142 C73.19304687 142.71542969 72.38609375 143.43085938 71.5546875 144.16796875 C54.46981011 160.18177584 44.87920085 183.70117734 44 207 C43.9484375 208.00546875 43.896875 209.0109375 43.84375 210.046875 C43.13007646 235.85806819 50.77110705 261.88046236 68.71069336 280.85375977 C84.32340707 296.61160801 103.84918981 304.6212486 125.9375 305.25 C144.95474057 305.03014751 161.70865812 299.40450156 177 288 C177.63035156 287.55398438 178.26070312 287.10796875 178.91015625 286.6484375 C196.13612356 273.37263291 204.71509035 251.40792884 208.61328125 230.75 C211.38891623 203.83475174 207.70866838 175.19847905 190.64697266 153.26025391 C176.87690816 136.61383819 158.62186175 125.79843388 137 123 C113.80175041 121.49514965 91.64602091 125.91881491 74 142 Z" fill="#000000" transform="translate(1200,59)"/>
+    <path d="M0 0 C6.90112093 5.40519546 12.71667475 11.22396843 18.1875 18.0625 C18.5175 6.1825 18.8475 -5.6975 19.1875 -17.9375 C33.7075 -17.9375 48.2275 -17.9375 63.1875 -17.9375 C63.1875 93.9325 63.1875 205.8025 63.1875 321.0625 C48.6675 321.0625 34.1475 321.0625 19.1875 321.0625 C18.8575 279.4825 18.5275 237.9025 18.1875 195.0625 C13.7325 200.5075 13.7325 200.5075 9.1875 206.0625 C-14.31672792 228.74312963 -45.18755748 235.62726111 -76.84375 235.27734375 C-108.62498284 234.45629457 -136.93436924 221.35859378 -158.75390625 198.4375 C-162.60390434 194.26249451 -165.87469532 189.92482189 -168.8125 185.0625 C-169.46605469 184.00675781 -170.11960937 182.95101562 -170.79296875 181.86328125 C-177.53678943 170.70814876 -182.17241465 159.05835195 -185.5625 146.5 C-185.76125732 145.76950439 -185.96001465 145.03900879 -186.16479492 144.28637695 C-189.28011133 132.1015239 -190.1934578 119.91740694 -190.125 107.375 C-190.12317719 106.67728485 -190.12135437 105.9795697 -190.11947632 105.26071167 C-189.97953676 73.32759757 -181.09818613 43.20682075 -160.8125 18.0625 C-159.89210938 16.89267578 -159.89210938 16.89267578 -158.953125 15.69921875 C-122.20904192 -28.50359915 -44.90905719 -34.14824588 0 0 Z M-125.19677734 43.66894531 C-142.9179207 65.40739538 -147.85666237 93.09310598 -145.61035156 120.53173828 C-142.91277512 144.02101236 -131.64629517 165.54320011 -113.8125 181.0625 C-96.3917404 194.46674789 -74.734992 200.37681578 -52.91015625 197.55859375 C-44.09641268 196.17022854 -35.96728744 193.74326009 -27.8125 190.0625 C-26.42998047 189.45148438 -26.42998047 189.45148438 -25.01953125 188.828125 C-6.15984583 179.57517689 6.70386773 161.27453317 13.73046875 141.96875 C22.70543175 115.68538347 21.40839406 85.54760492 9.1809082 60.47607422 C-1.03574449 40.71183581 -16.69421502 26.61881979 -37.79589844 19.38232422 C-68.90467174 9.52944828 -103.81186027 18.85188105 -125.19677734 43.66894531 Z" fill="#000000" transform="translate(1739.8125,165.9375)"/>
+    <path d="M0 0 C0.98081543 0.24943359 0.98081543 0.24943359 1.98144531 0.50390625 C16.89049932 4.38385284 30.44075695 10.71123232 42 21 C42.70511719 21.57492188 43.41023438 22.14984375 44.13671875 22.7421875 C49.4537816 27.13762612 52.57310072 31.30827235 57 37 C57.33 24.79 57.66 12.58 58 0 C72.19 0 86.38 0 101 0 C101 111.87 101 223.74 101 339 C86.81 339 72.62 339 58 339 C57.67 297.42 57.34 255.84 57 213 C53.37 216.96 49.74 220.92 46 225 C23.67602624 246.68614593 -5.73720228 253.39900929 -35.9453125 253.30249023 C-65.63746227 252.80061821 -93.74490517 241.93618673 -115.53515625 221.55859375 C-141.87795979 194.21384523 -152.13924842 158.33068535 -152 121 C-150.93389625 87.8335682 -140.78258229 57.26097508 -119 32 C-118.03513672 30.88044922 -118.03513672 30.88044922 -117.05078125 29.73828125 C-88.33300404 -0.97292084 -39.77734382 -10.42788717 0 0 Z M-52 38 C-53.57974609 38.5259375 -53.57974609 38.5259375 -55.19140625 39.0625 C-75.51510026 46.69382187 -89.9677956 62.73650576 -98.96362305 82.07788086 C-109.21692085 105.10866096 -110.66451399 132.9499304 -103 157 C-102.62617187 158.17433594 -102.25234375 159.34867187 -101.8671875 160.55859375 C-93.9472289 182.82364293 -78.94700593 199.33592519 -57.66015625 209.49609375 C-35.63639346 218.54534527 -12.97416661 217.6550328 9 209 C30.12370711 199.56291526 43.76539149 181.70924029 52.05224609 160.68579102 C55.80729341 150.54138221 57.450962 139.7748707 58 129 C58.04125 128.31421875 58.0825 127.6284375 58.125 126.921875 C58.85373701 103.05573783 51.27320722 77.73561781 35 60 C34.33613281 59.24460937 33.67226562 58.48921875 32.98828125 57.7109375 C19.52880551 43.23142756 0.4452516 34.6657251 -19.21875 33.6796875 C-30.74084111 33.33382368 -41.07149191 34.32898734 -52 38 Z" fill="#000000" transform="translate(1058,148)"/>
+    <path d="M0 0 C14.19 0 28.38 0 43 0 C43 83.16 43 166.32 43 252 C28.81 252 14.62 252 0 252 C0 168.84 0 85.68 0 0 Z" fill="#000000" transform="translate(1481,149)"/>
+    <path d="M0 0 C5.47241428 4.27086245 9.55814156 10.85801621 10.796875 17.71484375 C11.58825815 28.01579823 10.41015377 35.6000643 5.171875 44.46484375 C-2.24991515 51.49601337 -10.61209819 54.65004569 -20.703125 54.96484375 C-29.66071235 54.68540428 -37.11296216 52.37252887 -44.203125 46.71484375 C-50.96833224 39.04295925 -52.69285809 31.05686302 -52.51953125 21.00390625 C-51.64771934 11.94136768 -47.47121547 5.27158581 -40.578125 -0.47265625 C-27.82256378 -7.32286505 -12.622636 -7.36320434 0 0 Z" fill="#000000" transform="translate(1523.203125,58.28515625)"/>
+  </svg>
+  <span class="level-tag" id="h-level">No plan loaded</span>
+  <div class="header-sep"></div>
+
+  <!-- Folder upload (DXF and/or IFC) -->
+  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a project folder containing a .dxf and/or .ifc file">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span id="load-folder-btn-text">Load Project</span>
+    <input type="file" id="file-folder-input" webkitdirectory multiple onchange="onFolderSelected(this)"/>
+  </label>
+
+  <button class="btn-3d-toggle" id="btn-3d-toggle" onclick="toggle3DPanel()" title="Toggle 3D walkthrough preview">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 9L6.5 4L12 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><rect x="3" y="9" width="7" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+    3D Preview
+  </button>
+
+  <div class="header-export">
+    <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the raw waypoint path as JSON">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Save JSON
+    </button>
+    <button class="export-btn is-primary" id="btn-xml" onclick="exportRoute('xml')" disabled title="Export the walkthrough as an Enscape camera path">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Enscape XML
+    </button>
+  </div>
+
+  <div id="upload-hint-header" style="font-size:10.5px;color:var(--text3);max-width:180px;text-align:right;line-height:1.4"></div>
+</header>
+
+<div class="body">
+
+  <!-- SIDEBAR -->
+  <aside class="panel">
+    <div class="panel-inner">
+
+      <!-- DRAW MODE -->
+      <div class="section">
+        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
+          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8.5 1.5L11.5 4.5L4 12H1V9L8.5 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+          Draw Mode
+          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="card-body">
+          <div class="tabs">
+            <button class="tab active" id="mode-wp" onclick="setMode('waypoint')">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.4" fill="currentColor"/><path d="M6.5 0.5V3M6.5 10V12.5M0.5 6.5H3M10 6.5H12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              Click Points
+            </button>
+            <button class="tab" id="mode-fh" onclick="setMode('freehand')">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8.5 1.5L11.5 4.5L4 12H1V9L8.5 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+              Freehand
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMPORT PATH -->
+      <div class="section">
+        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
+          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+          Import Path
+          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="card-body">
+          <label style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:8px;border:1.5px dashed var(--border2);background:var(--bg);color:var(--text2);cursor:pointer;font-size:11.5px;font-weight:500;transition:all .18s" onmouseover="this.style.borderColor='var(--blue)';this.style.color='var(--blue)';this.style.background='var(--blue-lt)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='var(--bg)'" title="Load a previously exported path (Enscape XML or JSON) to continue editing">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Load XML / JSON path
+            <input type="file" accept=".xml,.json" style="display:none" onchange="onImportPath(this)"/>
+          </label>
+        </div>
+      </div>
+
+      <!-- WAYPOINTS -->
+      <div class="section">
+        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
+          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.4" fill="currentColor"/><path d="M6.5 0.5V3M6.5 10V12.5M0.5 6.5H3M10 6.5H12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+          Your Points
+          <span id="wp-badge" style="color:var(--text3);font-weight:400;font-size:11px">(0)</span>
+          <span style="margin-left:auto;display:flex;gap:14px;align-items:center">
+            <span style="font-size:9.5px;color:#0891b2;font-weight:600;letter-spacing:.5px">TIME</span>
+            <span style="font-size:9.5px;color:var(--amber);font-weight:600;letter-spacing:.5px">HEAD °</span>
+          </span>
+          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="card-body">
+          <div class="wp-scroll" id="wp-list">
+            <div class="wp-empty">No points yet — click on the plan to start</div>
+          </div>
+          <button class="btn btn-red" onclick="clearWaypoints()" style="margin-top:8px">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 3.5H10.5M5 3.5V2C5 1.45 5.45 1 6 1H7C7.55 1 8 1.45 8 2V3.5M4 3.5V11C4 11.55 4.45 12 5 12H8C8.55 12 9 11.55 9 11V3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Clear All Points
+          </button>
+        </div>
+      </div>
+
+      <!-- VIDEO SETTINGS -->
+      <div class="section">
+        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
+          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 5.5L6.5 2L12 5.5V9.5L6.5 13L1 9.5V5.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>
+          Video Settings
+          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="card-body">
+
+          <div class="preset-row">
+            <button class="preset-btn" data-preset="quick" onclick="applyPreset('quick')">Quick Tour</button>
+            <button class="preset-btn active" data-preset="standard" onclick="applyPreset('standard')">Standard</button>
+            <button class="preset-btn" data-preset="cinematic" onclick="applyPreset('cinematic')">Cinematic</button>
+          </div>
+
+          <!-- Duration strip -->
+          <div class="dur-card">
+            <div class="dur-time" id="dur-display">0:30</div>
+            <div class="dur-detail">
+              <span class="dur-label">Video Length</span>
+              <span class="dur-sub" id="dur-sub">30 seconds</span>
+            </div>
+          </div>
+
+          <div class="slider-block">
+
+            <div class="slider-item">
+              <span class="slider-label">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M6.5 3.5V6.5L8.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                Video length
+              </span>
+              <span class="slider-value" id="v-dur">30s</span>
+              <input type="range" id="s-dur" min="5" max="300" value="30" step="1"
+                     oninput="syncSlider('dur',this.value)"/>
+            </div>
+
+            <div class="slider-item">
+              <span class="slider-label">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 8C2.5 4 4.5 4 6.5 8S10.5 12 12 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+                Path smoothness
+              </span>
+              <span class="slider-value" id="v-smo">1.0</span>
+              <input type="range" id="s-smo" min="0" max="1" value="1.0" step="0.05"
+                     oninput="syncSlider('smo',this.value);debounceSpline()"/>
+            </div>
+
+            <div class="slider-item">
+              <span class="slider-label">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 6.5C1 6.5 3.5 2 6.5 2S12 6.5 12 6.5S9.5 11 6.5 11S1 6.5 1 6.5Z" stroke="currentColor" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.2"/></svg>
+                Camera view width
+              </span>
+              <span class="slider-value" id="v-fov">90°</span>
+              <input type="range" id="s-fov" min="40" max="120" value="90" step="1"
+                     oninput="syncSlider('fov',this.value)"/>
+            </div>
+
+            <div class="slider-item">
+              <span class="slider-label">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5H8C9.66 3.5 11 4.84 11 6.5C11 8.16 9.66 9.5 8 9.5H2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4.5 7L2 9.5L4.5 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Turn smoothness
+              </span>
+              <span class="slider-value" id="v-utr">3m</span>
+              <input type="range" id="s-utr" min="0" max="20" value="3" step="0.5"
+                     oninput="syncSlider('utr',this.value);debounceSpline()"/>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- CANVAS -->
+  <main class="canvas-area" id="canvas-area">
+    <div class="empty-state" id="empty-state">
+      <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="empty-text">
+        Click <strong>Load Project</strong> in the top bar to select a folder<br/>
+        containing a .dxf and/or .ifc file
+      </div>
+    </div>
+
+    <div id="svg-wrap"></div>
+
+    <div class="toolbar">
+      <button class="tb-btn" title="Zoom in" onclick="zoomBy(1.3)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 4.3V8.7M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <button class="tb-btn" title="Zoom out" onclick="zoomBy(0.77)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <button class="tb-btn" title="Fit to screen" onclick="fitView()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 5V2C1 1.45 1.45 1 2 1H5M14 5V2C14 1.45 13.55 1 13 1H10M1 10V13C1 13.55 1.45 14 2 14H5M14 10V13C14 13.55 13.55 14 13 14H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" title="Undo (Ctrl+Z)" onclick="undoLast()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4 4L1.5 6.5L4 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 6.5H9C11 6.5 12.5 8 12.5 9.5C12.5 11.2 11 12.5 9.5 12.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <button class="tb-btn" title="Clear all" onclick="clearWaypoints()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4H12M6 4V2.5C6 2 6.4 1.5 7 1.5H8C8.6 1.5 9 2 9 2.5V4M4.5 4V12C4.5 12.6 5 13 5.5 13H9.5C10 13 10.5 12.6 10.5 12V4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn-auto" id="btn-autopath" title="Click a start room and an end room — a path around walls is drawn for you" onclick="generateAutoPath()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11.5" cy="3" r="1.6" fill="currentColor"/><path d="M2.5 11C5 11 4 5 7 5S9 3 11.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
+        Smart Path
+      </button>
+      <div class="tb-sep"></div>
+      <span class="tb-tip">scroll = zoom · middle click = pan</span>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loading-text">Working on it…</div>
+    </div>
+  </main>
+
+  <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+
+  <!-- 3D PREVIEW PANEL -->
+  <div class="preview-3d" id="preview-3d">
+    <div class="p3d-bar">
+      <span class="p3d-title">3D Walkthrough Preview</span>
+      <button class="p3d-refresh-btn" id="btn-load-preview" onclick="loadPreviewFrames()">▶ Load Path</button>
+      <button class="tb-btn" style="width:28px;height:28px;font-size:13px" onclick="toggle3DPanel()" title="Close panel">✕</button>
+    </div>
+    <div class="p3d-canvas-wrap">
+      <canvas id="preview-canvas"></canvas>
+      <div class="p3d-fade" id="p3d-fade"></div>
+      <div class="p3d-empty" id="p3d-empty">
+        <div style="font-size:40px;opacity:.18">🎥</div>
+        <div>Load a floor plan, draw a path,<br>then click <strong>Load Path</strong> above</div>
+      </div>
+    </div>
+    <div class="p3d-controls">
+      <button class="p3d-play-btn" id="p3d-play" onclick="togglePlay3D()" disabled>▶</button>
+      <span class="p3d-time" id="p3d-time">0:00 / 0:30</span>
+      <div class="p3d-speed-row">
+        <span>Speed</span>
+        <input type="range" id="p3d-speed-inp" min="0.25" max="4" step="0.25" value="1"
+               oninput="setPreviewSpeed(this.value)"/>
+        <span class="p3d-speed-val" id="p3d-speed-val">1×</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+// Root-relative when served standalone (e.g. `python app.py` on its own
+// domain). When qbiq-os proxies this app under /r/:slug, it strips that
+// prefix before forwarding to Flask -- so the browser's own fetch() calls
+// must include it, or they resolve against the domain root instead and hit
+// qbiq-os's own /api/* routes (404) rather than this app's.
+const API = window.location.pathname.match(/^\/r\/[^/]+/)?.[0] || '';
+
+const state = {
+  loaded:        false,
+  mode:          'waypoint',
+  waypoints:     [],
+  splineSegments: [],
+  dragging:      null,
+  selectedWp:    null,
+  freeDrawing:   false,
+  freePts:       [],
+  level:         'L-0',
+  bounds:        null,
+  file:          null,
+  unitsToMetres: 1.0,
+  source:        'demo',
+  geometry:      null,
+};
+
+const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3 };
+
+let svgEl = null, gRoot = null, zoom = null;
+
+/* ── Slider fill ── */
+function updateSliderFill(el) {
+  const pct = ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100).toFixed(1) + '%';
+  el.style.setProperty('--pct', pct);
+}
+document.querySelectorAll('input[type=range]').forEach(el => {
+  updateSliderFill(el);
+  el.addEventListener('input', () => updateSliderFill(el));
+});
+
+/* ── Duration card ── */
+function updateDurationCard(secs) {
+  const s = Math.round(secs);
+  const m = Math.floor(s / 60), ss = s % 60;
+  document.getElementById('dur-display').textContent = `${m}:${String(ss).padStart(2,'0')}`;
+  document.getElementById('dur-sub').textContent = s < 60 ? `${s} seconds` : `${m} min ${ss > 0 ? ss + ' sec' : ''}`.trim();
+}
+
+/* ── D3 init ── */
+function initD3(svgString) {
+  const wrap = document.getElementById('svg-wrap');
+  wrap.innerHTML = svgString;
+  svgEl = wrap.querySelector('svg');
+  if (!svgEl) return;
+
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+  svgEl.removeAttribute('viewBox');
+  svgEl.style.cssText = 'width:100%;height:100%;display:block;overflow:visible';
+
+  gRoot = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  gRoot.id = 'g-root';
+  while (svgEl.firstChild) gRoot.appendChild(svgEl.firstChild);
+  svgEl.appendChild(gRoot);
+
+  gRoot.querySelector('#route-overlay')?.remove();
+  const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  overlay.id = 'route-overlay';
+  gRoot.appendChild(overlay);
+
+  zoom = d3.zoom()
+    .scaleExtent([0.01, 500])
+    .filter(e => {
+      if (e.type === 'wheel') return true;
+      if (e.target?.classList.contains('wp-dot')) return false;
+      if (state.mode === 'freehand') return false;
+      return e.button === 1;
+    })
+    .on('zoom', e => { gRoot.setAttribute('transform', e.transform.toString()); });
+
+  d3.select(svgEl).call(zoom);
+  svgEl.addEventListener('click',       handleClick);
+  svgEl.addEventListener('click',       handleCanvasClick);
+  svgEl.addEventListener('mousedown',   fhStart);
+  svgEl.addEventListener('mousemove',   fhMove);
+  svgEl.addEventListener('mouseup',     fhEnd);
+  svgEl.addEventListener('mousemove',   updateInsertCursor);
+  svgEl.addEventListener('contextmenu', e => e.preventDefault());
+
+  document.getElementById('empty-state').style.display = 'none';
+  state.loaded = true;
+  setMode('waypoint');
+  fitView();
+}
+
+function updateInsertCursor(e) {
+  if (state.mode !== 'waypoint' || !state.loaded || state.waypoints.length < 2) return;
+  const m = s2m(e);
+  const inserting = findInsertIndex(m.x, m.y) < state.waypoints.length;
+  document.getElementById('canvas-area').style.cursor = inserting ? 'copy' : 'crosshair';
+}
+
+function s2m(ev) {
+  const r = svgEl.getBoundingClientRect(), t = d3.zoomTransform(svgEl);
+  return { x: (ev.clientX - r.left - t.x) / t.k, y: (ev.clientY - r.top - t.y) / t.k };
+}
+
+function zoomBy(f) { if (zoom) d3.select(svgEl).transition().duration(200).call(zoom.scaleBy, f); }
+
+function fitView() {
+  if (!svgEl || !state.bounds) return;
+  const b = state.bounds, W = b.xmax-b.xmin, H = b.ymax-b.ymin;
+  const r = svgEl.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const k = Math.min(r.width/W, r.height/H) * 0.9;
+  const cx = (b.xmin+b.xmax)/2, cy = -(b.ymin+b.ymax)/2;
+  d3.select(svgEl).transition().duration(350)
+    .call(zoom.transform, d3.zoomIdentity.translate(r.width/2 - cx*k, r.height/2 - cy*k).scale(k));
+}
+
+function handleClick(e) {
+  if (!state.loaded || e.button !== 0) return;
+  if (e.target?.classList.contains('wp-dot')) return;
+  if (state.mode === 'autopath') { autopathClick(e); return; }
+  if (state.mode !== 'waypoint') return;
+  const m = s2m(e); addWaypoint(m.x, m.y);
+}
+
+/* ── Freehand ── */
+function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
+function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
+function drawFHPreview() {
+  const ov = document.getElementById('route-overlay'); if (!ov) return;
+  let p = ov.querySelector('.fh-preview');
+  if (!p) { p = document.createElementNS('http://www.w3.org/2000/svg','path'); p.classList.add('fh-preview'); p.setAttribute('stroke-width', circleR()*.4); ov.appendChild(p); }
+  p.setAttribute('d', ptsD(state.freePts));
+}
+function clearFHPreview() { document.getElementById('route-overlay')?.querySelector('.fh-preview')?.remove(); }
+function finishFreehand() {
+  if (state.freePts.length < 2) return;
+  const N = Math.max(1, Math.floor(state.freePts.length/25));
+  const s = state.freePts.filter((_,i) => i%N===0);
+  if (s[s.length-1] !== state.freePts[state.freePts.length-1]) s.push(state.freePts[state.freePts.length-1]);
+  state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false})));
+  state.freePts = [];
+  renderRoute(); updateWpList(); enableExport();
+}
+
+/* ── Segment insertion helpers ── */
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay, lenSq = dx*dx+dy*dy;
+  if (!lenSq) return Math.hypot(px-ax, py-ay);
+  const t = Math.max(0, Math.min(1, ((px-ax)*dx+(py-ay)*dy)/lenSq));
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+function findInsertIndex(x, y) {
+  const wpts = state.waypoints;
+  if (wpts.length < 2) return wpts.length;
+  const threshold = circleR() * 5;
+  let best = Infinity, idx = wpts.length;
+  for (let i = 0; i < wpts.length-1; i++) {
+    const d = distToSegment(x, y, wpts[i].x, wpts[i].y, wpts[i+1].x, wpts[i+1].y);
+    if (d < best) { best = d; idx = i+1; }
+  }
+  return best < threshold ? idx : wpts.length;
+}
+
+/* ── Waypoints ── */
+function addWaypoint(x, y) {
+  const idx = findInsertIndex(x, y);
+  state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false});
+  renderRoute(); updateWpList(); enableExport();
+}
+function clearWaypoints()   { state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
+function undoLast()         { if (!state.waypoints.length) return; state.waypoints.pop(); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+
+function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
+function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
+function toggleCut(i) {
+  const wp = state.waypoints[i]; if (!wp) return;
+  wp.cutAfter = !wp.cutAfter;
+  renderRoute(); updateWpList(); refreshSpline();
+}
+
+/* ── Cut/segment helpers ──
+   A waypoint with cutAfter=true means: don't smoothly connect to the next
+   point — treat it as a hard jump (fade to black in the 3D preview, a hard
+   cut in the exported path) instead of a continuous camera move. */
+function computeSegments() {
+  const wpts = state.waypoints;
+  const bounds = [];
+  let start = 0;
+  for (let i = 0; i < wpts.length - 1; i++) {
+    if (wpts[i].cutAfter) { bounds.push([start, i]); start = i + 1; }
+  }
+  bounds.push([start, wpts.length - 1]);
+  return bounds;
+}
+function cutIndices() {
+  return state.waypoints.reduce((acc, wp, i) => { if (wp.cutAfter) acc.push(i); return acc; }, []);
+}
+function segmentIndexForWaypoint(i, bounds) {
+  for (let k = 0; k < bounds.length; k++) {
+    if (i >= bounds[k][0] && i <= bounds[k][1]) return k;
+  }
+  return bounds.length - 1;
+}
+/* Base spline direction (radians) at waypoint i, used as the reference for yaw offsets */
+function baseAngleForWaypoint(i, bounds) {
+  bounds = bounds || computeSegments();
+  const segIdx = segmentIndexForWaypoint(i, bounds);
+  const [s, e] = bounds[segIdx];
+  const seg = state.splineSegments?.[segIdx];
+  if (!seg || seg.length < 2) return 0;
+  const localIdx = i - s, segWpCount = e - s + 1;
+  const si = Math.round(localIdx / Math.max(segWpCount - 1, 1) * (seg.length - 1));
+  const nx = Math.min(si + 2, seg.length - 1);
+  if (si === nx) return 0;
+  return Math.atan2(seg[nx][1] - seg[si][1], seg[nx][0] - seg[si][0]);
+}
+
+function updateWpList() {
+  const list = document.getElementById('wp-list');
+  const n = state.waypoints.length;
+  document.getElementById('wp-badge').textContent = `(${n})`;
+  if (!n) { list.innerHTML = '<div class="wp-empty">No points yet — click on the plan to start</div>'; return; }
+  list.innerHTML = state.waypoints.map((wp, i) => `
+    <div class="wp-row">
+      <div class="wp-num">${i+1}</div>
+      <div class="wp-xy">${wp.x.toFixed(1)}, ${(-wp.y).toFixed(1)}</div>
+      <div class="wp-tod-box">
+        <input type="time" value="${wp.timeOfDay||''}"
+               title="Time of day at this point (leave blank to keep unchanged)"
+               onchange="setWpTod(${i},this.value)" onclick="event.stopPropagation()"/>
+      </div>
+      <div class="wp-yaw-box">
+        <input type="number" min="-180" max="180" step="5" value="${wp.yawOffset||0}"
+               title="Camera head direction offset"
+               onchange="setWpYaw(${i},this.value)" onclick="event.stopPropagation()"/>
+        <span class="wp-yaw-unit">°</span>
+      </div>
+      <span class="wp-del" onclick="deleteWp(${i})" title="Remove point">×</span>
+    </div>
+    ${i < n-1 ? `
+    <div class="wp-cut-row">
+      <div class="wp-cut-line"></div>
+      <button class="wp-cut-btn ${wp.cutAfter ? 'active' : ''}" onclick="toggleCut(${i})"
+              title="${wp.cutAfter ? 'Continuous move (click to remove the cut)' : 'Jump here instead of moving continuously (fades in the 3D preview)'}">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 5.5H4M7 5.5H10M4 5.5L5.5 2L7 5.5L5.5 9L4 5.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        ${wp.cutAfter ? 'Cut' : 'Add cut'}
+      </button>
+      <div class="wp-cut-line"></div>
+    </div>` : ''}`).join('');
+}
+
+/* ── Spline ──
+   Each segment (a run of waypoints with no cut between them) is smoothed
+   independently — no curve bridges a cut, so a "jump" reads as an actual gap
+   on the canvas rather than a stretched-out S-curve across the whole plan. */
+async function refreshSpline() {
+  if (state.waypoints.length < 2) { state.splineSegments=[]; renderRoute(); return; }
+  const bounds = computeSegments();
+  try {
+    state.splineSegments = await Promise.all(bounds.map(async ([s, e]) => {
+      const slice = state.waypoints.slice(s, e+1).map(w => [w.x, w.y]);
+      if (slice.length < 2) return slice;
+      const r = await fetch(`${API}/api/smooth-preview`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ waypoints: slice, smoothing: cam.smo, uturn_radius: cam.utr }),
+      });
+      return (await r.json()).spline || slice;
+    }));
+  } catch { state.splineSegments = bounds.map(([s,e]) => state.waypoints.slice(s,e+1).map(w=>[w.x,w.y])); }
+  renderRoute();
+}
+
+function renderRoute() {
+  const ov = document.getElementById('route-overlay'); if (!ov) return;
+  ov.innerHTML = '';
+  const wpts = state.waypoints; if (!wpts.length) return;
+  const r = circleR(), sw = r*0.4;
+  const bounds = computeSegments();
+  const splineSegs = state.splineSegments || [];
+
+  // Waypoints that sit right at a cut boundary (last of one segment / first of the next)
+  const cutBoundary = new Set();
+  for (let k = 0; k < bounds.length - 1; k++) {
+    cutBoundary.add(bounds[k][1]);
+    cutBoundary.add(bounds[k+1][0]);
+  }
+
+  bounds.forEach(([s, e], segIdx) => {
+    const segWpts = wpts.slice(s, e+1);
+    if (segWpts.length >= 2) {
+      const raw = mkPath('route-raw');
+      raw.setAttribute('d', ptsD(segWpts));
+      raw.setAttribute('stroke-width', sw*0.5);
+      raw.setAttribute('stroke-dasharray', `${r} ${r*0.6}`);
+      ov.appendChild(raw);
+    }
+    const seg = splineSegs[segIdx];
+    if (seg && seg.length >= 2) {
+      const sp = mkPath('route-spline');
+      sp.setAttribute('d', ptsD(seg.map(p=>({x:p[0],y:p[1]}))));
+      sp.setAttribute('stroke-width', sw); ov.appendChild(sp);
+      const mid = Math.floor(seg.length/2);
+      if (mid > 0) {
+        const [ax,ay]=seg[mid], [bx,by]=seg[Math.min(mid+2,seg.length-1)];
+        const arr = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+        arr.classList.add('route-arrow');
+        const ar = r*0.8;
+        arr.setAttribute('points',`${ar},0 ${-ar*.6},${ar*.45} ${-ar*.6},${-ar*.45}`);
+        arr.setAttribute('transform',`translate(${ax},${ay}) rotate(${Math.atan2(by-ay,bx-ax)*180/Math.PI})`);
+        ov.appendChild(arr);
+      }
+    }
+  });
+  wpts.forEach((wp, i) => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    const selected = (i === state.selectedWp);
+
+    // Yaw line — always show for selected, otherwise only if offset set
+    if (wp.yawOffset || selected) {
+      const ba = baseAngleForWaypoint(i, bounds);
+      const ta = ba + (wp.yawOffset||0)*Math.PI/180;
+      const lineLen = selected ? r*2.8 : r*1.9;
+      const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+      ln.classList.add('wp-yaw-line');
+      ln.setAttribute('x1',wp.x); ln.setAttribute('y1',wp.y);
+      ln.setAttribute('x2',wp.x+Math.cos(ta)*lineLen); ln.setAttribute('y2',wp.y+Math.sin(ta)*lineLen);
+      ln.setAttribute('stroke-width', selected ? sw*0.9 : sw*0.6);
+      g.appendChild(ln);
+
+      // Draggable heading handle at tip of yaw line (selected only)
+      if (selected) {
+        const hx = wp.x+Math.cos(ta)*lineLen, hy = wp.y+Math.sin(ta)*lineLen;
+        const handle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        handle.classList.add('yaw-handle');
+        handle.setAttribute('cx', hx); handle.setAttribute('cy', hy);
+        handle.setAttribute('r', r*0.75);
+        handle.dataset.wpindex = i;
+        handle.addEventListener('mousedown', yawHandleDragStart);
+        g.appendChild(handle);
+      }
+    }
+
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.classList.add('wp-dot');
+    if (selected) c.classList.add('selected');
+    if (cutBoundary.has(i)) c.classList.add('cut');
+    c.setAttribute('cx',wp.x); c.setAttribute('cy',wp.y); c.setAttribute('r',r);
+    c.setAttribute('stroke-width', Math.max(sw*0.5,0.5));
+    c.dataset.index = i;
+    c.addEventListener('mousedown', wpDragStart);
+    c.addEventListener('contextmenu', e => { e.preventDefault(); deleteWp(i); });
+    g.appendChild(c);
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lbl.classList.add('wp-lbl');
+    lbl.setAttribute('x',wp.x); lbl.setAttribute('y',wp.y);
+    lbl.setAttribute('font-size', r*1.1); lbl.textContent = i+1;
+    g.appendChild(lbl);
+    ov.appendChild(g);
+  });
+  debounceSpline();
+}
+
+function circleR() {
+  if (!state.bounds) return 1;
+  const b = state.bounds;
+  return Math.max(b.xmax-b.xmin, b.ymax-b.ymin, 1) * 0.013;
+}
+
+let _st = null;
+function debounceSpline() { clearTimeout(_st); _st = setTimeout(refreshSpline, 280); }
+
+/* ── Drag waypoint / click to select ── */
+function wpDragStart(e) {
+  e.stopPropagation(); e.preventDefault();
+  const idx = parseInt(e.target.dataset.index, 10);
+  const startX = e.clientX, startY = e.clientY;
+  let moved = false;
+
+  const onMove = ev => {
+    if (!moved && Math.hypot(ev.clientX-startX, ev.clientY-startY) > 4) moved = true;
+    if (!moved) return;
+    state.dragging = idx;
+    const m = s2m(ev);
+    state.waypoints[idx].x = m.x;
+    state.waypoints[idx].y = m.y;
+    renderRoute(); updateWpList();
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (!moved) {
+      // Click — toggle selection
+      state.selectedWp = (state.selectedWp === idx) ? null : idx;
+      renderRoute();
+    } else {
+      state.dragging = null;
+      refreshSpline();
+    }
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+/* ── Drag heading handle ── */
+function yawHandleDragStart(e) {
+  e.stopPropagation(); e.preventDefault();
+  const idx = parseInt(e.target.dataset.wpindex, 10);
+  const wp = state.waypoints[idx];
+
+  const onMove = ev => {
+    const m = s2m(ev);
+    // Angle from waypoint center to mouse pointer
+    const angle = Math.atan2(m.y - wp.y, m.x - wp.x) * 180 / Math.PI;
+    // Subtract base spline direction at this waypoint
+    const base = baseAngleForWaypoint(idx) * 180 / Math.PI;
+    let offset = angle - base;
+    while (offset >  180) offset -= 360;
+    while (offset < -180) offset += 360;
+    wp.yawOffset = Math.round(offset);
+    renderRoute(); updateWpList();
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+/* Deselect when clicking on the canvas background */
+function handleCanvasClick(e) {
+  if (state.selectedWp !== null && !e.target.classList.contains('wp-dot')) {
+    state.selectedWp = null; renderRoute();
+  }
+}
+
+/* ── Mode ── */
+function setMode(m) {
+  state.mode = m;
+  state.autopathPoints = [];
+  document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
+  document.getElementById('mode-wp').classList.toggle('active', m==='waypoint');
+  document.getElementById('mode-fh').classList.toggle('active', m==='freehand');
+  document.getElementById('btn-autopath').classList.toggle('active', m==='autopath');
+  document.getElementById('canvas-area').className = `canvas-area mode-${m === 'autopath' ? 'waypoint' : m}`;
+}
+
+function generateAutoPath() {
+  if (!state.geometry) { toast('Load a floor plan first', 'inf'); return; }
+  if (state.mode === 'autopath') { setMode('waypoint'); return; }
+  setMode('autopath');
+  toast('Click a START point on the plan', 'inf');
+}
+
+/* True if a point is inside the floor plan's real bounds (with a small margin) —
+   guards against clicking in empty letterbox space around a plan whose aspect
+   ratio doesn't match the canvas, which otherwise silently produces a bogus
+   straight-line "path" through nothing. */
+function insidePlanBounds(x, y) {
+  if (!state.bounds) return true;
+  const b = state.bounds;
+  const marginX = (b.xmax - b.xmin) * 0.05, marginY = (b.ymax - b.ymin) * 0.05;
+  // x/y (from s2m) are in SVG-display space where Y is negated (svg_y =
+  // -model_y), but state.bounds is raw/unflipped model space — so the Y
+  // check has to compare against the negated, reordered range.
+  return x >= b.xmin - marginX && x <= b.xmax + marginX &&
+         -y >= b.ymin - marginY && -y <= b.ymax + marginY;
+}
+
+// Smart Path takes exactly 5 ordered reference points — start, 3 required
+// via points the route must pass through in order, and end — rather than
+// just start/end, so the user can pin the route through specific spots
+// instead of trusting the pathfinder's own choice the whole way.
+const AUTOPATH_CLICKS_NEEDED = 5;
+
+function addAutopathMarker(x, y) {
+  const ov = document.getElementById('route-overlay');
+  if (!ov) return;
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('class', 'autopath-marker');
+  c.setAttribute('cx', x); c.setAttribute('cy', y);
+  c.setAttribute('r', circleR() * 1.3);
+  c.setAttribute('fill', '#22c55e'); c.setAttribute('stroke', '#fff');
+  c.setAttribute('stroke-width', 2); c.setAttribute('pointer-events', 'none');
+  ov.appendChild(c);
+}
+
+async function autopathClick(e) {
+  const m = s2m(e);
+  if (!insidePlanBounds(m.x, m.y)) {
+    toast('Click inside the floor plan', 'inf');
+    return;
+  }
+  state.autopathPoints = state.autopathPoints || [];
+
+  if (state.autopathPoints.length < AUTOPATH_CLICKS_NEEDED - 1) {
+    state.autopathPoints.push({ x: m.x, y: m.y });
+    addAutopathMarker(m.x, m.y);
+    const remaining = AUTOPATH_CLICKS_NEEDED - state.autopathPoints.length;
+    let msg;
+    if (state.autopathPoints.length === 1) {
+      msg = 'Start set — now click a point your path must pass through';
+    } else if (remaining === 1) {
+      msg = 'Via point set — now click the END point';
+    } else {
+      msg = 'Via point set — now click another point your path must pass through';
+    }
+    toast(msg, 'inf');
+    return;
+  }
+
+  // Final click — run pathfinding through all reference points, in order
+  const points = [...state.autopathPoints, { x: m.x, y: m.y }].map(p => [p.x, p.y]);
+  document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
+  state.autopathPoints = [];
+  setMode('waypoint');
+  const btn = document.getElementById('btn-autopath');
+  btn.disabled = true;
+  showLoading('Finding a path around the walls…');
+  try {
+    const res = await fetch(`${API}/api/autopath`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        points,
+        // walls omitted — the server caches them from the last upload,
+        // so this doesn't re-send tens of MB of JSON on every click
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const pts = data.waypoints;
+    if (!pts || pts.length < 2) { toast('No path found through those points', 'inf'); return; }
+    state.waypoints = pts.map(p => ({ x: p[0], y: p[1], yawOffset: 0, timeOfDay: '', cutAfter: false }));
+    renderRoute(); updateWpList(); enableExport(); refreshSpline();
+    toast(`Smart Path: ${state.waypoints.length} waypoints`, 'ok');
+  } catch (err) {
+    toast('Smart Path error: ' + err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    hideLoading();
+  }
+}
+
+/* ── Collapsible sidebar sections ── */
+function toggleCard(btn) {
+  const section = btn.closest('.section');
+  const collapsed = section.classList.toggle('collapsed');
+  btn.setAttribute('aria-expanded', String(!collapsed));
+}
+
+/* ── Import path from sidebar button ── */
+function onImportPath(inp) {
+  const f = inp.files[0]; if (!f) return;
+  const ext = f.name.split('.').pop().toLowerCase();
+  const r = new FileReader();
+  if (ext === 'json') {
+    r.onload = e => importFromJSON(e.target.result, f.name);
+  } else {
+    r.onload = e => importFromXML(e.target.result, f.name);
+  }
+  r.readAsText(f);
+  inp.value = '';
+}
+
+/* ── Import JSON (our own export format) ── */
+function importFromJSON(text, filename) {
+  try {
+    const data = JSON.parse(text);
+    const wpts = data.waypoints;
+    if (!wpts || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
+    state.waypoints = wpts.map(w => Array.isArray(w)
+      ? { x: w[0], y: w[1], yawOffset: w[2] || 0, timeOfDay: w[3] || '', cutAfter: false }
+      : { x: w.x, y: w.y, yawOffset: w.yawOffset || 0, timeOfDay: w.timeOfDay || '', cutAfter: false });
+    const cuts = data.meta?.cuts || [];
+    cuts.forEach(i => { if (state.waypoints[i]) state.waypoints[i].cutAfter = true; });
+    renderRoute(); updateWpList(); enableExport();
+    toast(`Loaded ${state.waypoints.length} waypoints from ${filename}`, 'ok');
+  } catch(e) { toast('Invalid JSON file: ' + e.message, 'err'); }
+}
+
+/* ── Import Enscape XML (reverse coordinate mapping) ── */
+function importFromXML(text, filename) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'application/xml');
+    if (doc.querySelector('parsererror')) { toast('Could not parse XML file', 'err'); return; }
+    const keyframes = doc.querySelectorAll('Keyframe');
+    if (!keyframes.length) { toast('No keyframes found in XML', 'err'); return; }
+    const u = state.unitsToMetres || 1.0;
+    const wpts = [];
+    keyframes.forEach(kf => {
+      const pos = kf.querySelector('Position');
+      if (!pos) return;
+      // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
+      wpts.push({ x: parseFloat(pos.getAttribute('x')) / u,
+                  y: parseFloat(pos.getAttribute('z')) / u,
+                  yawOffset: 0, timeOfDay: '', cutAfter: false });
+    });
+    if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
+    state.waypoints = wpts;
+    renderRoute(); updateWpList(); enableExport();
+    const hint = !state.loaded ? ' — load a floor plan to see them on the canvas' : '';
+    toast(`Loaded ${wpts.length} keyframes from ${filename}${hint}`, 'ok');
+  } catch(e) { toast('XML import failed: ' + e.message, 'err'); }
+}
+
+async function doUpload(f, { silent = false } = {}) {
+  if (!silent) showLoading('Reading floor plan…');
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('level', 'L-0');
+  try {
+    const res = await fetch(`${API}/api/upload`, { method:'POST', body:fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed');
+    applyFloorPlan(data);
+    showHeaderHint('', '');
+  } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
+  finally { if (!silent) hideLoading(); }
+}
+
+/* ── Folder upload (DXF + IFC together) ── */
+async function onFolderSelected(inp) {
+  const files = Array.from(inp.files);
+  const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
+  const ifc = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
+  inp.value = '';
+
+  if (!dxf && !ifc) {
+    toast('No DXF or IFC files found in that folder', 'err'); return;
+  }
+
+  const parts = [];
+  if (dxf) parts.push('DXF');
+  if (ifc) parts.push('IFC');
+
+  const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
+  const btn = document.getElementById('load-folder-btn-wrap');
+  const txt = document.getElementById('load-folder-btn-text');
+  txt.textContent = folderName.length > 18 ? folderName.slice(0, 16) + '…' : folderName;
+  btn.classList.add('loaded');
+
+  showLoading(`Loading ${parts.join(' + ')}…`);
+  try {
+    // Upload in parallel — both use silent=true so they don't fight over the spinner
+    await Promise.all([
+      dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
+      ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
+    ]);
+    toast(`Loaded ${parts.join(' + ')} from "${folderName}"`, 'ok');
+    // Open 3D panel after both are done if IFC was included
+    if (ifc) {
+      if (!document.getElementById('preview-3d').classList.contains('visible')) {
+        toggle3DPanel();
+      } else {
+        build3DGeometry();
+      }
+    }
+  } finally {
+    hideLoading();
+  }
+}
+
+async function doUpload3D(f, { silent = false, autoOpen = true } = {}) {
+  if (!silent) showLoading('Extracting 3D model…');
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('level', state.level || 'L-0');
+  try {
+    const res = await fetch(`${API}/api/upload-3d`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    // Store full IFC geometry separately — IFC elements are in IFC world coords
+    // (metres, Z-up) which differ from DXF canvas coords. Used by Auto Path.
+    state.ifcGeometry = data.geometry;
+
+    // Merge into canvas geometry: meshes always; walls/columns only as fallback
+    if (!state.geometry) state.geometry = {};
+    state.geometry.meshes    = data.geometry.meshes;
+    state.geometry.walls     = state.geometry.walls?.length     ? state.geometry.walls     : data.geometry.walls;
+    state.geometry.columns   = state.geometry.columns?.length   ? state.geometry.columns   : data.geometry.columns;
+
+    // If no canvas plan loaded yet, set bounds/units from IFC
+    if (!state.bounds) {
+      state.bounds = data.bounds;
+      state.unitsToMetres = data.units_to_metres ?? 1.0;
+    }
+
+    const cnt = data.geometry.meshes?.length ?? 0;
+    if (!silent) toast(`3D model loaded — ${cnt} mesh${cnt !== 1 ? 'es' : ''}`, 'ok');
+
+    if (autoOpen) {
+      if (!document.getElementById('preview-3d').classList.contains('visible')) {
+        toggle3DPanel();
+      } else {
+        build3DGeometry();
+      }
+    }
+  } catch(e) {
+    toast('3D upload failed: ' + e.message, 'err');
+  } finally {
+    if (!silent) hideLoading();
+  }
+}
+
+async function loadDemo() {
+  showLoading('Loading demo plan…');
+  try {
+    const res = await fetch(`${API}/api/demo`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed');
+    applyFloorPlan(data);
+  } catch(e) { toast(e.message,'err'); }
+  finally { hideLoading(); }
+}
+
+function applyFloorPlan(data) {
+  state.bounds = data.bounds; state.level = data.level;
+  state.unitsToMetres = data.units_to_metres ?? 1.0;
+  state.source = data.source ?? 'demo';
+  // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them
+  const savedMeshes = state.geometry?.meshes;
+  state.geometry = data.geometry ?? null;
+  if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
+    state.geometry.meshes = savedMeshes;
+  }
+  document.getElementById('h-level').textContent = data.level;
+  initD3(data.svg); clearWaypoints();
+  toast(`Plan loaded — ${data.level}`, 'ok');
+  if (document.getElementById('preview-3d').classList.contains('visible')) {
+    build3DGeometry();
+  }
+}
+
+function showHeaderHint(msg, type) {
+  const el = document.getElementById('upload-hint-header');
+  el.textContent = msg;
+  el.style.color = type === 'red' ? 'var(--red)' : 'var(--text3)';
+}
+
+/* ── Export ── */
+function enableExport()  { const ok = state.waypoints.length>=2; document.getElementById('btn-json').disabled=!ok; document.getElementById('btn-xml').disabled=!ok; }
+function disableExport() { document.getElementById('btn-json').disabled=true; document.getElementById('btn-xml').disabled=true; }
+
+async function exportRoute(fmt) {
+  if (state.waypoints.length < 2) return;
+  const settings = {
+    level: state.level, duration: cam.dur, camera_height: 1.75,
+    smoothing: cam.smo, fov: cam.fov, fps: 30,
+    uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
+  };
+  showLoading('Building your path…');
+  try {
+    const res = await fetch(`${API}/api/export/${fmt}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ waypoints: state.waypoints.map(w=>[w.x,w.y,w.yawOffset||0,w.timeOfDay||'']), cuts: cutIndices(), settings }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error||'Export failed'); }
+    const blob = await res.blob();
+    download(blob, `walkthrough_${state.level}.${fmt==='xml'?'xml':'json'}`);
+    toast('File saved successfully!', 'ok');
+  } catch(e) { toast(e.message,'err'); }
+  finally { hideLoading(); }
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), {href:url, download:name});
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+/* ── Slider sync ── */
+let _applyingPreset = false;
+function syncSlider(key, val) {
+  cam[key] = parseFloat(val);
+  const fmt = { dur: v=>`${v}s`, smo: v=>`${v}`, fov: v=>`${v}°`, utr: v=>`${v}m` };
+  document.getElementById(`v-${key}`).textContent = fmt[key](val);
+  if (key === 'dur') updateDurationCard(parseFloat(val));
+  if (!_applyingPreset) {
+    document.querySelectorAll('.preset-btn.active').forEach(b => b.classList.remove('active'));
+  }
+}
+
+/* ── Video presets ── */
+const CAMERA_PRESETS = {
+  quick:     { dur: 15, smo: 1.0, fov: 90, utr: 2 },
+  standard:  { dur: 30, smo: 1.0, fov: 90, utr: 3 },
+  cinematic: { dur: 60, smo: 1.0, fov: 75, utr: 6 },
+};
+function applyPreset(name) {
+  const p = CAMERA_PRESETS[name]; if (!p) return;
+  _applyingPreset = true;
+  for (const key of ['dur', 'smo', 'fov', 'utr']) {
+    const input = document.getElementById(`s-${key}`);
+    input.value = p[key];
+    updateSliderFill(input);
+    syncSlider(key, p[key]);
+  }
+  _applyingPreset = false;
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === name));
+  debounceSpline();
+}
+
+/* ── Helpers ── */
+function showLoading(msg) { document.getElementById('loading-text').textContent=msg||'Working on it…'; document.getElementById('loading').classList.add('show'); }
+function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+function toast(msg, type='inf', dur=3500) {
+  const el=document.createElement('div'); el.className=`toast ${type}`; el.textContent=msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, dur);
+}
+function ptsD(pts) {
+  if (!pts.length) return '';
+  const f=pts[0]; let d=`M ${f.x??f[0]} ${f.y??f[1]}`;
+  for (let i=1;i<pts.length;i++){const p=pts[i];d+=` L ${p.x??p[0]} ${p.y??p[1]}`;}
+  return d;
+}
+function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/svg','path'); p.classList.add(cls); return p; }
+
+/* ── Keyboard ── */
+document.addEventListener('keydown', e => {
+  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); }
+  if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
+  if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
+  if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
+  if (e.key==='Delete'||(e.key==='Backspace'&&!e.target.matches('input'))) undoLast();
+});
+
+setMode('waypoint');
+
+// ── 3D Preview (Three.js) ────────────────────────────────────────────────────
+
+let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null;
+const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
+const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
+
+function fadeOpacityAt(t) {
+  if (!p3.cutTimes.length || !p3.duration) return 0;
+  const halfNorm = (CUT_FADE_SECONDS / 2) / p3.duration;
+  let nearest = Infinity;
+  for (const ct of p3.cutTimes) {
+    const d = Math.abs(t - ct);
+    if (d < nearest) nearest = d;
+  }
+  return nearest >= halfNorm ? 0 : 1 - (nearest / halfNorm);
+}
+
+/* Toggle the 3D panel open/closed */
+function toggle3DPanel() {
+  const panel  = document.getElementById('preview-3d');
+  const btn    = document.getElementById('btn-3d-toggle');
+  const handle = document.getElementById('resize-handle');
+  const nowVisible = panel.classList.toggle('visible');
+  btn.classList.toggle('active', nowVisible);
+  handle.classList.toggle('active', nowVisible);
+
+  if (nowVisible) {
+    // Defer init until panel has layout dimensions
+    requestAnimationFrame(() => {
+      if (!threeScene) init3DScene();
+      else { resize3D(); }
+      if (!threeAnimId) render3DLoop();
+    });
+  } else {
+    cancelAnimationFrame(threeAnimId);
+    threeAnimId = null;
+    const fadeEl = document.getElementById('p3d-fade');
+    if (fadeEl) fadeEl.style.opacity = 0;
+  }
+}
+
+/* ── Drag to resize the 3D panel ── */
+(function initResizeHandle() {
+  const handle = document.getElementById('resize-handle');
+  const panel  = document.getElementById('preview-3d');
+  let dragging = false;
+
+  handle.addEventListener('mousedown', e => {
+    if (!panel.classList.contains('visible')) return;
+    dragging = true;
+    handle.classList.add('dragging');
+    panel.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const bodyRect = document.querySelector('.body').getBoundingClientRect();
+    const min = 260, max = bodyRect.width * 0.75;
+    const newWidth = Math.max(min, Math.min(max, bodyRect.right - e.clientX));
+    panel.style.width = newWidth + 'px';
+    resize3D();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    panel.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  });
+})();
+
+/* Set up the Three.js renderer, scene, camera, lights */
+function init3DScene() {
+  const canvas = document.getElementById('preview-canvas');
+  if (!canvas || !window.THREE) return;
+
+  if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
+
+  threeScene = new THREE.Scene();
+  threeScene.background = new THREE.Color(0x1a1e2e);
+  threeScene.fog = new THREE.FogExp2(0x1a1e2e, 0.006);
+
+  threeCam = new THREE.PerspectiveCamera(cam.fov, 1, 0.1, 5000);
+  threeCam.position.set(0, 5, 0);
+  threeCam.lookAt(0, 0, 0);
+
+  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+  // Lights
+  threeScene.add(new THREE.AmbientLight(0xc8d4f0, 0.85));
+  const sun = new THREE.DirectionalLight(0xfff4e0, 0.6);
+  sun.position.set(100, 200, 100);
+  threeScene.add(sun);
+
+  build3DGeometry();
+  resize3D();
+  showP3dEmpty(!state.geometry && p3.frames.length === 0);
+}
+
+/* Build wall/floor meshes from state.geometry */
+function build3DGeometry() {
+  if (!threeScene) return;
+
+  // Remove old meshes
+  const toRemove = threeScene.children.filter(c => c.isMesh);
+  toRemove.forEach(m => { threeScene.remove(m); m.geometry.dispose(); });
+
+  const u     = state.unitsToMetres || 1.0;  // DXF/canvas units → metres
+  const uMesh = 1.0;                          // IFC verts are always in metres already
+  const wH = 3.2; // wall height metres (used for DXF extrusion only)
+
+  // Floor plane
+  if (state.bounds) {
+    const b = state.bounds;
+    const W  = (b.xmax - b.xmin) * u * 1.15;
+    const H  = (b.ymax - b.ymin) * u * 1.15;
+    const cx =  (b.xmin + b.xmax) / 2 * u;
+    const cz = -(b.ymin + b.ymax) / 2 * u;  // negate: model Y → Three.js -Z
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, H),
+      new THREE.MeshLambertMaterial({ color: 0x1e2235 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(cx, 0, cz);
+    threeScene.add(floor);
+  }
+
+  if (!state.geometry) return;
+
+  const meshes = state.geometry.meshes;
+  if (meshes && meshes.length > 0) {
+    // ── IFC real 3D meshes ─────────────────────────────────────────────────
+    // IFC verts are in metres. Transform: X=East, Y=North(→-Z), Z=Up(→Y)
+    const typeColor = {
+      wall:      0x8fa0b8,   // mid grey-blue
+      slab:      0x5a6070,   // dark grey (floors/ceilings)
+      column:    0x9aabb8,   // light grey
+      beam:      0x7a8898,
+      stair:     0xb0905a,   // warm tan
+      roof:      0x4a5060,
+      door:      0xc8884a,   // amber-orange — clearly distinct
+      window:    0x88ccee,   // sky blue, semi-transparent
+      furniture: 0x70a878,   // green — clearly distinct
+      other:     0x8090a0,
+    };
+    const typeOpacity = { window: 0.45, slab: 0.85 };
+    meshes.forEach(mesh => {
+      const geo = new THREE.BufferGeometry();
+      const rv = mesh.verts;
+      const n  = rv.length / 3;
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        pos[i*3]   =  rv[i*3]   * uMesh;   // IFC X (m) → Three X (m)
+        pos[i*3+1] =  rv[i*3+2] * uMesh;   // IFC Z/up (m) → Three Y (m)
+        pos[i*3+2] = -rv[i*3+1] * uMesh;   // IFC Y/north (m) → Three -Z (m)
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setIndex(mesh.faces);
+      geo.computeVertexNormals();
+      const opacity = typeOpacity[mesh.type] ?? 1.0;
+      const mat = new THREE.MeshLambertMaterial({
+        color: typeColor[mesh.type] || typeColor.other,
+        side: THREE.DoubleSide,
+        transparent: opacity < 1.0,
+        opacity,
+      });
+      threeScene.add(new THREE.Mesh(geo, mat));
+    });
+  } else {
+    // ── DXF fallback: extrude 2D polylines upward ─────────────────────────
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0x4a5a80 });
+    const colMat  = new THREE.MeshLambertMaterial({ color: 0x384870 });
+    const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
+    let segCount = 0;
+    pairs.forEach(([polys, mat]) => {
+      polys.forEach(poly => {
+        if (poly.length < 2) return;
+        for (let i = 0; i < poly.length - 1; i++) {
+          if (++segCount > 4000) return;
+          const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
+          const dx = (x2 - x1) * u, dz = -(y2 - y1) * u;  // negate Y → Three.js -Z
+          const len = Math.sqrt(dx * dx + dz * dz);
+          if (len < 0.005) continue;
+          const seg = new THREE.Mesh(new THREE.BoxGeometry(len, wH, 0.18), mat);
+          seg.position.set((x1 + x2) / 2 * u, wH / 2, -(y1 + y2) / 2 * u);
+          seg.rotation.y = -Math.atan2(dz, dx);
+          threeScene.add(seg);
+        }
+      });
+    });
+  }
+}
+
+/* Fit renderer to canvas element size */
+function resize3D() {
+  const canvas = document.getElementById('preview-canvas');
+  if (!canvas || !threeRenderer) return;
+  const w = canvas.offsetWidth, h = canvas.offsetHeight;
+  if (!w || !h) return;
+  threeRenderer.setSize(w, h, false);
+  if (threeCam) { threeCam.aspect = w / h; threeCam.updateProjectionMatrix(); }
+}
+
+/* Main render/animation loop */
+function render3DLoop(now) {
+  threeAnimId = requestAnimationFrame(render3DLoop);
+
+  if (p3.playing && p3.frames.length >= 2) {
+    if (p3.lastTime != null) {
+      const dt = (now - p3.lastTime) / 1000;
+      p3.t += dt * p3.speed / p3.duration;
+      if (p3.t > 1) p3.t = 0;
+    }
+    p3.lastTime = now;
+    updateCameraFromT(p3.t);
+    updatePlaybackDisplay();
+  } else if (!p3.playing) {
+    p3.lastTime = null;
+  }
+
+  const fadeEl = document.getElementById('p3d-fade');
+  if (fadeEl) fadeEl.style.opacity = fadeOpacityAt(p3.t);
+
+  if (threeRenderer && threeScene && threeCam) {
+    threeRenderer.render(threeScene, threeCam);
+  }
+}
+
+/* Interpolate camera position/orientation from frame data at normalized time t */
+function updateCameraFromT(t) {
+  if (!p3.frames.length || !threeCam) return;
+  const u = state.unitsToMetres || 1.0;
+  const n = p3.frames.length;
+  const raw = t * (n - 1);
+  const fi = Math.min(Math.floor(raw), n - 2);
+  const blend = raw - fi;
+  const f0 = p3.frames[fi], f1 = p3.frames[fi + 1];
+
+  const fx   = f0.x   + (f1.x   - f0.x)   * blend;
+  const fy   = f0.y   + (f1.y   - f0.y)   * blend;
+  const yaw  = f0.yaw + (f1.yaw - f0.yaw) * blend;
+  const pit  = f0.pitch + (f1.pitch - f0.pitch) * blend;
+
+  threeCam.position.set(fx * u, 1.75, fy * u);
+
+  const yr = THREE.Math.degToRad(yaw);
+  const pr = THREE.Math.degToRad(pit);
+  const lx = Math.cos(yr) * Math.cos(pr);
+  const ly = Math.sin(pr);
+  const lz = Math.sin(yr) * Math.cos(pr);
+  threeCam.lookAt(
+    threeCam.position.x + lx,
+    threeCam.position.y + ly,
+    threeCam.position.z + lz
+  );
+}
+
+/* Update the time readout */
+function updatePlaybackDisplay() {
+  const el = document.getElementById('p3d-time');
+  if (!el) return;
+  const cur = p3.t * p3.duration;
+  const tot = p3.duration;
+  const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+  el.textContent = `${fmt(cur)} / ${fmt(tot)}`;
+}
+
+/* Fetch camera frames from server and start animation */
+async function loadPreviewFrames() {
+  if (!state.loaded) { toast('Load a floor plan first', 'inf'); return; }
+  if (state.waypoints.length < 2) { toast('Draw at least 2 waypoints first', 'inf'); return; }
+
+  const panel = document.getElementById('preview-3d');
+  if (!panel.classList.contains('visible')) toggle3DPanel();
+
+  showLoading('Building 3D preview…');
+  try {
+    const res = await fetch(`${API}/api/process-route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        waypoints:    state.waypoints.map(w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '']),
+        cuts:         cutIndices(),
+        smoothing:    cam.smo,
+        duration:     cam.dur,
+        fps:          30,
+        fov:          cam.fov,
+        uturn_radius: cam.utr,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    p3.frames   = data.frames;
+    p3.duration = cam.dur;
+    p3.t        = 0;
+    p3.playing  = true;
+    p3.lastTime = null;
+    p3.cutTimes = data.frames.filter(f => f.cut).map(f => f.t);
+
+    document.getElementById('p3d-play').disabled = false;
+    updatePlayBtn();
+    showP3dEmpty(false);
+    // Make sure render loop is running
+    if (!threeAnimId) render3DLoop();
+    toast('3D preview ready', 'ok');
+  } catch(e) { toast(e.message, 'err'); }
+  finally { hideLoading(); }
+}
+
+/* Play / pause */
+function togglePlay3D() {
+  if (!p3.frames.length) return;
+  p3.playing = !p3.playing;
+  p3.lastTime = null;
+  updatePlayBtn();
+}
+
+function updatePlayBtn() {
+  const btn = document.getElementById('p3d-play');
+  if (btn) btn.textContent = p3.playing ? '⏸' : '▶';
+}
+
+/* Speed control */
+function setPreviewSpeed(v) {
+  p3.speed = parseFloat(v);
+  const el = document.getElementById('p3d-speed-val');
+  if (el) el.textContent = parseFloat(v) + '×';
+  // Update slider fill
+  const inp = document.getElementById('p3d-speed-inp');
+  if (inp) updateSliderFill(inp);
+}
+
+/* Show/hide empty-state overlay in 3D panel */
+function showP3dEmpty(show) {
+  const el = document.getElementById('p3d-empty');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+/* Resize 3D canvas when window resizes */
+window.addEventListener('resize', () => {
+  if (document.getElementById('preview-3d').classList.contains('visible')) resize3D();
+});
+</script>
+</body>
+</html>

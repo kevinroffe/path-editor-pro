@@ -1,0 +1,7 @@
+build/
+dist/
+uploads/
+*.log
+qbiq.spec
+build.bat
+run.py

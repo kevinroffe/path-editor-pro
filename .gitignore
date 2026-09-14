@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Build/packaging artifacts (qbiq.spec is real hand-written PyInstaller
+# config, not generated — kept tracked)
+build/
+dist/
+
+# Uploaded user files and logs (not source)
+uploads/
+*.log
+
+# qbiq deploy tooling local state
+.qbiq/
+
+# Editor/OS cruft
+.DS_Store
+Thumbs.db

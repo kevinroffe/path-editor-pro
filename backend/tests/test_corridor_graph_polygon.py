@@ -104,3 +104,35 @@ def test_build_walkable_polygon_empty_when_fully_blocked():
         bounds=bounds, clearance_m=0.0, units_to_metres=1.0,
     )
     assert walkable is None
+
+
+def test_compute_bounds_vertical_degenerate_wall():
+    # A single vertical wall (x=0, y from 0 to 10). This is degenerate in x
+    # (width ≈ 0, height = 10). Bounds should expand x to match y, not leave
+    # it pathologically thin.
+    walls = [[(0, 0), (0, 10)]]
+    bounds = cg.compute_bounds(walls, [])
+    xmin, ymin, xmax, ymax = bounds
+    # Bounds should be expanded in x to be at least as wide as they are tall
+    # in y (after applying the same margin logic).
+    width = xmax - xmin
+    height = ymax - ymin
+    # They should be roughly equal (within float slop) for a degenerate 1D line
+    assert width > 9  # expanded, not thin
+    assert height > 9  # also reasonable
+
+
+def test_build_walkable_polygon_vertical_wall_no_footprint():
+    # A single vertical wall at x=0 from y=0 to y=10, no footprint.
+    # Similar to the horizontal case but testing the other degenerate dimension.
+    # A point well within the expanded bounds (away from the wall) should be walkable.
+    walls = [[(0, 0), (0, 10)]]
+    bounds = cg.compute_bounds(walls, [])
+    walkable = cg.build_walkable_polygon(
+        walls, doors=[], other_obstacles=[], footprint=[],
+        bounds=bounds, clearance_m=0.1, units_to_metres=1.0,
+    )
+    assert walkable is not None
+    assert not walkable.is_empty
+    # A point well away from the vertical wall line (in x direction).
+    assert walkable.covers(Point(5, 5))

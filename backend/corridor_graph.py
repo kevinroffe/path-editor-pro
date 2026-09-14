@@ -93,6 +93,13 @@ def compute_bounds(walls: list, footprint: list, margin_frac: float = 0.02) -> t
     Same bounds convention as autopath.py's find_path: walls + footprint
     extent, padded by margin_frac, used both as the fallback "no FLOOD
     layer" walkable envelope and to size the Voronoi boundary densification.
+
+    Degenerate-dimension handling: when one dimension (width or height) is
+    much smaller than the other (< 1% of the non-degenerate dimension),
+    it is expanded to match the non-degenerate dimension, centered on its
+    midpoint. This ensures a single wall (e.g., a line) produces a reasonable
+    rectangular envelope for routing, not a pathological sliver. This applies
+    symmetrically to both x and y dimensions.
     """
     all_pts = [pt for w in walls for pt in w] + [pt for poly in footprint for pt in poly]
     if not all_pts:
@@ -102,20 +109,27 @@ def compute_bounds(walls: list, footprint: list, margin_frac: float = 0.02) -> t
     width = max(xs) - min(xs)
     height = max(ys) - min(ys)
 
-    # When the bounds are degenerate (e.g., a single line), expand the smaller
-    # dimension to match the larger one so the envelope is reasonable for
-    # routing. Without this, a single horizontal wall would have zero height.
-    if height < width * 0.01 and width > height:
-        center_y = (max(ys) + min(ys)) / 2
-        height = width
+    min_xs = min(xs)
+    max_xs = max(xs)
+    min_ys = min(ys)
+    max_ys = max(ys)
+
+    # Handle degenerate width (vertical line): expand x to match y
+    # Using 1% threshold to detect degenerate dimension
+    if width < height * 0.01:
+        center_x = (max_xs + min_xs) / 2
+        min_xs = center_x - height / 2
+        max_xs = center_x + height / 2
+
+    # Handle degenerate height (horizontal line): expand y to match x
+    # Using 1% threshold to detect degenerate dimension
+    if height < width * 0.01:
+        center_y = (max_ys + min_ys) / 2
         min_ys = center_y - width / 2
         max_ys = center_y + width / 2
-    else:
-        min_ys = min(ys)
-        max_ys = max(ys)
 
-    margin = max(width, height) * margin_frac
-    return (min(xs) - margin, min_ys - margin, max(xs) + margin, max_ys + margin)
+    margin = max(max_xs - min_xs, max_ys - min_ys) * margin_frac
+    return (min_xs - margin, min_ys - margin, max_xs + margin, max_ys + margin)
 
 
 def build_walkable_polygon(walls: list, doors: list, other_obstacles: list, footprint: list,

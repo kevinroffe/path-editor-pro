@@ -381,3 +381,69 @@ def _simplify_branches(graph, epsilon: float) -> "nx.Graph":
 
     graph.remove_nodes_from([n for n in list(graph.nodes()) if graph.degree(n) == 0])
     return graph
+
+
+def _bridge_doors_across_components(graph, doors: list, max_bridge_m: float) -> "nx.Graph":
+    """
+    For each classified door whose two sides still land in different
+    connected components of the graph (the wall-notch in
+    build_walkable_polygon didn't fully reconnect them — e.g. furniture or
+    a second wall layer still blocks the straight-line gap), add a direct
+    edge between the nearest node of each of the two nearest components to
+    that door's centroid, capped at max_bridge_m. This mirrors
+    autopath.py's _bridge_gap: bridge only a real, specific, minimal gap —
+    never a blanket radius.
+    """
+    graph = graph.copy()
+    if graph.number_of_nodes() == 0 or not doors:
+        return graph
+
+    for door in doors:
+        if not door:
+            continue
+        cx = sum(p[0] for p in door) / len(door)
+        cy = sum(p[1] for p in door) / len(door)
+
+        components = list(nx.connected_components(graph))
+        if len(components) <= 1:
+            break
+
+        best_per_component = []
+        for comp in components:
+            nearest = min(comp, key=lambda n: math.hypot(n[0] - cx, n[1] - cy))
+            dist = math.hypot(nearest[0] - cx, nearest[1] - cy)
+            if dist <= max_bridge_m:
+                best_per_component.append((dist, nearest))
+        best_per_component.sort(key=lambda t: t[0])
+
+        if len(best_per_component) >= 2:
+            (_, n1), (_, n2) = best_per_component[0], best_per_component[1]
+            graph.add_edge(n1, n2, weight=math.hypot(n1[0] - n2[0], n1[1] - n2[1]))
+
+    return graph
+
+
+def build_corridor_graph(walkable_polygon, doors: list, spacing_m: float = 0.4,
+                          merge_tol_m: float = 0.3, stub_min_len_m: float = 0.5,
+                          simplify_epsilon_m: float = 0.15, max_bridge_m: float = 3.5):
+    """
+    Full pipeline: walkable polygon -> densified boundary -> raw Voronoi
+    skeleton -> cleanup (merge/destub/simplify) -> door bridging. Returns
+    None if no usable graph resulted (empty polygon, degenerate boundary,
+    or a graph left with no edges) — the caller (app.py) must fall back to
+    grid A* in that case.
+    """
+    if walkable_polygon is None or walkable_polygon.is_empty:
+        return None
+
+    boundary_pts = _densify_boundary(walkable_polygon, spacing_m)
+    if len(boundary_pts) < 4:
+        return None
+
+    graph = _voronoi_skeleton(walkable_polygon, boundary_pts)
+    graph = _merge_close_nodes(graph, merge_tol_m)
+    graph = _remove_short_stub_segments(graph, stub_min_len_m)
+    graph = _simplify_branches(graph, simplify_epsilon_m)
+    graph = _bridge_doors_across_components(graph, doors, max_bridge_m)
+
+    return graph if graph.number_of_edges() > 0 else None

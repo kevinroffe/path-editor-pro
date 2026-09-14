@@ -17,16 +17,23 @@ def test_densify_boundary_dedupes_points():
     assert len(pts) == len(set(pts))
 
 
-def test_voronoi_skeleton_of_long_corridor_has_a_center_running_edge():
-    # A long, thin walkable rectangle — the medial axis should be a single
-    # line running down its horizontal center.
+def test_voronoi_skeleton_of_long_corridor_finds_the_centerline():
+    # A long, thin walkable rectangle. The RAW Voronoi skeleton of a
+    # rectangle is not just its centerline — it also includes short
+    # diagonal "corner bisector" branches near each short end (the real,
+    # topologically correct medial axis of any w>h rectangle), which
+    # Task 5's cleanup (stub removal) prunes later — NOT this function.
+    # So this test only checks that every kept node stays inside the
+    # polygon and that the true centerline was actually found, not that
+    # every raw node is already centerline-only (that would be false for
+    # the correct algorithm, not just a noisy one).
     corridor = box(0, 0, 20, 2)
     boundary_pts = cg._densify_boundary(corridor, spacing=0.5)
     graph = cg._voronoi_skeleton(corridor, boundary_pts)
     assert graph.number_of_nodes() > 0
     assert graph.number_of_edges() > 0
-    # every kept node should be near y=1 (the corridor's centerline) and
-    # strictly inside the polygon
     for (x, y) in graph.nodes():
         assert corridor.buffer(1e-6).contains(Point(x, y))
-        assert abs(y - 1.0) < 0.6  # medial axis of a straight strip is its centerline
+    # the true centerline, away from the end effects near x=0/x=20, must
+    # be represented by at least one node
+    assert any(abs(x - 10.0) < 1.0 and abs(y - 1.0) < 0.1 for (x, y) in graph.nodes())

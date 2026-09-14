@@ -224,13 +224,6 @@ def _voronoi_skeleton(polygon, boundary_pts: list) -> "nx.Graph":
         b = tuple(round(c, 6) for c in vor.vertices[j])
         if a == b:
             continue
-        # Filter to keep only vertices inside the polygon
-        if not inflated.contains(Point(a)) or not inflated.contains(Point(b)):
-            continue
-        # Filter out vertices too close to the boundary (noise artifacts)
-        if (polygon.exterior.distance(Point(a)) < 0.3 or
-            polygon.exterior.distance(Point(b)) < 0.3):
-            continue
         mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
         if not inflated.contains(Point(mid)):
             continue

@@ -447,3 +447,124 @@ def build_corridor_graph(walkable_polygon, doors: list, spacing_m: float = 0.4,
     graph = _bridge_doors_across_components(graph, doors, max_bridge_m)
 
     return graph if graph.number_of_edges() > 0 else None
+
+
+def _project_point_onto_segment(p, a, b):
+    ax, ay = a
+    bx, by = b
+    px, py = p
+    dx, dy = bx - ax, by - ay
+    seg_len2 = dx * dx + dy * dy
+    if seg_len2 < 1e-12:
+        return a, math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_len2))
+    proj = (ax + t * dx, ay + t * dy)
+    return proj, math.hypot(px - proj[0], py - proj[1])
+
+
+def _snap_to_nearest_edge(graph, point):
+    """
+    Project `point` onto the nearest position on the nearest graph edge,
+    splitting that edge at the projection (rather than snapping to an
+    existing node) so via-points land as close as possible to where the
+    user actually clicked. Mutates `graph` in place — callers must pass a
+    per-request copy, never the shared cached graph.
+    """
+    if graph.number_of_edges() == 0:
+        raise ValueError("graph has no edges to snap onto")
+
+    best = None
+    for u, v in graph.edges():
+        proj, dist = _project_point_onto_segment(point, u, v)
+        if best is None or dist < best[0]:
+            best = (dist, u, v, proj)
+    _, u, v, proj = best
+
+    if proj == u:
+        return u
+    if proj == v:
+        return v
+
+    d_up = math.hypot(proj[0] - u[0], proj[1] - u[1])
+    d_vp = math.hypot(proj[0] - v[0], proj[1] - v[1])
+    graph.remove_edge(u, v)
+    graph.add_edge(u, proj, weight=d_up)
+    graph.add_edge(proj, v, weight=d_vp)
+    return proj
+
+
+def _los_clear_poly(p1, p2, walkable_polygon) -> bool:
+    """Polygon-space equivalent of autopath.py's grid-based _los_clear:
+    true if the straight segment p1->p2 stays entirely inside the walkable
+    area."""
+    line = LineString([p1, p2])
+    return walkable_polygon.buffer(1e-6).contains(line)
+
+
+def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
+    """
+    Polygon-space adaptation of autopath.py's _reduce_to_max_pts — same
+    greedy one-point-at-a-time removal (least perpendicular deviation
+    first, only when the resulting segment stays inside the walkable area),
+    just backed by a polygon containment check instead of a raster grid
+    lookup, since the corridor-graph path has no occupancy grid at all.
+    """
+    pts = list(pts)
+    while len(pts) > max_pts:
+        best_i, best_cost = None, None
+        for i in range(1, len(pts) - 1):
+            if not _los_clear_poly(pts[i - 1], pts[i + 1], walkable_polygon):
+                continue
+            cost = _point_seg_dist(pts[i], pts[i - 1], pts[i + 1])
+            if best_cost is None or cost < best_cost:
+                best_cost, best_i = cost, i
+        if best_i is None:
+            break
+        del pts[best_i]
+    return pts
+
+
+def route_multi(points: list, graph, walkable_polygon, max_pts: int = 12):
+    """
+    Route an ORDERED sequence of required reference points on the corridor
+    graph: snap each to the nearest edge, chain shortest paths between
+    consecutive snapped points IN CLICK ORDER (never reordered), then
+    squeeze the result toward max_pts.
+
+    Returns None (never an empty list) on any failure — no graph, no edges
+    to snap onto, or no path between two consecutive via-points — signaling
+    the caller (app.py) to fall back to grid A* for the ENTIRE route.
+    """
+    if graph is None or graph.number_of_edges() == 0:
+        return None
+
+    g = graph.copy()
+    try:
+        snapped = [_snap_to_nearest_edge(g, tuple(p)) for p in points]
+    except ValueError:
+        return None
+
+    combined = [snapped[0]]
+    boundary_indices = [0]
+    for i in range(len(snapped) - 1):
+        try:
+            leg = nx.shortest_path(g, snapped[i], snapped[i + 1], weight="weight")
+        except nx.NetworkXNoPath:
+            return None
+        combined.extend(leg[1:])
+        boundary_indices.append(len(combined) - 1)
+
+    world_path = [[float(x), float(y)] for x, y in combined]
+
+    # Use the literal clicked coordinate for every via-point that's actually
+    # inside the walkable area (mirrors autopath.py's find_path: prefer the
+    # exact click over the snapped position whenever it's legitimately
+    # routable), not just the overall start/end.
+    for orig_pt, idx in zip(points, boundary_indices):
+        if walkable_polygon.covers(Point(orig_pt)):
+            world_path[idx] = [float(orig_pt[0]), float(orig_pt[1])]
+
+    if len(world_path) > max_pts:
+        world_path = _reduce_to_max_pts_poly(world_path, walkable_polygon, max_pts)
+
+    return world_path

@@ -44,6 +44,8 @@ except ImportError:
 from route_processor import process_route, smooth_preview
 from export_layer    import to_json, to_enscape_xml
 from autopath        import find_multi_path
+from corridor_graph   import (build_walkable_polygon, build_corridor_graph,
+                               route_multi, compute_bounds)
 
 ALLOWED_EXTENSIONS = {".rvt", ".ifc", ".dxf"}
 MAX_UPLOAD_MB = 500
@@ -59,6 +61,23 @@ _LAST_OBSTACLES = {"dxf": [], "ifc": []}
 _LAST_FOOTPRINT = {"dxf": [], "ifc": []}  # FLOOD-layer / room polygons — see _footprint_polylines
 _LAST_DOORS = {"dxf": [], "ifc": []}  # door locations, forced passable — see _door_polylines
 _LAST_UNITS_TO_METRES = 1.0  # from the DXF/demo canvas source, for Auto Path's clearance_m conversion
+
+# Corridor-graph routing needs walls kept SEPARATE from other obstacle
+# categories (only walls get door-notched — see corridor_graph.py's
+# build_walkable_polygon), unlike _LAST_OBSTACLES which flattens everything
+# together for the grid-A* fallback's simpler needs.
+_LAST_WALLS = {"dxf": [], "ifc": []}
+_LAST_OTHER_OBSTACLES = {"dxf": [], "ifc": []}
+
+# Bumped on every upload/demo call; the corridor-graph cache below is keyed
+# on this so a new floor plan never reuses a stale graph.
+_UPLOAD_GENERATION = 0
+
+# (generation, round(clearance_m, 3)) -> (walkable_polygon | None, graph | None)
+# Built lazily on the first /api/autopath call per key, not at upload time —
+# keeps upload latency unaffected even for a real file with tens of
+# thousands of furniture entities.
+_LAST_CIRC_GRAPH: dict = {}
 
 
 def _flip(poly):
@@ -119,6 +138,48 @@ def _door_polylines(geo) -> list:
     _clear_doors for why this matters).
     """
     return [_flip(p) for p in geo.doors]
+
+
+def _wall_polylines(geo) -> list:
+    """Walls only, flipped into SVG-display space — see _obstacle_polylines
+    for why the flip is needed. Kept separate from other obstacle
+    categories because only walls get door-notched in corridor_graph.py."""
+    return [_flip(p) for p in geo.walls]
+
+
+def _other_obstacle_polylines(geo) -> list:
+    """Columns, furniture, windows — everything _obstacle_polylines
+    combines with walls, minus the walls themselves."""
+    return ([_flip(p) for p in geo.windows] +
+            [_flip(p) for p in geo.columns] +
+            [_flip(p) for p in geo.furniture])
+
+
+def _get_circ_graph_and_polygon(clearance_m: float):
+    """
+    Lazily build (and cache) the corridor graph for the current upload at a
+    given clearance_m. Any exception during construction is treated the
+    same as "no graph" — the caller falls back to grid A* — rather than
+    ever 500ing a Smart Path request because of a corridor-graph bug.
+    """
+    key = (_UPLOAD_GENERATION, round(clearance_m, 3))
+    if key not in _LAST_CIRC_GRAPH:
+        walls = _LAST_WALLS["dxf"] + _LAST_WALLS["ifc"]
+        other = _LAST_OTHER_OBSTACLES["dxf"] + _LAST_OTHER_OBSTACLES["ifc"]
+        footprint = _LAST_FOOTPRINT["dxf"] + _LAST_FOOTPRINT["ifc"]
+        doors = _LAST_DOORS["dxf"] + _LAST_DOORS["ifc"]
+        try:
+            bounds = compute_bounds(walls, footprint)
+            polygon = build_walkable_polygon(
+                walls, doors, other, footprint, bounds,
+                clearance_m=clearance_m, units_to_metres=_LAST_UNITS_TO_METRES,
+            )
+            graph = build_corridor_graph(polygon, doors) if polygon is not None else None
+        except Exception:
+            log.exception("Corridor graph build failed — Smart Path will use grid A* for this request")
+            polygon, graph = None, None
+        _LAST_CIRC_GRAPH[key] = (polygon, graph)
+    return _LAST_CIRC_GRAPH[key]
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -187,8 +248,11 @@ def upload():
     _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
     _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
     _LAST_DOORS["dxf"] = _door_polylines(geo)
-    global _LAST_UNITS_TO_METRES
+    _LAST_WALLS["dxf"] = _wall_polylines(geo)
+    _LAST_OTHER_OBSTACLES["dxf"] = _other_obstacle_polylines(geo)
+    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
     _LAST_UNITS_TO_METRES = geo.units_to_metres
+    _UPLOAD_GENERATION += 1
 
     return jsonify({
         "svg": svg,
@@ -242,6 +306,14 @@ def upload_3d():
     doors = _door_polylines(geo)
     if doors:
         _LAST_DOORS["ifc"] = doors
+    walls = _wall_polylines(geo)
+    if walls:
+        _LAST_WALLS["ifc"] = walls
+    other = _other_obstacle_polylines(geo)
+    if other:
+        _LAST_OTHER_OBSTACLES["ifc"] = other
+    global _UPLOAD_GENERATION
+    _UPLOAD_GENERATION += 1
 
     return jsonify({
         "geometry": {
@@ -270,11 +342,16 @@ def demo():
     _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
     _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
     _LAST_DOORS["dxf"] = _door_polylines(geo)
-    global _LAST_UNITS_TO_METRES
+    _LAST_WALLS["dxf"] = _wall_polylines(geo)
+    _LAST_OTHER_OBSTACLES["dxf"] = _other_obstacle_polylines(geo)
+    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
     _LAST_UNITS_TO_METRES = geo.units_to_metres
     _LAST_OBSTACLES["ifc"] = []  # demo is a fresh, unrelated dataset
     _LAST_FOOTPRINT["ifc"] = []
     _LAST_DOORS["ifc"] = []
+    _LAST_WALLS["ifc"] = []
+    _LAST_OTHER_OBSTACLES["ifc"] = []
+    _UPLOAD_GENERATION += 1
 
     return jsonify({
         "svg": svg,
@@ -325,16 +402,35 @@ def autopath():
     # geometry (see autopath.py's _clear_doors) — real doorways frequently
     # don't leave an actual gap in the wall data on a real DXF.
     doors = data.get("doors") or (_LAST_DOORS["dxf"] + _LAST_DOORS["ifc"])
-    waypoints = find_multi_path(
-        points, walls,
-        clearance_m=float(data.get("clearance_m", 0.2)),
-        units_to_metres=_LAST_UNITS_TO_METRES,
-        turn_penalty=float(data.get("turn_penalty", 4.0)),
-        corridor_m=float(data.get("corridor_m", 1.0)),
-        corridor_weight=float(data.get("corridor_weight", 0.5)),
-        footprint=footprint,
-        doors=doors,
-    )
+
+    clearance_m = float(data.get("clearance_m", 0.2))
+
+    # Corridor-graph routing (primary): a real corridor-centerline graph
+    # instead of grid A*'s hand-tuned distance-transform corridor bias — see
+    # docs/superpowers/specs/2026-09-14-corridor-graph-routing-design.md.
+    # ANY failure here (graph build, or no route on the graph) falls back to
+    # the ENTIRE route being computed by grid A* below, never a per-leg mix.
+    waypoints = None
+    polygon, graph = _get_circ_graph_and_polygon(clearance_m)
+    if graph is not None:
+        try:
+            waypoints = route_multi(points, graph, polygon)
+        except Exception:
+            log.exception("Corridor-graph routing failed — falling back to grid A*")
+            waypoints = None
+
+    if not waypoints:
+        waypoints = find_multi_path(
+            points, walls,
+            clearance_m=clearance_m,
+            units_to_metres=_LAST_UNITS_TO_METRES,
+            turn_penalty=float(data.get("turn_penalty", 4.0)),
+            corridor_m=float(data.get("corridor_m", 1.0)),
+            corridor_weight=float(data.get("corridor_weight", 0.5)),
+            footprint=footprint,
+            doors=doors,
+        )
+
     return jsonify({"waypoints": waypoints})
 
 

@@ -1551,9 +1551,19 @@ def client():
 
 
 def _upload_real_file(client, path: Path):
+    """
+    Uploads a copy of the real fixture under a DIFFERENT filename than the
+    source. app.py's /api/upload saves the incoming file to
+    uploads/<secure_filename(f.filename)> — if we uploaded using the
+    fixture's own original name, Flask would write the save back to the
+    exact same path we're reading it from mid-upload (the fixture lives in
+    that same uploads/ directory), corrupting the committed test fixture.
+    A harmless differently-named temp copy avoids that entirely.
+    """
     assert path.exists(), f"expected real test fixture at {path}"
+    temp_name = f"pytest_copy_{path.name}"
     with open(path, "rb") as f:
-        data = {"file": (f, path.name)}
+        data = {"file": (f, temp_name)}
         resp = client.post("/api/upload", data=data, content_type="multipart/form-data")
     assert resp.status_code == 200, resp.get_json()
     return resp.get_json()

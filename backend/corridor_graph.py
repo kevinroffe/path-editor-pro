@@ -83,3 +83,71 @@ def _build_wall_polygon(walls: list, doors: list, clearance: float, door_half: f
         wall_union = wall_union.difference(notch)
 
     return wall_union
+
+
+_MIN_WALL_BUFFER_M = 0.05  # minimum wall band half-thickness, see _polyline_to_shape
+
+
+def compute_bounds(walls: list, footprint: list, margin_frac: float = 0.02) -> tuple:
+    """
+    Same bounds convention as autopath.py's find_path: walls + footprint
+    extent, padded by margin_frac, used both as the fallback "no FLOOD
+    layer" walkable envelope and to size the Voronoi boundary densification.
+    """
+    all_pts = [pt for w in walls for pt in w] + [pt for poly in footprint for pt in poly]
+    if not all_pts:
+        return (0.0, 0.0, 1.0, 1.0)
+    xs = [p[0] for p in all_pts]
+    ys = [p[1] for p in all_pts]
+    width = max(xs) - min(xs)
+    height = max(ys) - min(ys)
+
+    # When the bounds are degenerate (e.g., a single line), expand the smaller
+    # dimension to match the larger one so the envelope is reasonable for
+    # routing. Without this, a single horizontal wall would have zero height.
+    if height < width * 0.01 and width > height:
+        center_y = (max(ys) + min(ys)) / 2
+        height = width
+        min_ys = center_y - width / 2
+        max_ys = center_y + width / 2
+    else:
+        min_ys = min(ys)
+        max_ys = max(ys)
+
+    margin = max(width, height) * margin_frac
+    return (min(xs) - margin, min_ys - margin, max(xs) + margin, max_ys + margin)
+
+
+def build_walkable_polygon(walls: list, doors: list, other_obstacles: list, footprint: list,
+                            bounds: tuple, clearance_m: float, units_to_metres: float,
+                            door_clear_margin_m: float = 0.15):
+    """
+    The exact walkable area Auto Path may route through: the FLOOD footprint
+    (or, if none exists, the plan's own bounding envelope) minus every
+    classified obstacle, buffered by clearance_m, with a door-sized notch
+    carved out of the wall layer at every classified door location.
+
+    Returns None if the result is empty (fully blocked, or degenerate
+    input) — callers must treat that as "graph routing unavailable, use
+    the grid-A* fallback", never as an empty-but-valid walkable area.
+    """
+    clearance = clearance_m / max(units_to_metres, 1e-9)
+    min_line_buffer = _MIN_WALL_BUFFER_M / max(units_to_metres, 1e-9)
+    door_half = clearance + (door_clear_margin_m / max(units_to_metres, 1e-9))
+
+    wall_union = _build_wall_polygon(walls, doors, clearance, door_half, min_line_buffer)
+
+    other_shapes = [_polyline_to_shape(o, clearance, min_line_buffer)
+                    for o in other_obstacles if len(o) >= 2]
+    other_union = unary_union(other_shapes) if other_shapes else Polygon()
+
+    obstacle_union = unary_union([wall_union, other_union])
+
+    footprint_shapes = [_polygon_from_ring(p) for p in footprint if len(p) >= 3]
+    area = unary_union(footprint_shapes) if footprint_shapes else None
+    if area is None or area.is_empty:
+        xmin, ymin, xmax, ymax = bounds
+        area = box(xmin, ymin, xmax, ymax)
+
+    walkable = area.difference(obstacle_union)
+    return None if walkable.is_empty else walkable

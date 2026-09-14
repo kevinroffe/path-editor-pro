@@ -7,3 +7,6 @@ svgwrite>=1.4.3
 werkzeug>=3.0.0
 ifcopenshell
 gunicorn>=22.0.0
+shapely>=2.1.0
+networkx>=3.0
+pytest>=8.0.0

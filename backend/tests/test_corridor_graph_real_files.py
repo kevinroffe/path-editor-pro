@@ -1,3 +1,4 @@
+import os
 import random
 import time
 from pathlib import Path
@@ -10,16 +11,41 @@ import app as app_module
 # resolves to .worktrees/corridor-graph-routing/uploads/ when this test runs
 # from inside a git worktree, which does not exist there — uploads/ is
 # gitignored and only exists in the main repo checkout. Point directly at the
-# real location instead.
-UPLOADS_DIR = Path(r"C:\Users\kevin\revit-walkthrough-v2\uploads")
+# real location instead, overridable for machines that keep it elsewhere.
+UPLOADS_DIR = Path(os.environ.get("REVIT_WALKTHROUGH_UPLOADS_DIR",
+                                  r"C:\Users\kevin\revit-walkthrough-v2\uploads"))
 QQQQ_FILE = UPLOADS_DIR / "QQQQ_TEST-0001_-_Floor_Plan_-_L-0.dxf"
 REAL_FLOOD_FILE = UPLOADS_DIR / "Classify_DXF_45715-Sep_02nd_2026_12_38_33_PM.dxf"
+
+# These fixtures are real client DXFs living in a gitignored directory, so they
+# are simply absent on any other checkout. Skip the whole module at import time
+# rather than hard-failing every test in it.
+if not QQQQ_FILE.exists() or not REAL_FLOOD_FILE.exists():
+    pytest.skip(f"real DXF fixtures not available on this machine (looked in {UPLOADS_DIR}); "
+                "set REVIT_WALKTHROUGH_UPLOADS_DIR to point at them",
+                allow_module_level=True)
 
 
 @pytest.fixture
 def client():
     app_module.app.config["TESTING"] = True
     return app_module.app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_pytest_copies():
+    """Delete the pytest_copy_* uploads each test leaves behind — without this
+    every run accumulates another 1-2 large DXFs forever. app.py saves to its
+    OWN uploads/ (next to backend/, i.e. inside the worktree when run from
+    one), which is not necessarily the UPLOADS_DIR the fixtures are read
+    from, so sweep both. Only the pytest_copy_ prefix is ever touched."""
+    yield
+    for directory in {app_module.UPLOAD_DIR, UPLOADS_DIR}:
+        for leftover in Path(directory).glob("pytest_copy_*"):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
 
 
 def _upload_real_file(client, path: Path):
@@ -51,6 +77,12 @@ def _random_point_within(bounds, rng):
 def _stress_test_file(client, path: Path, n_triples: int, seed: int):
     upload = _upload_real_file(client, path)
     bounds = upload["bounds"]
+    # Without this the whole stress test passes on the grid-A* fallback alone —
+    # exactly what the OLD engine already did before this branch existed — so a
+    # silently broken corridor graph would leave it green while proving nothing.
+    # 0.2 is /api/autopath's default clearance_m, which these routes never override.
+    assert app_module._get_circ_graph_and_polygon(0.2)[1] is not None, \
+        "corridor graph failed to build — stress test would be silently running on grid A* fallback only"
     rng = random.Random(seed)
 
     failures = 0
@@ -116,7 +148,9 @@ def test_corridor_graph_builds_in_reasonable_time_on_largest_real_file(client):
     elapsed2 = time.time() - start2
     assert resp2.status_code == 200
     print(f"Second Smart Path call (graph cached): {elapsed2:.1f}s")
-    assert elapsed2 < elapsed
+    # Measured margin is large (≈6.2s cold vs ≈0.7-1.2s warm), so demand a real
+    # factor-of-two speedup rather than merely "not slower".
+    assert elapsed2 < elapsed * 0.5
 
 
 def test_door_clearing_regression_does_not_erase_nearby_furniture(client, monkeypatch):

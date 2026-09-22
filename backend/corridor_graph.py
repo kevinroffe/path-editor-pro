@@ -20,6 +20,7 @@ import networkx as nx
 from scipy.spatial import Voronoi, cKDTree
 from shapely.geometry import Polygon, LineString, Point, box
 from shapely.ops import unary_union
+from shapely.prepared import prep
 
 from autopath import _point_seg_dist
 
@@ -215,7 +216,10 @@ def _voronoi_skeleton(polygon, boundary_pts: list) -> "nx.Graph":
         return graph
 
     vor = Voronoi(np.array(boundary_pts))
-    inflated = polygon.buffer(1e-6)
+    # prepared geometry: this .contains() runs once per Voronoi ridge (tens of
+    # thousands on a real DXF) and an unprepared containment test is O(polygon
+    # vertices) every time — prep() builds the spatial index once instead.
+    inflated = prep(polygon.buffer(1e-6))
 
     for i, j in vor.ridge_vertices:
         if i < 0 or j < 0:
@@ -383,16 +387,21 @@ def _simplify_branches(graph, epsilon: float) -> "nx.Graph":
     return graph
 
 
-def _bridge_doors_across_components(graph, doors: list, max_bridge_m: float) -> "nx.Graph":
+def _bridge_doors_across_components(graph, doors: list, max_bridge: float) -> "nx.Graph":
     """
     For each classified door whose two sides still land in different
     connected components of the graph (the wall-notch in
     build_walkable_polygon didn't fully reconnect them — e.g. furniture or
     a second wall layer still blocks the straight-line gap), add a direct
     edge between the nearest node of each of the two nearest components to
-    that door's centroid, capped at max_bridge_m. This mirrors
+    that door's centroid, capped at `max_bridge`. This mirrors
     autopath.py's _bridge_gap: bridge only a real, specific, minimal gap —
     never a blanket radius.
+
+    `max_bridge` is in the graph's RAW coordinate units, not metres —
+    build_corridor_graph does the metres->raw conversion before calling here
+    (the parameter used to be named `max_bridge_m`, which was the same
+    units-naming landmine that caused the original conversion bug).
     """
     graph = graph.copy()
     if graph.number_of_nodes() == 0 or not doors:
@@ -412,7 +421,7 @@ def _bridge_doors_across_components(graph, doors: list, max_bridge_m: float) -> 
         for comp in components:
             nearest = min(comp, key=lambda n: math.hypot(n[0] - cx, n[1] - cy))
             dist = math.hypot(nearest[0] - cx, nearest[1] - cy)
-            if dist <= max_bridge_m:
+            if dist <= max_bridge:
                 best_per_component.append((dist, nearest))
         best_per_component.sort(key=lambda t: t[0])
 
@@ -528,7 +537,8 @@ def _los_clear_poly(p1, p2, inflated_polygon) -> bool:
     return inflated_polygon.contains(line)
 
 
-def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
+def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int,
+                             protected_indices: frozenset = frozenset()) -> list:
     """
     Polygon-space adaptation of autopath.py's _reduce_to_max_pts — same
     greedy one-point-at-a-time removal (least perpendicular deviation
@@ -536,17 +546,34 @@ def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
     just backed by a polygon containment check instead of a raster grid
     lookup, since the corridor-graph path has no occupancy grid at all.
 
-    `walkable_polygon` is buffered ONCE here, up front, rather than inside
-    _los_clear_poly per call — this loop calls _los_clear_poly O(n^2) times
-    for a path of length n, and re-buffering a real DXF's complex walkable
-    polygon (tens of thousands of vertices) on every single call made this
-    function take tens of minutes on a real file instead of seconds.
+    `protected_indices` are positions in `pts` that must NEVER be removed —
+    route_multi passes its via-point positions here. Without that, a
+    via-point clicked along a fairly straight run is exactly the kind of
+    low-deviation interior point this greedy loop removes first, so the
+    "successful" route would silently stop passing through a point the user
+    explicitly clicked (observed dropping 2 of 3 interior via-points on a
+    5-point route, including one inside a room the route then never
+    entered). The indices are remapped after every deletion so they always
+    refer to the CURRENT positions in `pts`. If protection (or a failing
+    line-of-sight check) leaves no removable candidate, the loop breaks and
+    MORE than max_pts points are returned — never a dropped via-point.
+
+    `walkable_polygon` is buffered (and prepared) ONCE here, up front, rather
+    than inside _los_clear_poly per call — this loop calls _los_clear_poly
+    O(n^2) times for a path of length n, and re-buffering a real DXF's complex
+    walkable polygon (tens of thousands of vertices) on every single call made
+    this function take tens of minutes on a real file instead of seconds.
+    prep() then keeps each of those O(n^2) containment tests off the
+    O(polygon vertices) unprepared path as well.
     """
-    inflated = walkable_polygon.buffer(1e-6)
+    inflated = prep(walkable_polygon.buffer(1e-6))
     pts = list(pts)
+    protected = set(protected_indices)
     while len(pts) > max_pts:
         best_i, best_cost = None, None
         for i in range(1, len(pts) - 1):
+            if i in protected:
+                continue
             if not _los_clear_poly(pts[i - 1], pts[i + 1], inflated):
                 continue
             cost = _point_seg_dist(pts[i], pts[i - 1], pts[i + 1])
@@ -555,6 +582,7 @@ def _reduce_to_max_pts_poly(pts: list, walkable_polygon, max_pts: int) -> list:
         if best_i is None:
             break
         del pts[best_i]
+        protected = {p - 1 if p > best_i else p for p in protected}
     return pts
 
 
@@ -598,7 +626,13 @@ def route_multi(points: list, graph, walkable_polygon, max_pts: int = 12):
         if walkable_polygon.covers(Point(orig_pt)):
             world_path[idx] = [float(orig_pt[0]), float(orig_pt[1])]
 
+    # Every via-point's position is protected from the reduction below — the
+    # greedy squeeze would otherwise happily delete a clicked via-point that
+    # happens to sit on a straight run. frozenset() also collapses the case
+    # where two via-points snapped onto the same node (protecting one index
+    # once is exactly right there).
     if len(world_path) > max_pts:
-        world_path = _reduce_to_max_pts_poly(world_path, walkable_polygon, max_pts)
+        world_path = _reduce_to_max_pts_poly(world_path, walkable_polygon, max_pts,
+                                              protected_indices=frozenset(boundary_indices))
 
     return world_path

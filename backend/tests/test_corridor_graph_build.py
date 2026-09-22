@@ -8,7 +8,7 @@ def test_bridge_doors_across_components_connects_two_rooms():
     g.add_edge((0.0, 0.0), (4.0, 0.0), weight=4.0)   # component A
     g.add_edge((6.0, 0.0), (10.0, 0.0), weight=4.0)  # component B
     door = [(5.0, -0.1), (5.0, 0.1)]  # centroid at (5, 0), between the two
-    bridged = cg._bridge_doors_across_components(g, [door], max_bridge_m=2.0)
+    bridged = cg._bridge_doors_across_components(g, [door], max_bridge=2.0)
     assert nx.number_connected_components(bridged) == 1
 
 
@@ -17,7 +17,7 @@ def test_bridge_doors_across_components_respects_max_bridge_distance():
     g.add_edge((0.0, 0.0), (4.0, 0.0), weight=4.0)
     g.add_edge((100.0, 0.0), (104.0, 0.0), weight=4.0)
     door = [(50.0, 0.0)]
-    bridged = cg._bridge_doors_across_components(g, [door], max_bridge_m=2.0)
+    bridged = cg._bridge_doors_across_components(g, [door], max_bridge=2.0)
     assert nx.number_connected_components(bridged) == 2
 
 

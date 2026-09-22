@@ -110,11 +110,12 @@ def _obstacle_polylines(geo) -> list:
     wall-space geometry directly, so the obstacles must be flipped into the
     same space here, or pathfinding runs against a vertically mirrored map
     relative to where the user actually clicked.
+
+    This is exactly the flat concatenation of the two split-out lists the
+    corridor graph needs (_wall_polylines + _other_obstacle_polylines), so it
+    just composes them rather than repeating the flip logic a third time.
     """
-    return ([_flip(p) for p in geo.walls] +
-            [_flip(p) for p in geo.windows] +
-            [_flip(p) for p in geo.columns] +
-            [_flip(p) for p in geo.furniture])
+    return _wall_polylines(geo) + _other_obstacle_polylines(geo)
 
 
 def _footprint_polylines(geo) -> list:
@@ -253,6 +254,10 @@ def upload():
     global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
     _LAST_UNITS_TO_METRES = geo.units_to_metres
     _UPLOAD_GENERATION += 1
+    # Entries from older generations can never be looked up again (the cache
+    # key includes the generation), so drop them instead of leaking a whole
+    # walkable polygon + graph per uploaded file for the process's lifetime.
+    _LAST_CIRC_GRAPH.clear()
 
     return jsonify({
         "svg": svg,
@@ -314,6 +319,7 @@ def upload_3d():
         _LAST_OTHER_OBSTACLES["ifc"] = other
     global _UPLOAD_GENERATION
     _UPLOAD_GENERATION += 1
+    _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
 
     return jsonify({
         "geometry": {
@@ -352,6 +358,7 @@ def demo():
     _LAST_WALLS["ifc"] = []
     _LAST_OTHER_OBSTACLES["ifc"] = []
     _UPLOAD_GENERATION += 1
+    _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
 
     return jsonify({
         "svg": svg,
@@ -392,7 +399,9 @@ def autopath():
     # loaded alongside it) are cached server-side from the last upload —
     # sending them again from the client would mean re-transferring tens of
     # MB of JSON on every click for a real architectural DXF. `walls` in the
-    # body is still honored if a caller explicitly provides it (e.g. tests).
+    # body is still honored if a caller explicitly provides it (e.g. tests) —
+    # see `explicit_geometry` below, which routes such a request through grid
+    # A* so the supplied geometry is actually the geometry routed against.
     walls = data.get("walls") or (_LAST_OBSTACLES["dxf"] + _LAST_OBSTACLES["ifc"])
     # FLOOD-layer / room footprint polygons, cached the same way as obstacles
     # (see _footprint_polylines) — constrains routing to the real floor area
@@ -405,19 +414,29 @@ def autopath():
 
     clearance_m = float(data.get("clearance_m", 0.2))
 
+    # A caller that supplies its own geometry in the request body is by
+    # definition NOT routing against the server's cached floor plan, and the
+    # corridor graph is built from (and cached against) that server-side
+    # cache alone — so honoring explicit geometry means skipping the graph
+    # engine entirely and using grid A*, which takes the geometry as
+    # arguments. Without this, explicit geometry was silently ignored and the
+    # route came back computed against whatever file was uploaded last.
+    explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
+
     # Corridor-graph routing (primary): a real corridor-centerline graph
     # instead of grid A*'s hand-tuned distance-transform corridor bias — see
     # docs/superpowers/specs/2026-09-14-corridor-graph-routing-design.md.
     # ANY failure here (graph build, or no route on the graph) falls back to
     # the ENTIRE route being computed by grid A* below, never a per-leg mix.
     waypoints = None
-    polygon, graph = _get_circ_graph_and_polygon(clearance_m)
-    if graph is not None:
-        try:
-            waypoints = route_multi(points, graph, polygon)
-        except Exception:
-            log.exception("Corridor-graph routing failed — falling back to grid A*")
-            waypoints = None
+    if not explicit_geometry:
+        polygon, graph = _get_circ_graph_and_polygon(clearance_m)
+        if graph is not None:
+            try:
+                waypoints = route_multi(points, graph, polygon)
+            except Exception:
+                log.exception("Corridor-graph routing failed — falling back to grid A*")
+                waypoints = None
 
     if not waypoints:
         waypoints = find_multi_path(

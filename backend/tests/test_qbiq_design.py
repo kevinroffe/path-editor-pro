@@ -68,7 +68,7 @@ def test_floor_plate_is_first_and_closed(tmp_path):
     plate = geo.spaces[0]
     assert plate[0] == plate[-1]
     assert {tuple(p) for p in plate} == {(0, 0), (2000, 0), (2000, 1500), (0, 1500)}
-    assert geo.source == "qbiq" and geo.meshes == []
+    assert geo.source == "qbiq" and geo.meshes
 
 
 def test_every_room_is_a_space(tmp_path):

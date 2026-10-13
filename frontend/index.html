@@ -342,6 +342,26 @@ body {
 .empty-text { font-size: 14px; color: var(--text3); text-align: center; line-height: 1.8; }
 .empty-text strong { color: var(--text2); font-weight: 600; }
 
+/* ── Drag & drop overlay ──────────────────────────────────────── */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(234,241,255,.72);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.drop-overlay.show { display: flex; }
+.drop-card {
+  pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 28px 36px; max-width: 460px; text-align: center;
+  background: var(--surface); color: var(--blue-dk);
+  border: 2px dashed var(--blue); border-radius: var(--r);
+  box-shadow: var(--shadow);
+  font-size: 14px; font-weight: 600; line-height: 1.6;
+}
+.drop-card svg { color: var(--blue); }
+
 /* ── Loading ──────────────────────────────────────────────────── */
 .loading {
   position: absolute; inset: 0; background: rgba(246,247,249,.85);
@@ -409,17 +429,17 @@ body {
   flex-shrink: 0; height: 42px;
 }
 .p3d-title { font-size: 12.5px; font-weight: 600; color: var(--text); flex: 1; }
-.p3d-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #1a1e2e; }
+.p3d-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #eef1f4; }
 #preview-canvas { width: 100%; height: 100%; display: block; }
 .p3d-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 2; }
 .p3d-empty {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 8px;
-  pointer-events: none; color: #4a5580;
+  pointer-events: none; color: var(--text2);
   font-size: 12px; text-align: center; line-height: 1.6;
 }
-.p3d-empty strong { color: #6b7db3; }
+.p3d-empty strong { color: var(--text); }
 .p3d-controls {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px;
@@ -675,7 +695,8 @@ body {
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
         Click <strong>Load Project</strong> in the top bar to select a folder<br/>
-        containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair
+        containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair<br/>
+        — or <strong>drag &amp; drop</strong> the files here
       </div>
     </div>
 
@@ -734,6 +755,13 @@ body {
 </div>
 
 <div class="toast-container" id="toasts"></div>
+
+<div class="drop-overlay" id="drop-overlay">
+  <div class="drop-card">
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><path d="M20 6v20M12 18l8 8 8-8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 27v4a3 3 0 0 0 3 3h20a3 3 0 0 0 3-3v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    Drop a qbiq design .json, a .json + .svg pair, a .dxf or an .ifc
+  </div>
+</div>
 
 <script>
 // Root-relative when served standalone (e.g. `python app.py` on its own
@@ -1417,6 +1445,12 @@ function findQbiqPair(files) {
 async function onFolderSelected(inp) {
   const files = Array.from(inp.files);
   inp.value = '';
+  const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
+  await loadProjectFiles(files, folderName);
+}
+
+/* Detect the project's source files (DXF > qbiq design JSON > JSON+SVG pair > IFC) and upload them. */
+async function loadProjectFiles(files, sourceLabel, { emptyWhere = 'that folder' } = {}) {
   const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
   const design = dxf ? null : await findQbiqDesign(files);
   const qbiq = dxf || design ? null : findQbiqPair(files);
@@ -1424,7 +1458,7 @@ async function onFolderSelected(inp) {
   const ifc = qbiq || design ? null : ifcFile;
 
   if (!dxf && !design && !qbiq && !ifc) {
-    toast('No DXF, qbiq design JSON, qbiq JSON+SVG pair, or IFC file found in that folder', 'err'); return;
+    toast(`No DXF, qbiq design JSON, qbiq JSON+SVG pair, or IFC file found in ${emptyWhere}`, 'err'); return;
   }
 
   const parts = [];
@@ -1433,10 +1467,9 @@ async function onFolderSelected(inp) {
   if (qbiq) parts.push('qbiq');
   if (ifc) parts.push('IFC');
 
-  const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
   const btn = document.getElementById('load-folder-btn-wrap');
   const txt = document.getElementById('load-folder-btn-text');
-  txt.textContent = folderName.length > 18 ? folderName.slice(0, 16) + '…' : folderName;
+  txt.textContent = sourceLabel.length > 18 ? sourceLabel.slice(0, 16) + '…' : sourceLabel;
   btn.classList.add('loaded');
 
   showLoading(`Loading ${parts.join(' + ')}…`);
@@ -1450,7 +1483,7 @@ async function onFolderSelected(inp) {
     ]);
     const note = (qbiq || design) && ifcFile ? ' (IFC ignored — not supported with qbiq)'
       : dxf && findQbiqPair(files) ? ' (qbiq JSON+SVG ignored — DXF takes precedence)' : '';
-    toast(`Loaded ${parts.join(' + ')} from "${folderName}"${note}`, 'ok');
+    toast(`Loaded ${parts.join(' + ')} from "${sourceLabel}"${note}`, 'ok');
     // Open 3D panel after both are done if IFC was included
     if (ifc) {
       if (!document.getElementById('preview-3d').classList.contains('visible')) {
@@ -1463,6 +1496,68 @@ async function onFolderSelected(inp) {
     hideLoading();
   }
 }
+
+/* ── Drag & drop loading (files, or a single dropped folder via webkitGetAsEntry) ── */
+const readDirEntries = reader => new Promise((res, rej) => reader.readEntries(res, rej));
+const entryFile = entry => new Promise((res, rej) => entry.file(res, rej));
+
+/* Recursively collect every File under a FileSystemEntry. readEntries returns batches, so loop until empty. */
+async function filesFromEntry(entry) {
+  if (entry.isFile) return [await entryFile(entry)];
+  const reader = entry.createReader();
+  const out = [];
+  for (let batch; (batch = await readDirEntries(reader)).length;) {
+    for (const child of batch) out.push(...await filesFromEntry(child));
+  }
+  return out;
+}
+
+(function initDropLoading() {
+  const overlay = document.getElementById('drop-overlay');
+  const isFileDrag = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+  let depth = 0;
+  const show = on => overlay.classList.toggle('show', on);
+
+  window.addEventListener('dragenter', e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth++;
+    show(true);
+  });
+  window.addEventListener('dragover', e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', e => {
+    if (!isFileDrag(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) show(false);
+  });
+  window.addEventListener('drop', async e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth = 0;
+    show(false);
+    // Entries must be read synchronously inside the drop handler — DataTransfer is cleared afterwards.
+    const entries = Array.from(e.dataTransfer.items || [])
+      .filter(it => it.kind === 'file')
+      .map(it => it.webkitGetAsEntry?.())
+      .filter(Boolean);
+    const dirs = entries.filter(en => en.isDirectory);
+    if (!dirs.length) {
+      await loadProjectFiles(Array.from(e.dataTransfer.files), 'dropped files', { emptyWhere: 'the dropped files' });
+      return;
+    }
+    if (dirs.length > 1) { toast('Drop one folder at a time — or use Load Project for folders', 'err'); return; }
+    try {
+      const files = (await Promise.all(entries.map(filesFromEntry))).flat();
+      await loadProjectFiles(files, dirs[0].name, { emptyWhere: `"${dirs[0].name}"` });
+    } catch (err) {
+      toast('Could not read the dropped folder — use Load Project for folders', 'err');
+    }
+  });
+})();
 
 async function doUpload3D(f, { silent = false, autoOpen = true } = {}) {
   if (!silent) showLoading('Extracting 3D model…');
@@ -1639,7 +1734,27 @@ setMode('waypoint');
 
 // ── 3D Preview (Three.js) ────────────────────────────────────────────────────
 
-let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null;
+let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null;
+const P3D_BG = 0xeef1f4;
+const P3D_GROUND = 0xe4e2dd;
+// Per-type defaults for a bright viewport; mesh.color/opacity/roughness/metalness override these.
+const P3D_TYPE_STYLE = {
+  floor:     { color: 0xe9e7e2 },
+  slab:      { color: 0xd8d5cf },
+  wall:      { color: 0xf2f1ee },
+  column:    { color: 0xecebe8 },
+  beam:      { color: 0xcfcac2 },
+  stair:     { color: 0xc8b08a },
+  roof:      { color: 0x9aa0a6 },
+  door:      { color: 0xb88a5a, roughness: 0.7 },
+  window:    { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
+  glass:     { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
+  frame:     { color: 0x3a3f45, roughness: 0.45, metalness: 0.4 },
+  furniture: { color: 0xc9c6c0 },
+  other:     { color: 0xc9c9c9 },
+};
+const P3D_TRANSPARENT_TYPES = new Set(['glass', 'window']);
+const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab']);
 const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
@@ -1717,119 +1832,175 @@ function init3DScene() {
   if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
 
   threeScene = new THREE.Scene();
-  threeScene.background = new THREE.Color(0x1a1e2e);
-  threeScene.fog = new THREE.FogExp2(0x1a1e2e, 0.006);
+  // Background/fog are output-space colours in r128 (clear colour and fog are applied after encoding).
+  threeScene.background = new THREE.Color(P3D_BG);
+  threeScene.fog = new THREE.Fog(P3D_BG, 200, 1200);
 
   threeCam = new THREE.PerspectiveCamera(cam.fov, 1, 0.1, 5000);
   threeCam.position.set(0, 5, 0);
   threeCam.lookAt(0, 0, 0);
 
-  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  threeRenderer.outputEncoding = THREE.sRGBEncoding;
+  threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  threeRenderer.toneMappingExposure = 1.0;
+  threeRenderer.shadowMap.enabled = true;
+  threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // Lights
-  threeScene.add(new THREE.AmbientLight(0xc8d4f0, 0.85));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 0.6);
-  sun.position.set(100, 200, 100);
-  threeScene.add(sun);
+  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.6));
+  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9);
+  threeSun.castShadow = true;
+  threeSun.shadow.mapSize.set(2048, 2048);
+  threeSun.shadow.bias = -0.0005;
+  threeSun.shadow.normalBias = 0.02;
+  threeScene.add(threeSun, threeSun.target);
 
   build3DGeometry();
   resize3D();
   showP3dEmpty(!state.geometry && p3.frames.length === 0);
 }
 
-/* Build wall/floor meshes from state.geometry */
+/* sRGB hex/'#rrggbb' → linear THREE.Color (r128 treats material colours as linear when outputEncoding is sRGB) */
+const p3dColor = c => new THREE.Color(c).convertSRGBToLinear();
+
+/* Remove and dispose everything build3DGeometry added (geometry AND materials) */
+function clear3DGeometry() {
+  const old = threeScene.children.filter(c => c.userData.p3dBuilt);
+  const mats = new Set();
+  old.forEach(m => {
+    threeScene.remove(m);
+    m.geometry.dispose();
+    [].concat(m.material).forEach(mat => mats.add(mat));
+  });
+  mats.forEach(mat => mat.dispose());
+}
+
+function addBuilt(mesh) {
+  mesh.userData.p3dBuilt = true;
+  threeScene.add(mesh);
+  return mesh;
+}
+
+/* Plan centre + half-extents in Three.js metres (falls back to a 50 m square at the origin) */
+function planFrame() {
+  const u = state.unitsToMetres || 1.0;
+  const b = state.bounds;
+  if (!b) return { cx: 0, cz: 0, hw: 25, hd: 25 };
+  return {
+    cx:  (b.xmin + b.xmax) / 2 * u,
+    cz: -(b.ymin + b.ymax) / 2 * u,   // negate: model Y → Three.js -Z
+    hw:  Math.max((b.xmax - b.xmin) * u / 2, 1),
+    hd:  Math.max((b.ymax - b.ymin) * u / 2, 1),
+  };
+}
+
+/* Aim the sun at the plan centre and fit its shadow frustum and the fog to the plan's extent */
+function fitSunToPlan({ cx, cz, hw, hd }) {
+  const r = Math.hypot(hw, hd);                  // plan radius: covers any light-space orientation
+  const dir = new THREE.Vector3(-0.45, 1, 0.6).normalize();
+  const dist = r * 1.5 + 30;
+  threeSun.position.set(cx + dir.x * dist, dir.y * dist, cz + dir.z * dist);
+  threeSun.target.position.set(cx, 0, cz);
+  threeSun.target.updateMatrixWorld();
+  const half = r + 5;                            // margin for wall height / overhangs
+  const sc = threeSun.shadow.camera;
+  Object.assign(sc, { left: -half, right: half, top: half, bottom: -half, near: 0.5, far: dist + r + 40 });
+  sc.updateProjectionMatrix();
+  threeScene.fog.near = r * 2 + 60;
+  threeScene.fog.far = r * 6 + 400;
+}
+
+/* One IFC/qbiq mesh (metres, Z-up) → shaded, shadowed THREE.Mesh */
+function buildContractMesh(mesh) {
+  const geo = new THREE.BufferGeometry();
+  const rv = mesh.verts;
+  const n  = rv.length / 3;
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i*3]   =  rv[i*3];     // X (m) → Three X
+    pos[i*3+1] =  rv[i*3+2];   // Z/up (m) → Three Y
+    pos[i*3+2] = -rv[i*3+1];   // Y/north (m) → Three -Z
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(mesh.faces);
+  geo.computeVertexNormals();
+
+  const style = P3D_TYPE_STYLE[mesh.type] || P3D_TYPE_STYLE.other;
+  const opacity = mesh.opacity ?? style.opacity ?? 1.0;
+  const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
+  const mat = new THREE.MeshStandardMaterial({
+    color: p3dColor(mesh.color || style.color),
+    roughness: mesh.roughness ?? style.roughness ?? 0.85,
+    metalness: mesh.metalness ?? style.metalness ?? 0.0,
+    side: THREE.DoubleSide,
+    transparent,
+    opacity,
+    depthWrite: !transparent,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  if (transparent) {
+    m.renderOrder = 1;
+  } else {
+    m.castShadow = !P3D_RECEIVE_ONLY_TYPES.has(mesh.type);
+    m.receiveShadow = true;
+  }
+  return m;
+}
+
+/* DXF fallback: extrude 2D wall/column polylines upward as boxes (capped at 4000 segments) */
+function buildExtrudedWalls(u) {
+  const wH = 3.2; // wall height metres
+  const wallMat = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.wall.color), roughness: 0.85 });
+  const colMat  = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.column.color), roughness: 0.85 });
+  const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
+  let segCount = 0;
+  pairs.forEach(([polys, mat]) => {
+    polys.forEach(poly => {
+      if (poly.length < 2) return;
+      for (let i = 0; i < poly.length - 1; i++) {
+        if (++segCount > 4000) return;
+        const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
+        const dx = (x2 - x1) * u, dz = -(y2 - y1) * u;  // negate Y → Three.js -Z
+        const len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 0.005) continue;
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(len, wH, 0.18), mat);
+        seg.position.set((x1 + x2) / 2 * u, wH / 2, -(y1 + y2) / 2 * u);
+        seg.rotation.y = -Math.atan2(dz, dx);
+        seg.castShadow = seg.receiveShadow = true;
+        addBuilt(seg);
+      }
+    });
+  });
+  // Shared materials are only disposed by clear3DGeometry if some segment used them.
+  [wallMat, colMat].forEach(mat => { if (!threeScene.children.some(c => c.material === mat)) mat.dispose(); });
+}
+
+/* Build ground, plan meshes and sun from state.geometry */
 function build3DGeometry() {
   if (!threeScene) return;
+  clear3DGeometry();
 
-  // Remove old meshes
-  const toRemove = threeScene.children.filter(c => c.isMesh);
-  toRemove.forEach(m => { threeScene.remove(m); m.geometry.dispose(); });
+  const u = state.unitsToMetres || 1.0;  // DXF/canvas units → metres
+  const frame = planFrame();
+  if (threeSun) fitSunToPlan(frame);
 
-  const u     = state.unitsToMetres || 1.0;  // DXF/canvas units → metres
-  const uMesh = 1.0;                          // IFC verts are always in metres already
-  const wH = 3.2; // wall height metres (used for DXF extrusion only)
-
-  // Floor plane
-  if (state.bounds) {
-    const b = state.bounds;
-    const W  = (b.xmax - b.xmin) * u * 1.15;
-    const H  = (b.ymax - b.ymin) * u * 1.15;
-    const cx =  (b.xmin + b.xmax) / 2 * u;
-    const cz = -(b.ymin + b.ymax) / 2 * u;  // negate: model Y → Three.js -Z
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, H),
-      new THREE.MeshLambertMaterial({ color: 0x1e2235 })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, 0, cz);
-    threeScene.add(floor);
-  }
+  // Large light ground just under the floor, catching shadows
+  const size = Math.max(Math.hypot(frame.hw, frame.hd) * 8, 400);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({ color: p3dColor(P3D_GROUND), roughness: 1.0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(frame.cx, -0.01, frame.cz);
+  ground.receiveShadow = true;
+  addBuilt(ground);
 
   if (!state.geometry) return;
 
   const meshes = state.geometry.meshes;
-  if (meshes && meshes.length > 0) {
-    // ── IFC real 3D meshes ─────────────────────────────────────────────────
-    // IFC verts are in metres. Transform: X=East, Y=North(→-Z), Z=Up(→Y)
-    const typeColor = {
-      wall:      0x8fa0b8,   // mid grey-blue
-      slab:      0x5a6070,   // dark grey (floors/ceilings)
-      column:    0x9aabb8,   // light grey
-      beam:      0x7a8898,
-      stair:     0xb0905a,   // warm tan
-      roof:      0x4a5060,
-      door:      0xc8884a,   // amber-orange — clearly distinct
-      window:    0x88ccee,   // sky blue, semi-transparent
-      furniture: 0x70a878,   // green — clearly distinct
-      other:     0x8090a0,
-    };
-    const typeOpacity = { window: 0.45, slab: 0.85 };
-    meshes.forEach(mesh => {
-      const geo = new THREE.BufferGeometry();
-      const rv = mesh.verts;
-      const n  = rv.length / 3;
-      const pos = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        pos[i*3]   =  rv[i*3]   * uMesh;   // IFC X (m) → Three X (m)
-        pos[i*3+1] =  rv[i*3+2] * uMesh;   // IFC Z/up (m) → Three Y (m)
-        pos[i*3+2] = -rv[i*3+1] * uMesh;   // IFC Y/north (m) → Three -Z (m)
-      }
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      geo.setIndex(mesh.faces);
-      geo.computeVertexNormals();
-      const opacity = typeOpacity[mesh.type] ?? 1.0;
-      const mat = new THREE.MeshLambertMaterial({
-        color: typeColor[mesh.type] || typeColor.other,
-        side: THREE.DoubleSide,
-        transparent: opacity < 1.0,
-        opacity,
-      });
-      threeScene.add(new THREE.Mesh(geo, mat));
-    });
-  } else {
-    // ── DXF fallback: extrude 2D polylines upward ─────────────────────────
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x4a5a80 });
-    const colMat  = new THREE.MeshLambertMaterial({ color: 0x384870 });
-    const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
-    let segCount = 0;
-    pairs.forEach(([polys, mat]) => {
-      polys.forEach(poly => {
-        if (poly.length < 2) return;
-        for (let i = 0; i < poly.length - 1; i++) {
-          if (++segCount > 4000) return;
-          const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
-          const dx = (x2 - x1) * u, dz = -(y2 - y1) * u;  // negate Y → Three.js -Z
-          const len = Math.sqrt(dx * dx + dz * dz);
-          if (len < 0.005) continue;
-          const seg = new THREE.Mesh(new THREE.BoxGeometry(len, wH, 0.18), mat);
-          seg.position.set((x1 + x2) / 2 * u, wH / 2, -(y1 + y2) / 2 * u);
-          seg.rotation.y = -Math.atan2(dz, dx);
-          threeScene.add(seg);
-        }
-      });
-    });
-  }
+  if (meshes && meshes.length > 0) meshes.forEach(mesh => addBuilt(buildContractMesh(mesh)));
+  else buildExtrudedWalls(u);
 }
 
 /* Fit renderer to canvas element size */

@@ -22,7 +22,8 @@ def _display_centroid(poly):
     return [sum(p[0] for p in poly) / len(poly), -sum(p[1] for p in poly) / len(poly)]
 
 
-def test_real_design_json_produces_a_routable_floor_plan(client):
+def _upload(client):
+    """POST the real design JSON to the upload endpoint."""
     with open(_JSON_SRC, "rb") as f:
         resp = client.post(
             "/api/upload-qbiq-design",
@@ -30,6 +31,25 @@ def test_real_design_json_produces_a_routable_floor_plan(client):
             content_type="multipart/form-data",
         )
     assert resp.status_code == 200, resp.get_json()
+    return resp
+
+
+def test_real_design_json_produces_a_rich_3d_scene(client):
+    resp = _upload(client)
+    meshes = resp.get_json()["geometry"]["meshes"]
+    types = {m["type"] for m in meshes}
+    assert meshes and {"floor", "wall", "window", "glass", "frame", "column", "furniture"} <= types
+
+    xs = [v for m in meshes for v in m["verts"][0::3]]
+    ys = [v for m in meshes for v in m["verts"][1::3]]
+    assert max(xs) - min(xs) == pytest.approx(36.0, abs=1.0)
+    assert max(ys) - min(ys) == pytest.approx(18.6, abs=1.0)
+    assert sum(len(m["verts"]) // 3 for m in meshes) < 400_000
+    assert len(resp.data) < 10_000_000
+
+
+def test_real_design_json_produces_a_routable_floor_plan(client):
+    resp = _upload(client)
     body = resp.get_json()
     geometry = body["geometry"]
 

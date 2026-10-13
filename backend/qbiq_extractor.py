@@ -30,6 +30,7 @@ from shapely.errors import ShapelyError
 from shapely.geometry import LineString, MultiPoint, Point as GeomPoint
 from shapely.ops import unary_union
 
+from qbiq_scene3d import SceneInputs, build_design_scene
 from revit_extractor import LevelGeometry
 
 log = logging.getLogger(__name__)
@@ -408,7 +409,7 @@ _CLUSTER_GAP = 15.0
 _FALLBACK_DOOR_WIDTH = 90.0
 _LINEAR_TYPES = {"LineString", "LinearRing", "Polygon"}
 
-_Room = namedtuple("_Room", "rings enclosed doors furniture")
+_Room = namedtuple("_Room", "rings enclosed doors furniture space_type components")
 
 
 def is_qbiq_design(data: dict) -> bool:
@@ -577,7 +578,9 @@ def _room(room: dict):
             return None
         enclosed = any(_is_shown(d) for d in room.get("doors") or [] if isinstance(d, dict))
         furniture = _polylines(_wkt(room.get("stencil_geometry")))
-        return _Room(rings, enclosed, _room_doors(room, rings), furniture)
+        components = room.get("stencil_geometry_components")
+        return _Room(rings, enclosed, _room_doors(room, rings), furniture, room.get("space_type"),
+                     components if isinstance(components, list) else [])
     except (AttributeError, KeyError, TypeError, ValueError, ShapelyError):
         log.warning("qbiq design: skipping malformed room %r", room.get("space_type"), exc_info=True)
         return None
@@ -591,12 +594,14 @@ def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometr
         raise ValueError("Not a qbiq design JSON: expected a top-level 'rooms' list and 'nfp_data' object")
     nfp = data["nfp_data"]
 
-    plates = [pl for g in _wkt_many(nfp.get("fill")) for pl in _polylines(g)]
+    plate_geoms = _wkt_many(nfp.get("fill"))
+    plates = [pl for g in plate_geoms for pl in _polylines(g)]
     rooms = [r for room in data["rooms"] if isinstance(room, dict) and (r := _room(room))]
-    structural = (_corner_segments(nfp.get("walls")) + _corner_segments(nfp.get("interior_walls"))
-                  + _core_polylines(nfp.get("cores")))
+    exterior, interior = _corner_segments(nfp.get("walls")), _corner_segments(nfp.get("interior_walls"))
+    cores = _core_polylines(nfp.get("cores"))
+    enclosed_rings = [ring for r in rooms if r.enclosed for ring in r.rings]
 
-    walls = _to_segments(structural + [ring for r in rooms if r.enclosed for ring in r.rings])
+    walls = _to_segments(exterior + interior + cores + enclosed_rings)
     spaces = plates + [ring for r in rooms for ring in r.rings]
     doors = [d for r in rooms for d in r.doors]
     columns = [pl for g in _wkt_many(nfp.get("columns")) for pl in _polylines(g)]
@@ -611,6 +616,11 @@ def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometr
         log.warning("qbiq design: no walls extracted")
 
     units_to_metres = _fix_implausible_units(0.01, [p for pl in walls + spaces + columns for p in pl])
+    meshes = build_design_scene(SceneInputs(
+        plates=plate_geoms, rooms=[(r.rings, r.space_type, r.components) for r in rooms],
+        exterior=exterior, windows=windows, partitions=_to_segments(interior + enclosed_rings),
+        doors=doors, columns=columns, cores=cores,
+    ), units_to_metres)
     enclosed = sum(r.enclosed for r in rooms)
     log.info(
         "qbiq design extracted from '%s' (job_code=%s): %d walls, %d doors, %d columns, "
@@ -630,4 +640,5 @@ def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometr
         furniture=furniture,
         units_to_metres=units_to_metres,
         source="qbiq",
+        meshes=meshes,
     )

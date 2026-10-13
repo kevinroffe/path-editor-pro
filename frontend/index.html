@@ -1495,10 +1495,14 @@ function applyFloorPlan(data) {
   state.bounds = data.bounds; state.level = data.level;
   state.unitsToMetres = data.units_to_metres ?? 1.0;
   state.source = data.source ?? 'demo';
-  // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them
+  // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them.
+  // Only DXF pairs with an IFC; standalone sources (qbiq, demo) clear the
+  // backend's IFC caches, so drop the stale model here too.
   const savedMeshes = state.geometry?.meshes;
   state.geometry = data.geometry ?? null;
-  if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
+  if (state.source !== 'dxf') {
+    state.ifcGeometry = null;
+  } else if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
     state.geometry.meshes = savedMeshes;
   }
   document.getElementById('h-level').textContent = data.level;

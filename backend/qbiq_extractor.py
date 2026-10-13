@@ -12,6 +12,9 @@ See docs/superpowers/specs/2026-10-13-qbiq-json-svg-import-design.md for the
 full design rationale (why dashed-stroke rooms aren't walls, why only one
 polyline per door_id is the real opening line, why the JSON's non-_ls keys
 are ignored, etc.).
+
+extract_qbiq_design parses the other qbiq export shape: a single "design"
+JSON whose geometry is WKT in centimetres (top-level `rooms` + `nfp_data`).
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
+from collections import namedtuple
+
+from shapely import wkt
+from shapely.errors import ShapelyError
+from shapely.geometry import LineString, Point as GeomPoint
 
 from revit_extractor import LevelGeometry
 
@@ -387,4 +395,217 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
         furniture=[],
         units_to_metres=units_to_metres,
         source="qbiq",
+    )
+
+
+# ── single-file qbiq "design" JSON ───────────────────────────────────────────
+
+_DOOR_TOUCH_TOL = 3.0
+_EDGE_TOUCH_TOL = 10.0
+_FALLBACK_DOOR_WIDTH = 90.0
+_LINEAR_TYPES = {"LineString", "LinearRing", "Polygon"}
+
+_Room = namedtuple("_Room", "rings enclosed doors furniture")
+
+
+def is_qbiq_design(data: dict) -> bool:
+    """True for a single-file qbiq design JSON (top-level rooms + nfp_data)."""
+    return isinstance(data, dict) and "rooms" in data and "nfp_data" in data
+
+
+def _wkt(text):
+    """Parse one WKT string; None (with a warning) when malformed, None when absent."""
+    if not isinstance(text, str) or not text.strip() or text == "None":
+        return None
+    try:
+        return wkt.loads(text)
+    except (ShapelyError, ValueError):
+        log.warning("qbiq design: skipping malformed WKT %.80r", text)
+        return None
+
+
+def _wkt_many(value) -> list:
+    """Parse a WKT string or a list of WKT strings into geometries."""
+    texts = [value] if isinstance(value, str) else [v for v in value or [] if isinstance(v, str)]
+    return [g for t in texts if (g := _wkt(t)) is not None]
+
+
+def _parts(geom) -> list:
+    """Flatten nested collections and multi-geometries into simple parts."""
+    if geom is None or geom.is_empty:
+        return []
+    if hasattr(geom, "geoms"):
+        return [p for g in geom.geoms for p in _parts(g)]
+    return [geom]
+
+
+def _part_coords(part) -> list:
+    """A simple part's points as float tuples (a Polygon gives its exterior ring)."""
+    coords = part.exterior.coords if part.geom_type == "Polygon" else part.coords
+    return [(float(c[0]), float(c[1])) for c in coords]
+
+
+def _polylines(geom) -> list:
+    """Every LineString / Polygon exterior in a geometry as a polyline; points dropped."""
+    return [_part_coords(p) for p in _parts(geom) if p.geom_type in _LINEAR_TYPES]
+
+
+def _vertices(geom) -> list:
+    """Every vertex of every part of a geometry."""
+    return [pt for p in _parts(geom) for pt in _part_coords(p)]
+
+
+def _corner_segment(item):
+    """A {corner1, corner2} dict as a 2-point polyline; None when malformed."""
+    try:
+        return [(float(item["corner1"][0]), float(item["corner1"][1])),
+                (float(item["corner2"][0]), float(item["corner2"][1]))]
+    except (KeyError, TypeError, ValueError, IndexError):
+        log.warning("qbiq design: skipping malformed segment %.80r", item)
+        return None
+
+
+def _corner_segments(items) -> list:
+    """All well-formed {corner1, corner2} entries as 2-point polylines."""
+    return [seg for item in items or [] if (seg := _corner_segment(item))]
+
+
+def _core_polylines(cores) -> list:
+    """Cores as walls when they're corner dicts or WKT; anything else is ignored."""
+    polylines = []
+    for core in [cores] if isinstance(cores, str) else cores or []:
+        if isinstance(core, dict) and "corner1" in core:
+            polylines.extend(_corner_segments([core]))
+        elif isinstance(core, str):
+            polylines.extend(pl for g in _wkt_many(core) for pl in _polylines(g))
+        else:
+            log.debug("qbiq design: ignoring unrecognised core entry %.80r", core)
+    return polylines
+
+
+def _is_shown(door: dict) -> bool:
+    """show_door may arrive as a bool or as its string form."""
+    return str(door.get("show_door")).lower() == "true"
+
+
+def _touching(line, points: list, tol: float) -> list:
+    """Positions along `line` of the points lying within `tol` of it."""
+    return [line.project(GeomPoint(p)) for p in points if line.distance(GeomPoint(p)) <= tol]
+
+
+def _span(line, start: float, end: float) -> list:
+    """The 2-point sub-segment of `line` between two positions along it."""
+    return [(pt.x, pt.y) for pt in (line.interpolate(start), line.interpolate(end))]
+
+
+def _extent(line, points: list, tol: float):
+    """The part of `line` covered by the points within `tol` of it; None for fewer than 2."""
+    pos = _touching(line, points, tol)
+    return _span(line, min(pos), max(pos)) if len(pos) >= 2 and max(pos) > min(pos) else None
+
+
+def _door_points(door: dict, room: dict, lines: list) -> list:
+    """The door's drawing vertices: its own door_geometry, else the room's shared
+    one restricted to points nearer this door's line than the room's other doors'."""
+    if own := _wkt(door.get("door_geometry")):
+        return _vertices(own)
+    shared = _vertices(_wkt(room.get("door_geometry")))
+    if (line := _wkt(door.get("door_line"))) is None or len(lines) < 2:
+        return shared
+    return [p for p in shared if line.distance(GeomPoint(p)) <= min(o.distance(GeomPoint(p)) for o in lines)]
+
+
+def _door_opening(door: dict, points: list, edges: list):
+    """
+    The real opening is where the door drawing touches its wall line. door_line
+    is the whole wall edge, but on real exports it is sometimes a different
+    edge of the room than the one the door is drawn on (or missing), and some
+    drawings sit a wall-thickness inside the edge — so the room edge with the
+    most drawing points within _EDGE_TOUCH_TOL is tried next, before the
+    fixed-width midpoint fallback.
+    """
+    line = _wkt(door.get("door_line"))
+    if line is not None and (opening := _extent(line, points, _DOOR_TOUCH_TOL)):
+        return opening
+    best = max(edges, key=lambda e: len(_touching(e, points, _EDGE_TOUCH_TOL)), default=None)
+    if best is not None and (opening := _extent(best, points, _EDGE_TOUCH_TOL)):
+        return opening
+    if line is None:
+        log.warning("qbiq design: door has no door_line and no geometry on a room edge — skipping")
+        return None
+    log.debug("qbiq design: no door geometry on %s — using a %g-unit opening at its midpoint", line.wkt, _FALLBACK_DOOR_WIDTH)
+    mid = line.length / 2
+    return _span(line, mid - _FALLBACK_DOOR_WIDTH / 2, mid + _FALLBACK_DOOR_WIDTH / 2)
+
+
+def _room_doors(room: dict, rings: list) -> list:
+    """One trimmed 2-point opening per visible door of a room."""
+    doors = [d for d in room.get("doors") or [] if isinstance(d, dict)]
+    lines = [ln for d in doors if (ln := _wkt(d.get("door_line"))) is not None]
+    edges = [LineString(pair) for ring in rings for pair in zip(ring, ring[1:])]
+    return [op for d in doors if _is_shown(d) and (op := _door_opening(d, _door_points(d, room, lines), edges))]
+
+
+def _room(room: dict):
+    """Parse one room into rings, enclosure, doors and furniture; None when malformed."""
+    try:
+        if not (rings := [r for r in _polylines(_wkt(room.get("geometry"))) if len(r) >= 4]):
+            log.warning("qbiq design: skipping room %r with no usable geometry", room.get("space_type"))
+            return None
+        enclosed = any(_is_shown(d) for d in room.get("doors") or [] if isinstance(d, dict))
+        furniture = _polylines(_wkt(room.get("stencil_geometry")))
+        return _Room(rings, enclosed, _room_doors(room, rings), furniture)
+    except (AttributeError, KeyError, TypeError, ValueError, ShapelyError):
+        log.warning("qbiq design: skipping malformed room %r", room.get("space_type"), exc_info=True)
+        return None
+
+
+def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometry:
+    """Parse a single-file qbiq design JSON (WKT geometry in cm) into a LevelGeometry."""
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not is_qbiq_design(data):
+        raise ValueError("Not a qbiq design JSON: expected top-level 'rooms' and 'nfp_data'")
+    nfp = data["nfp_data"] or {}
+
+    plates = [pl for g in _wkt_many(nfp.get("fill")) for pl in _polylines(g)]
+    rooms = [r for room in data["rooms"] or [] if isinstance(room, dict) and (r := _room(room))]
+    structural = (_corner_segments(nfp.get("walls")) + _corner_segments(nfp.get("interior_walls"))
+                  + _core_polylines(nfp.get("cores")))
+
+    walls = _to_segments(structural + [ring for r in rooms if r.enclosed for ring in r.rings])
+    spaces = plates + [ring for r in rooms for ring in r.rings]
+    doors = [d for r in rooms for d in r.doors]
+    columns = [pl for g in _wkt_many(nfp.get("columns")) for pl in _polylines(g)]
+    windows = _corner_segments(nfp.get("windows"))
+    furniture = [pl for r in rooms for pl in r.furniture]
+
+    if not plates:
+        log.warning("qbiq design: no nfp_data.fill — no floor plate, so corridors between rooms won't be routable")
+    if not doors:
+        log.warning("qbiq design: no doors extracted — routes between rooms may be blocked")
+    if not walls:
+        log.warning("qbiq design: no walls extracted")
+
+    units_to_metres = _fix_implausible_units(0.01, [p for pl in walls + spaces + columns for p in pl])
+    enclosed = sum(r.enclosed for r in rooms)
+    log.info(
+        "qbiq design extracted from '%s' (job_code=%s): %d walls, %d doors, %d columns, "
+        "%d windows, %d furniture, %d spaces (%d enclosed rooms, %d open)",
+        json_path, data.get("job_code", "(none)"), len(walls), len(doors), len(columns),
+        len(windows), len(furniture), len(spaces), enclosed, len(rooms) - enclosed,
+    )
+
+    return LevelGeometry(
+        level_name=level_name,
+        elevation=0.0,
+        walls=walls,
+        spaces=spaces,
+        doors=doors,
+        columns=columns,
+        windows=windows,
+        furniture=furniture,
+        units_to_metres=units_to_metres,
+        source="qbiq",
+        meshes=[],
     )

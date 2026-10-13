@@ -502,7 +502,7 @@ body {
   <div class="header-sep"></div>
 
   <!-- Folder upload (DXF and/or IFC) -->
-  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a project folder containing a .dxf and/or .ifc file">
+  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a project folder containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair">
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
       <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -675,7 +675,7 @@ body {
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
         Click <strong>Load Project</strong> in the top bar to select a folder<br/>
-        containing a .dxf and/or .ifc file
+        containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair
       </div>
     </div>
 
@@ -1378,6 +1378,32 @@ async function doUploadQbiq(jsonFile, svgFile, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
+async function doUploadQbiqDesign(jsonFile, { silent = false } = {}) {
+  if (!silent) showLoading('Reading qbiq design…');
+  const fd = new FormData();
+  fd.append('json_file', jsonFile);
+  fd.append('level', 'L-0');
+  try {
+    const res = await fetch(`${API}/api/upload-qbiq-design`, { method:'POST', body:fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed');
+    applyFloorPlan(data);
+    showHeaderHint('', '');
+  } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
+  finally { if (!silent) hideLoading(); }
+}
+
+/* First .json whose parsed content is a single-file qbiq design (has rooms + nfp_data), else null. */
+async function findQbiqDesign(files) {
+  for (const f of files.filter(f => f.name.toLowerCase().endsWith('.json'))) {
+    try {
+      const data = JSON.parse(await f.text());
+      if (data && typeof data === 'object' && 'rooms' in data && 'nfp_data' in data) return f;
+    } catch (e) { /* not JSON, or unreadable — not a design file */ }
+  }
+  return null;
+}
+
 /* Pick a qbiq .json + .svg pair: same basename stem, else the only one of each. Never guess. */
 function findQbiqPair(files) {
   const stem = f => f.name.toLowerCase().replace(/\.[^.]+$/, '');
@@ -1390,21 +1416,23 @@ function findQbiqPair(files) {
   return jsons.length === 1 && svgs.length === 1 ? { json: jsons[0], svg: svgs[0] } : null;
 }
 
-/* ── Folder upload (DXF, qbiq JSON+SVG, or IFC) ── */
+/* ── Folder upload (DXF, qbiq design JSON, qbiq JSON+SVG, or IFC) ── */
 async function onFolderSelected(inp) {
   const files = Array.from(inp.files);
-  const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
-  const qbiq = dxf ? null : findQbiqPair(files);
-  const ifcFile = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
-  const ifc = qbiq ? null : ifcFile;
   inp.value = '';
+  const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
+  const design = dxf ? null : await findQbiqDesign(files);
+  const qbiq = dxf || design ? null : findQbiqPair(files);
+  const ifcFile = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
+  const ifc = qbiq || design ? null : ifcFile;
 
-  if (!dxf && !qbiq && !ifc) {
-    toast('No DXF, qbiq JSON+SVG pair, or IFC file found in that folder', 'err'); return;
+  if (!dxf && !design && !qbiq && !ifc) {
+    toast('No DXF, qbiq design JSON, qbiq JSON+SVG pair, or IFC file found in that folder', 'err'); return;
   }
 
   const parts = [];
   if (dxf) parts.push('DXF');
+  if (design) parts.push('qbiq design');
   if (qbiq) parts.push('qbiq');
   if (ifc) parts.push('IFC');
 
@@ -1419,10 +1447,11 @@ async function onFolderSelected(inp) {
     // Upload in parallel — both use silent=true so they don't fight over the spinner
     await Promise.all([
       dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
+      design ? doUploadQbiqDesign(design, { silent: true })      : Promise.resolve(),
       qbiq ? doUploadQbiq(qbiq.json, qbiq.svg, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
-    const note = qbiq && ifcFile ? ' (IFC ignored — not supported with qbiq)'
+    const note = (qbiq || design) && ifcFile ? ' (IFC ignored — not supported with qbiq)'
       : dxf && findQbiqPair(files) ? ' (qbiq JSON+SVG ignored — DXF takes precedence)' : '';
     toast(`Loaded ${parts.join(' + ')} from "${folderName}"${note}`, 'ok');
     // Open 3D panel after both are done if IFC was included

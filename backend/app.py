@@ -35,7 +35,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
-from qbiq_extractor  import extract_qbiq
+from qbiq_extractor  import extract_qbiq, extract_qbiq_design
 
 try:
     from dxf_extractor import extract_dxf
@@ -322,6 +322,36 @@ def upload_qbiq():
     finally:
         json_fpath.unlink(missing_ok=True)
         svg_fpath.unlink(missing_ok=True)
+
+    return _load_2d_geometry(geo, clear_ifc=True)
+
+
+@app.route("/api/upload-qbiq-design", methods=["POST"])
+def upload_qbiq_design():
+    """Accept a single-file qbiq design JSON and load it as a standalone 2D floor plan."""
+    if "json_file" not in request.files:
+        return _err("json_file is required")
+    json_f = request.files["json_file"]
+    if not json_f.filename:
+        return _err("Empty filename")
+
+    level_name = request.form.get("level", "L-0")
+
+    json_name = secure_filename(json_f.filename)
+    if not json_name:
+        return _err("Invalid filename")
+
+    # Per-request name so concurrent uploads of same-named files can't collide.
+    json_fpath = UPLOAD_DIR / f"{uuid.uuid4().hex}_{json_name}"
+    try:
+        json_f.save(str(json_fpath))
+        log.info("Uploaded qbiq design: %s", json_fpath)
+        geo = extract_qbiq_design(str(json_fpath), level_name)
+    except Exception as e:
+        log.exception("qbiq design extraction failed")
+        return _err(str(e))
+    finally:
+        json_fpath.unlink(missing_ok=True)
 
     return _load_2d_geometry(geo, clear_ifc=True)
 

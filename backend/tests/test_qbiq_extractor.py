@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -261,3 +264,56 @@ def test_fix_implausible_units_leaves_already_plausible_scale_alone():
     extent_points = [(0.0, 0.0), (3800.0, 2500.0)]
     corrected = qe._fix_implausible_units(0.01, extent_points)
     assert corrected == 0.01
+
+
+_JSON_FIXTURE = {
+    "perimeter_ls": [[[0, 0], [2000, 0]], [[2000, 0], [2000, 2000]],
+                     [[2000, 2000], [0, 2000]], [[0, 2000], [0, 0]]],
+    "core_ls": [], "columns_ls": [
+        [[900, 900], [920, 900]], [[920, 900], [920, 920]],
+        [[920, 920], [900, 920]], [[900, 920], [900, 900]],
+    ],
+    "qbiq_walls_ls": [], "mullions": [],
+    "perimeter": [], "core": [], "columns": [], "qbiq_walls": [],
+}
+
+
+def _write_fixture_files(tmpdir, fixture=_JSON_FIXTURE):
+    json_path = os.path.join(tmpdir, "job.json")
+    svg_path = os.path.join(tmpdir, "job.svg")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(fixture, f)
+    with open(svg_path, "w", encoding="utf-8") as f:
+        f.write(_SVG_FIXTURE)
+    return json_path, svg_path
+
+
+def test_extract_qbiq_produces_a_valid_level_geometry():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path, svg_path = _write_fixture_files(tmpdir)
+        geo = qe.extract_qbiq(json_path, svg_path, level_name="L-1")
+
+    assert geo.level_name == "L-1"
+    assert geo.source == "qbiq"
+    assert geo.units_to_metres == 0.01
+    # JSON perimeter + SVG solid room (r1) -> at least 2 wall rings;
+    # dashed room (r2) contributes no wall
+    assert len(geo.walls) >= 2
+    assert len(geo.columns) == 1
+    assert len(geo.spaces) == 2  # r1 (solid) + r2 (dashed)
+    assert len(geo.doors) == 1
+    assert geo.meshes == []
+
+
+def test_extract_qbiq_applies_units_plausibility_correction():
+    fixture = dict(_JSON_FIXTURE)
+    fixture["perimeter_ls"] = [
+        [[0, 0], [400000, 0]], [[400000, 0], [400000, 400000]],
+        [[400000, 400000], [0, 400000]], [[0, 400000], [0, 0]],
+    ]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path, svg_path = _write_fixture_files(tmpdir, fixture)
+        geo = qe.extract_qbiq(json_path, svg_path)
+
+    # 400000 units at 0.01 m/unit = 4000m (implausible) -> corrected by /100 to 40m
+    assert geo.units_to_metres == pytest.approx(0.0001)

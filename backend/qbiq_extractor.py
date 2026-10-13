@@ -19,7 +19,6 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
 from revit_extractor import LevelGeometry
 
@@ -299,3 +298,48 @@ def _fix_implausible_units(units_to_metres: float, extent_points: list) -> float
         declared_extent_m, units_to_metres,
     )
     return units_to_metres
+
+
+def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> LevelGeometry:
+    """Parse a matched qbiq Spaceplanner JSON+SVG export pair into a
+    LevelGeometry. See the module docstring and the design spec for the
+    full rationale."""
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    json_walls, columns, windows, extent_points = _extract_json_structure(data)
+
+    svg_root = ET.parse(svg_path).getroot()
+    svg_walls, spaces, doors = _extract_rooms_and_doors(svg_root)
+
+    units_to_metres = _fix_implausible_units(0.01, extent_points)
+
+    # The JSON format carries no job_code field to cross-check against —
+    # only the SVG's <desc> does — so this is a one-sided diagnostic
+    # breadcrumb for whoever investigates a bad-looking import later, not a
+    # validation step (the spec explicitly doesn't require detecting a
+    # mismatched JSON/SVG pair). Read the <desc> element directly rather
+    # than re-serialising the whole (potentially 1MB+) SVG back to a string.
+    desc_elem = svg_root.find(".//svg:desc", _SVG_NS)
+    job_code_match = re.search(r'job_code="([^"]*)"', desc_elem.text or "") if desc_elem is not None else None
+    job_code = job_code_match.group(1) if job_code_match else "(none found)"
+
+    log.info(
+        "qbiq extracted from '%s' + '%s' (svg job_code=%s): %d walls, "
+        "%d doors, %d columns, %d windows, %d spaces",
+        json_path, svg_path, job_code, len(json_walls) + len(svg_walls),
+        len(doors), len(columns), len(windows), len(spaces),
+    )
+
+    return LevelGeometry(
+        level_name=level_name,
+        elevation=0.0,
+        walls=json_walls + svg_walls,
+        spaces=spaces,
+        doors=doors,
+        columns=columns,
+        windows=windows,
+        furniture=[],
+        units_to_metres=units_to_metres,
+        source="qbiq",
+    )

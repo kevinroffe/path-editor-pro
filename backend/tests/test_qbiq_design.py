@@ -145,6 +145,75 @@ def test_two_doors_in_one_room_each_get_their_own_opening(tmp_path):
     assert doors[1] == [pytest.approx((500, 200)), pytest.approx((500, 300))]
 
 
+def _spans(geo):
+    """Each door as a sorted pair of rounded endpoints, doors sorted."""
+    return sorted(sorted((round(x, 6), round(y, 6)) for x, y in d) for d in geo.doors)
+
+
+def test_two_doors_on_the_same_edge_with_shared_geometry_get_separate_spans(tmp_path):
+    room = dict(
+        _ENCLOSED_ROOM,
+        doors=[
+            {"door_line": "LINESTRING (500 0, 500 500)", "show_door": True},
+            {"door_line": "LINESTRING (500 0, 500 500)", "show_door": True},
+        ],
+        door_geometry=(
+            "GEOMETRYCOLLECTION (LINESTRING (500 50, 492.5 50), LINESTRING (500 150, 492.5 150), "
+            "LINESTRING (500 150, 410 150), LINESTRING (410 150, 437 87, 500 50), "
+            "LINESTRING (500 350, 492.5 350), LINESTRING (500 450, 492.5 450), "
+            "LINESTRING (500 450, 410 450), LINESTRING (410 450, 437 387, 500 350))"
+        ),
+    )
+    assert _spans(_extract(tmp_path, _with_room(room))) == [[(500, 50), (500, 150)], [(500, 350), (500, 450)]]
+
+
+def test_mislabelled_door_line_with_shared_geometry_lands_on_its_own_drawing(tmp_path):
+    room = dict(
+        _ENCLOSED_ROOM,
+        doors=[
+            {"door_line": "LINESTRING (500 0, 500 500)", "show_door": True},
+            {"door_line": "LINESTRING (0 0, 0 500)", "show_door": True},
+        ],
+        door_geometry=(
+            "GEOMETRYCOLLECTION (LINESTRING (500 200, 492.5 200), LINESTRING (500 200, 500 300), LINESTRING (500 300, 492.5 300), "
+            "LINESTRING (300 500, 300 492.5), LINESTRING (300 500, 400 500), LINESTRING (400 500, 400 492.5))"
+        ),
+    )
+    assert _spans(_extract(tmp_path, _with_room(room))) == [[(300, 500), (400, 500)], [(500, 200), (500, 300)]]
+
+
+def test_hidden_door_still_claims_its_drawing_from_shared_geometry(tmp_path):
+    room = dict(
+        _ENCLOSED_ROOM,
+        doors=[
+            {"door_line": "LINESTRING (500 0, 500 500)", "show_door": False},
+            {"door_line": "LINESTRING (500 0, 500 500)", "show_door": True},
+        ],
+        door_geometry="GEOMETRYCOLLECTION (LINESTRING (500 50, 500 150), LINESTRING (500 350, 500 450))",
+    )
+    spans = _spans(_extract(tmp_path, _with_room(room)))
+    assert len(spans) == 1 and spans[0] in ([(500, 50), (500, 150)], [(500, 350), (500, 450)])
+
+
+def test_utf8_bom_prefixed_file_is_read(tmp_path):
+    path = tmp_path / "bom.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps(DESIGN).encode("utf-8"))
+    assert len(qe.extract_qbiq_design(str(path)).spaces) == 3
+
+
+def test_utf8_bom_prefixed_pair_json_is_read(tmp_path):
+    from tests.test_app_qbiq_upload import _JSON_FIXTURE, _SVG_FIXTURE
+    json_path, svg_path = tmp_path / "pair.json", tmp_path / "pair.svg"
+    json_path.write_bytes(b"\xef\xbb\xbf" + json.dumps(_JSON_FIXTURE).encode("utf-8"))
+    svg_path.write_text(_SVG_FIXTURE, encoding="utf-8")
+    assert qe.extract_qbiq(str(json_path), str(svg_path)).walls
+
+
+def test_non_dict_nfp_data_raises_clear_error(tmp_path):
+    with pytest.raises(ValueError, match="nfp_data"):
+        _extract(tmp_path, {"rooms": [], "nfp_data": "oops"})
+
+
 def test_columns_windows_and_furniture(tmp_path):
     geo = _extract(tmp_path)
     assert len(geo.columns) == 1 and geo.columns[0][0] == geo.columns[0][-1]
@@ -173,3 +242,5 @@ def test_is_qbiq_design():
     assert qe.is_qbiq_design(DESIGN)
     assert not qe.is_qbiq_design({"rooms": []})
     assert not qe.is_qbiq_design({"perimeter_ls": [], "columns_ls": []})
+    assert not qe.is_qbiq_design({"rooms": [], "nfp_data": None})
+    assert not qe.is_qbiq_design({"rooms": "x", "nfp_data": {}})

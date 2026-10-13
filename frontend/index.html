@@ -1362,14 +1362,14 @@ async function doUpload(f, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
-async function doUploadQbiq(jsonFile, svgFile, { silent = false } = {}) {
-  if (!silent) showLoading('Reading qbiq floor plan…');
+/* Upload multipart `fields` (name → File) to a standalone-2D-plan endpoint and apply the result. */
+async function doUploadPlan(endpoint, fields, { silent = false, loadingText = 'Reading floor plan…' } = {}) {
+  if (!silent) showLoading(loadingText);
   const fd = new FormData();
-  fd.append('json_file', jsonFile);
-  fd.append('svg_file', svgFile);
+  for (const [name, file] of Object.entries(fields)) fd.append(name, file);
   fd.append('level', 'L-0');
   try {
-    const res = await fetch(`${API}/api/upload-qbiq`, { method:'POST', body:fd });
+    const res = await fetch(`${API}${endpoint}`, { method:'POST', body:fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error||'Failed');
     applyFloorPlan(data);
@@ -1378,27 +1378,24 @@ async function doUploadQbiq(jsonFile, svgFile, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
-async function doUploadQbiqDesign(jsonFile, { silent = false } = {}) {
-  if (!silent) showLoading('Reading qbiq design…');
-  const fd = new FormData();
-  fd.append('json_file', jsonFile);
-  fd.append('level', 'L-0');
-  try {
-    const res = await fetch(`${API}/api/upload-qbiq-design`, { method:'POST', body:fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error||'Failed');
-    applyFloorPlan(data);
-    showHeaderHint('', '');
-  } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
-  finally { if (!silent) hideLoading(); }
+const SNIFF_BYTES = 64 * 1024;
+const MAX_DESIGN_JSON_BYTES = 200 * 1024 * 1024;
+
+/* Cheap pre-check: a design key appears in the first or last 64 KB. Key order isn't fixed —
+   on real exports "nfp_data" comes after the ~1 MB rooms list, so the head alone isn't enough. */
+async function mightBeQbiqDesign(f) {
+  const head = await f.slice(0, SNIFF_BYTES).text();
+  const tail = f.size > SNIFF_BYTES ? await f.slice(-SNIFF_BYTES).text() : '';
+  return ['"rooms"', '"nfp_data"'].some(key => head.includes(key) || tail.includes(key));
 }
 
 /* First .json whose parsed content is a single-file qbiq design (has rooms + nfp_data), else null. */
 async function findQbiqDesign(files) {
-  for (const f of files.filter(f => f.name.toLowerCase().endsWith('.json'))) {
+  for (const f of files.filter(f => f.name.toLowerCase().endsWith('.json') && f.size <= MAX_DESIGN_JSON_BYTES)) {
     try {
+      if (!await mightBeQbiqDesign(f)) continue;
       const data = JSON.parse(await f.text());
-      if (data && typeof data === 'object' && 'rooms' in data && 'nfp_data' in data) return f;
+      if (data && typeof data === 'object' && Array.isArray(data.rooms) && data.nfp_data && typeof data.nfp_data === 'object') return f;
     } catch (e) { /* not JSON, or unreadable — not a design file */ }
   }
   return null;
@@ -1447,8 +1444,8 @@ async function onFolderSelected(inp) {
     // Upload in parallel — both use silent=true so they don't fight over the spinner
     await Promise.all([
       dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
-      design ? doUploadQbiqDesign(design, { silent: true })      : Promise.resolve(),
-      qbiq ? doUploadQbiq(qbiq.json, qbiq.svg, { silent: true }) : Promise.resolve(),
+      design ? doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true }) : Promise.resolve(),
+      qbiq ? doUploadPlan('/api/upload-qbiq', { json_file: qbiq.json, svg_file: qbiq.svg }, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
     const note = (qbiq || design) && ifcFile ? ' (IFC ignored — not supported with qbiq)'

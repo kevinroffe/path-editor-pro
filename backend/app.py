@@ -18,6 +18,7 @@ import os
 import sys
 import json
 import logging
+from contextlib import contextmanager
 import uuid
 from pathlib import Path
 
@@ -290,39 +291,37 @@ def upload():
     return _load_2d_geometry(geo, clear_ifc=False)
 
 
+@contextmanager
+def _saved_uploads(*files):
+    """Save uploads under per-request uuid-prefixed names (so concurrent uploads
+    of same-named files can't collide), yield their paths, delete them on exit.
+    Raises ValueError for a filename that is empty or sanitises to empty."""
+    if not all(names := [secure_filename(f.filename or "") for f in files]):
+        raise ValueError("Invalid filename")
+    prefix = uuid.uuid4().hex
+    paths = [UPLOAD_DIR / f"{prefix}_{name}" for name in names]
+    try:
+        for f, path in zip(files, paths):
+            f.save(str(path))
+        yield paths
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)
+
+
 @app.route("/api/upload-qbiq", methods=["POST"])
 def upload_qbiq():
     """Accept a qbiq JSON + SVG pair and load it as a standalone 2D floor plan."""
     if "json_file" not in request.files or "svg_file" not in request.files:
         return _err("Both json_file and svg_file are required")
-    json_f = request.files["json_file"]
-    svg_f = request.files["svg_file"]
-    if not json_f.filename or not svg_f.filename:
-        return _err("Empty filename")
-
     level_name = request.form.get("level", "L-0")
-
-    json_name = secure_filename(json_f.filename)
-    svg_name = secure_filename(svg_f.filename)
-    if not json_name or not svg_name:
-        return _err("Invalid filename")
-
-    # Per-request names so concurrent uploads of same-named files can't collide.
-    prefix = uuid.uuid4().hex
-    json_fpath = UPLOAD_DIR / f"{prefix}_{json_name}"
-    svg_fpath = UPLOAD_DIR / f"{prefix}_{svg_name}"
     try:
-        json_f.save(str(json_fpath))
-        svg_f.save(str(svg_fpath))
-        log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
-        geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
+        with _saved_uploads(request.files["json_file"], request.files["svg_file"]) as (json_fpath, svg_fpath):
+            log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
+            geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
     except Exception as e:
         log.exception("qbiq extraction failed")
         return _err(str(e))
-    finally:
-        json_fpath.unlink(missing_ok=True)
-        svg_fpath.unlink(missing_ok=True)
-
     return _load_2d_geometry(geo, clear_ifc=True)
 
 
@@ -331,28 +330,14 @@ def upload_qbiq_design():
     """Accept a single-file qbiq design JSON and load it as a standalone 2D floor plan."""
     if "json_file" not in request.files:
         return _err("json_file is required")
-    json_f = request.files["json_file"]
-    if not json_f.filename:
-        return _err("Empty filename")
-
     level_name = request.form.get("level", "L-0")
-
-    json_name = secure_filename(json_f.filename)
-    if not json_name:
-        return _err("Invalid filename")
-
-    # Per-request name so concurrent uploads of same-named files can't collide.
-    json_fpath = UPLOAD_DIR / f"{uuid.uuid4().hex}_{json_name}"
     try:
-        json_f.save(str(json_fpath))
-        log.info("Uploaded qbiq design: %s", json_fpath)
-        geo = extract_qbiq_design(str(json_fpath), level_name)
+        with _saved_uploads(request.files["json_file"]) as (json_fpath,):
+            log.info("Uploaded qbiq design: %s", json_fpath)
+            geo = extract_qbiq_design(str(json_fpath), level_name)
     except Exception as e:
         log.exception("qbiq design extraction failed")
         return _err(str(e))
-    finally:
-        json_fpath.unlink(missing_ok=True)
-
     return _load_2d_geometry(geo, clear_ifc=True)
 
 

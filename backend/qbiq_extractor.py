@@ -20,13 +20,15 @@ JSON whose geometry is WKT in centimetres (top-level `rooms` + `nfp_data`).
 from __future__ import annotations
 import json
 import logging
+import math
 import re
 import xml.etree.ElementTree as ET
 from collections import namedtuple
 
 from shapely import wkt
 from shapely.errors import ShapelyError
-from shapely.geometry import LineString, Point as GeomPoint
+from shapely.geometry import LineString, MultiPoint, Point as GeomPoint
+from shapely.ops import unary_union
 
 from revit_extractor import LevelGeometry
 
@@ -350,7 +352,7 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
     """Parse a matched qbiq Spaceplanner JSON+SVG export pair into a
     LevelGeometry. See the module docstring and the design spec for the
     full rationale."""
-    with open(json_path, "r", encoding="utf-8") as f:
+    with open(json_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     json_walls, columns, windows, extent_points = _extract_json_structure(data)
@@ -402,6 +404,7 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
 
 _DOOR_TOUCH_TOL = 3.0
 _EDGE_TOUCH_TOL = 10.0
+_CLUSTER_GAP = 15.0
 _FALLBACK_DOOR_WIDTH = 90.0
 _LINEAR_TYPES = {"LineString", "LinearRing", "Polygon"}
 
@@ -410,7 +413,7 @@ _Room = namedtuple("_Room", "rings enclosed doors furniture")
 
 def is_qbiq_design(data: dict) -> bool:
     """True for a single-file qbiq design JSON (top-level rooms + nfp_data)."""
-    return isinstance(data, dict) and "rooms" in data and "nfp_data" in data
+    return isinstance(data, dict) and isinstance(data.get("rooms"), list) and isinstance(data.get("nfp_data"), dict)
 
 
 def _wkt(text):
@@ -504,18 +507,35 @@ def _extent(line, points: list, tol: float):
     return _span(line, min(pos), max(pos)) if len(pos) >= 2 and max(pos) > min(pos) else None
 
 
-def _door_points(door: dict, room: dict, lines: list) -> list:
-    """The door's drawing vertices: its own door_geometry, else the room's shared
-    one restricted to points nearer this door's line than the room's other doors'."""
-    if own := _wkt(door.get("door_geometry")):
-        return _vertices(own)
-    shared = _vertices(_wkt(room.get("door_geometry")))
-    if (line := _wkt(door.get("door_line"))) is None or len(lines) < 2:
-        return shared
-    return [p for p in shared if line.distance(GeomPoint(p)) <= min(o.distance(GeomPoint(p)) for o in lines)]
+def _clusters(geom) -> list:
+    """Split a drawing into connected clusters (parts within _CLUSTER_GAP of each other), as vertex lists."""
+    parts = _parts(geom)
+    blobs = _parts(unary_union([p.buffer(_CLUSTER_GAP / 2) for p in parts]))
+    return [[pt for p in parts if blob.intersects(p) for pt in _part_coords(p)] for blob in blobs]
 
 
-def _door_opening(door: dict, points: list, edges: list):
+def _assign_clusters(lines: list, clusters: list) -> list:
+    """
+    Give each door one drawing cluster, closest (line, cluster) pairs first,
+    so two doors never share one drawing and a mislabelled door_line still
+    ends up with the drawing nobody nearer claimed; doors without a line take
+    what's left in order. Clusters still unclaimed after that (a drawing with
+    gaps, e.g. jamb ticks and no swing arc) join the door with the nearest line.
+    """
+    dist = [[math.inf if line is None else line.distance(MultiPoint(c)) for c in clusters] for line in lines]
+    assigned, taken = {}, set()
+    for _, i, j in sorted((dist[i][j], i, j) for i in range(len(lines)) for j in range(len(clusters))):
+        if i not in assigned and j not in taken:
+            assigned[i] = j
+            taken.add(j)
+    points = [list(clusters[assigned[i]]) if i in assigned else [] for i in range(len(lines))]
+    for j in set(range(len(clusters))) - taken:
+        if (nearest := min(range(len(lines)), key=lambda i: dist[i][j], default=None)) is not None and dist[nearest][j] < math.inf:
+            points[nearest] += clusters[j]
+    return points
+
+
+def _door_opening(line, points: list, edges: list):
     """
     The real opening is where the door drawing touches its wall line. door_line
     is the whole wall edge, but on real exports it is sometimes a different
@@ -524,7 +544,6 @@ def _door_opening(door: dict, points: list, edges: list):
     most drawing points within _EDGE_TOUCH_TOL is tried next, before the
     fixed-width midpoint fallback.
     """
-    line = _wkt(door.get("door_line"))
     if line is not None and (opening := _extent(line, points, _DOOR_TOUCH_TOL)):
         return opening
     best = max(edges, key=lambda e: len(_touching(e, points, _EDGE_TOUCH_TOL)), default=None)
@@ -541,9 +560,13 @@ def _door_opening(door: dict, points: list, edges: list):
 def _room_doors(room: dict, rings: list) -> list:
     """One trimmed 2-point opening per visible door of a room."""
     doors = [d for d in room.get("doors") or [] if isinstance(d, dict)]
-    lines = [ln for d in doors if (ln := _wkt(d.get("door_line"))) is not None]
+    lines = [_wkt(d.get("door_line")) for d in doors]
+    shared = _assign_clusters(lines, _clusters(_wkt(room.get("door_geometry"))))
     edges = [LineString(pair) for ring in rings for pair in zip(ring, ring[1:])]
-    return [op for d in doors if _is_shown(d) and (op := _door_opening(d, _door_points(d, room, lines), edges))]
+    return [
+        op for d, line, cluster in zip(doors, lines, shared)
+        if _is_shown(d) and (op := _door_opening(line, _vertices(own) if (own := _wkt(d.get("door_geometry"))) else cluster, edges))
+    ]
 
 
 def _room(room: dict):
@@ -562,14 +585,14 @@ def _room(room: dict):
 
 def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometry:
     """Parse a single-file qbiq design JSON (WKT geometry in cm) into a LevelGeometry."""
-    with open(json_path, "r", encoding="utf-8") as f:
+    with open(json_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
     if not is_qbiq_design(data):
-        raise ValueError("Not a qbiq design JSON: expected top-level 'rooms' and 'nfp_data'")
-    nfp = data["nfp_data"] or {}
+        raise ValueError("Not a qbiq design JSON: expected a top-level 'rooms' list and 'nfp_data' object")
+    nfp = data["nfp_data"]
 
     plates = [pl for g in _wkt_many(nfp.get("fill")) for pl in _polylines(g)]
-    rooms = [r for room in data["rooms"] or [] if isinstance(room, dict) and (r := _room(room))]
+    rooms = [r for room in data["rooms"] if isinstance(room, dict) and (r := _room(room))]
     structural = (_corner_segments(nfp.get("walls")) + _corner_segments(nfp.get("interior_walls"))
                   + _core_polylines(nfp.get("cores")))
 
@@ -607,5 +630,4 @@ def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometr
         furniture=furniture,
         units_to_metres=units_to_metres,
         source="qbiq",
-        meshes=[],
     )

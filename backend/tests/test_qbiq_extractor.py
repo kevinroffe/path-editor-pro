@@ -154,3 +154,110 @@ def test_pick_door_polyline_returns_none_when_no_real_fill_present():
         ("None", [(1.0, 1.0), (2.0, 2.0)]),
     ]
     assert qe._pick_door_polyline(candidates) is None
+
+
+_SVG_FIXTURE = """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+<desc>job_code="TEST0001"</desc>
+<g id="maing"><g id="designg"><g id="prop">
+<g id="ext"></g>
+<g id="rooms">
+<path fill="#E9D8A6" stroke="#000000" stroke-width="1.42" class="d0 r1 office c1 h1 a1"
+      d="M 0,0 L 10,0 L 10,10 L 0,10 L 0,0 z" />
+<polyline points="4,0 4,-1" fill="None" stroke="#000000" stroke-width="0.21"
+          class="r1 c1 door_id_abc regular main"/>
+<polyline points="6,0 4,0" fill="#E9D8A6" stroke="white" stroke-width="1.7"
+          class="r1 c1 door_id_abc regular main"/>
+<path fill="#D7C2AD" stroke="#000000" stroke-dasharray="4" stroke-width="0.2"
+      class="d0 r2 comfort-zone c2 h1 a1"
+      d="M 10,0 L 20,0 L 20,10 L 10,10 L 10,0 z" />
+</g>
+<g id="cols"></g>
+</g></g></g>
+</svg>"""
+
+
+def test_extract_rooms_and_doors_separates_solid_from_dashed():
+    root = ET.fromstring(_SVG_FIXTURE)
+    walls, spaces, doors = qe._extract_rooms_and_doors(root)
+    # solid room (r1) contributes both a wall ring and a space; dashed
+    # room (r2) contributes a space only
+    assert len(spaces) == 2
+    assert len(walls) == 1
+    assert walls[0][0] == (0.0, 0.0) and walls[0][-1] == (0.0, 0.0)
+    # exactly one door, using the real-fill polyline's points
+    assert doors == [[(6.0, 0.0), (4.0, 0.0)]]
+
+
+def test_extract_rooms_and_doors_skips_a_door_with_no_real_fill_polyline():
+    # Review Focus: a door_id group where every polyline has fill="None" —
+    # must be skipped (logged, not crashed), not invented or mis-picked.
+    svg = """<svg xmlns="http://www.w3.org/2000/svg">
+    <g id="maing"><g id="designg"><g id="prop">
+    <g id="ext"></g>
+    <g id="rooms">
+    <path fill="#E9D8A6" stroke="#000000" stroke-width="1.42" class="d0 r9 office c9 h1 a1"
+          d="M 0,0 L 10,0 L 10,10 L 0,10 L 0,0 z" />
+    <polyline points="4,0 4,-1" fill="None" stroke="#000000" stroke-width="0.21"
+              class="r9 c9 door_id_broken regular main"/>
+    <polyline points="6,0 4,0" fill="None" stroke="#000000" stroke-width="0.21"
+              class="r9 c9 door_id_broken regular main"/>
+    </g>
+    <g id="cols"></g>
+    </g></g></g>
+    </svg>"""
+    root = ET.fromstring(svg)
+    walls, spaces, doors = qe._extract_rooms_and_doors(root)
+    assert len(spaces) == 1  # the room itself still parses fine
+    assert doors == []       # the broken door group is skipped, not guessed
+
+
+def test_extract_json_structure_categorises_each_key():
+    data = {
+        "perimeter_ls": [[[0, 0], [10, 0]], [[10, 0], [10, 10]],
+                         [[10, 10], [0, 10]], [[0, 10], [0, 0]]],
+        "core_ls": [[[2, 2], [3, 2]], [[3, 2], [3, 3]],
+                    [[3, 3], [2, 3]], [[2, 3], [2, 2]]],
+        "columns_ls": [[[5, 5], [5.2, 5]], [[5.2, 5], [5.2, 5.2]],
+                       [[5.2, 5.2], [5, 5.2]], [[5, 5.2], [5, 5]]],
+        "qbiq_walls_ls": [],
+        "mullions": [[[0, 0], [0, 1]]],
+        "perimeter": [[0, 0]], "core": [[2, 2]], "columns": [[5, 5]],
+        "qbiq_walls": [],
+    }
+    walls, columns, windows, extent_points = qe._extract_json_structure(data)
+    # perimeter + core both become walls -> 2 closed chains
+    assert len(walls) == 2
+    assert len(columns) == 1
+    assert columns[0][0] == columns[0][-1]
+    assert windows == [[(0.0, 0.0), (0.0, 1.0)]]
+    assert (10.0, 10.0) in extent_points
+
+
+def test_extract_json_structure_handles_populated_qbiq_walls_and_mullions():
+    # Review Focus: qbiq_walls_ls / mullions actually populated, not just
+    # the empty case from the one real reference file.
+    data = {
+        "perimeter_ls": [], "core_ls": [], "columns_ls": [],
+        "qbiq_walls_ls": [[[1, 1], [1, 2]], [[1, 2], [2, 2]],
+                          [[2, 2], [2, 1]], [[2, 1], [1, 1]]],
+        "mullions": [[[9, 9], [9, 10]], [[20, 20], [20, 21]]],
+        "perimeter": [], "core": [], "columns": [], "qbiq_walls": [],
+    }
+    walls, columns, windows, extent_points = qe._extract_json_structure(data)
+    assert len(walls) == 1  # the qbiq_walls_ls square
+    assert walls[0][0] == walls[0][-1]
+    assert len(windows) == 2  # two separate, unconnected mullion bars
+
+
+def test_fix_implausible_units_corrects_centimetre_declared_as_metre_scale():
+    # A building whose real size is ~38m, if units_to_metres were wrongly 1.0
+    # instead of 0.01, would declare an impossible 3800m footprint.
+    extent_points = [(0.0, 0.0), (3800.0, 2500.0)]
+    corrected = qe._fix_implausible_units(1.0, extent_points)
+    assert abs(corrected - 0.01) < 1e-9
+
+
+def test_fix_implausible_units_leaves_already_plausible_scale_alone():
+    extent_points = [(0.0, 0.0), (3800.0, 2500.0)]
+    corrected = qe._fix_implausible_units(0.01, extent_points)
+    assert corrected == 0.01

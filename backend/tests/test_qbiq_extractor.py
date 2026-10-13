@@ -124,6 +124,20 @@ def test_has_dashed_stroke_true_when_in_inline_style():
     assert qe._has_dashed_stroke(elem) is True
 
 
+def test_has_dashed_stroke_false_for_literal_none_value():
+    elem = ET.fromstring(
+        '<path fill="#E9D8A6" stroke-dasharray="none" d="M 0,0 L 1,1 z"/>'
+    )
+    assert qe._has_dashed_stroke(elem) is False
+
+
+def test_has_dashed_stroke_false_for_none_in_inline_style():
+    elem = ET.fromstring(
+        '<path fill="#E9D8A6" style="stroke-dasharray:none" d="M 0,0 L 1,1 z"/>'
+    )
+    assert qe._has_dashed_stroke(elem) is False
+
+
 def test_pick_door_polyline_finds_the_real_fill_one():
     candidates = [
         ("None", [(247.5, 154.9), (235.8, 154.9)]),   # jamb detail

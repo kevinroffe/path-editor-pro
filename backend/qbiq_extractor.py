@@ -102,7 +102,7 @@ _SUPPORTED_PATH_COMMANDS = set("MLZ")
 _COORD_PAIR_RE = re.compile(r"(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
 
 
-def _parse_path_d(d: str) -> list:
+def _parse_path_d(d: str) -> list[tuple[float, float]]:
     """
     Parse an SVG path `d` attribute into a point list. Only M/L/Z are
     supported — every room path in the one real reference export uses
@@ -125,16 +125,20 @@ def _has_dashed_stroke(elem) -> bool:
     """
     True if this SVG element's stroke is dashed, via EITHER the plain
     `stroke-dasharray` attribute or an inline `style="...stroke-dasharray:
-    ...  "` declaration (the reference export uses the plain attribute, but
-    both are valid SVG and a future export could use either).
+    ..."` declaration. A literal "none" value in either form explicitly
+    means "no dash" and must not be treated as dashed.
     """
-    if elem.get("stroke-dasharray"):
+    attr = (elem.get("stroke-dasharray") or "").strip().lower()
+    if attr and attr != "none":
         return True
     style = elem.get("style") or ""
-    return "stroke-dasharray" in style
+    match = re.search(r"stroke-dasharray\s*:\s*([^;]+)", style, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().lower() != "none"
+    return False
 
 
-def _pick_door_polyline(candidates: list):
+def _pick_door_polyline(candidates: list) -> list[tuple[float, float]] | None:
     """
     Among every polyline sharing one door_id_... class (jamb lines, swing-
     arc detail, and exactly one real opening-width reference line in the
@@ -143,7 +147,7 @@ def _pick_door_polyline(candidates: list):
     None if no candidate has a real fill, so the caller can skip that door
     with a clear log message instead of guessing.
     """
-    for fill, points in candidates:
-        if fill and fill != "None":
-            return points
-    return None
+    return next(
+        (points for fill, points in candidates if fill and fill != "None"),
+        None,
+    )

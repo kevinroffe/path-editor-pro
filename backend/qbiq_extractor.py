@@ -229,6 +229,19 @@ def _ls_to_polylines(segments_raw: list) -> list:
     return _stitch_segments(segments)
 
 
+def _floor_plates(data: dict) -> list:
+    """Closed perimeter_ls loops — the whole floor plate, so circulation
+    space between rooms is routable, not just room interiors."""
+    return [c for c in _ls_to_polylines(data.get("perimeter_ls", [])) if len(c) >= 4 and c[0] == c[-1]]
+
+
+def _to_segments(polylines: list) -> list:
+    """Explode polylines into 2-point segments — the shape DXF walls arrive in,
+    which both routers assume (grid A* blocks each wall's whole bbox, so a
+    closed ring would block everything inside it)."""
+    return [[a, b] for pl in polylines for a, b in zip(pl, pl[1:]) if a != b]
+
+
 def _extract_json_structure(data: dict):
     """
     Returns (wall_polylines, column_polylines, window_polylines,
@@ -312,6 +325,9 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
     svg_root = ET.parse(svg_path).getroot()
     svg_walls, spaces, doors = _extract_rooms_and_doors(svg_root)
 
+    spaces = _floor_plates(data) + spaces
+    walls = _to_segments(json_walls + svg_walls)
+
     units_to_metres = _fix_implausible_units(0.01, extent_points)
 
     # The JSON format carries no job_code field to cross-check against —
@@ -327,14 +343,14 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
     log.info(
         "qbiq extracted from '%s' + '%s' (svg job_code=%s): %d walls, "
         "%d doors, %d columns, %d windows, %d spaces",
-        json_path, svg_path, job_code, len(json_walls) + len(svg_walls),
+        json_path, svg_path, job_code, len(walls),
         len(doors), len(columns), len(windows), len(spaces),
     )
 
     return LevelGeometry(
         level_name=level_name,
         elevation=0.0,
-        walls=json_walls + svg_walls,
+        walls=walls,
         spaces=spaces,
         doors=doors,
         columns=columns,

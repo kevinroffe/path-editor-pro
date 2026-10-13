@@ -288,6 +288,35 @@ def _write_fixture_files(tmpdir, fixture=_JSON_FIXTURE):
     return json_path, svg_path
 
 
+def test_extract_qbiq_includes_closed_perimeter_as_first_space():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path, svg_path = _write_fixture_files(tmpdir)
+        geo = qe.extract_qbiq(json_path, svg_path)
+
+    plate = geo.spaces[0]
+    assert plate[0] == plate[-1]
+    assert set(plate) == {(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)}
+
+
+def test_to_segments_explodes_closed_ring():
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]
+    segs = qe._to_segments([ring])
+    assert len(segs) == 4
+    assert all(len(sg) == 2 for sg in segs)
+
+
+def test_extract_qbiq_walls_are_two_point_segments():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path, svg_path = _write_fixture_files(tmpdir)
+        geo = qe.extract_qbiq(json_path, svg_path)
+
+    assert all(len(w) == 2 for w in geo.walls)
+
+
+def test_floor_plates_ignores_open_perimeter_chain():
+    assert qe._floor_plates({"perimeter_ls": [[[0, 0], [10, 0]], [[10, 0], [10, 10]]]}) == []
+
+
 def test_extract_qbiq_produces_a_valid_level_geometry():
     with tempfile.TemporaryDirectory() as tmpdir:
         json_path, svg_path = _write_fixture_files(tmpdir)
@@ -298,9 +327,9 @@ def test_extract_qbiq_produces_a_valid_level_geometry():
     assert geo.units_to_metres == 0.01
     # JSON perimeter + SVG solid room (r1) -> at least 2 wall rings;
     # dashed room (r2) contributes no wall
-    assert len(geo.walls) >= 2
+    assert len(geo.walls) == 8  # 4 perimeter segments + 4 for r1's ring
     assert len(geo.columns) == 1
-    assert len(geo.spaces) == 2  # r1 (solid) + r2 (dashed)
+    assert len(geo.spaces) == 3  # floor plate + r1 (solid) + r2 (dashed)
     assert len(geo.doors) == 1
     assert geo.meshes == []
 

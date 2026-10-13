@@ -57,17 +57,20 @@ def test_upload_qbiq_returns_upload_shaped_response(client):
     assert body["units_to_metres"] == 0.01
     assert "geometry" in body and "walls" in body["geometry"]
     assert len(body["geometry"]["walls"]) >= 1
-    assert len(body["geometry"]["spaces"]) == 1
+    assert len(body["geometry"]["spaces"]) == 2
 
 
 def test_upload_qbiq_populates_the_same_caches_as_dxf_upload(client):
     assert _post_pair(client).status_code == 200
     # Smart Path must work immediately after a qbiq upload, exactly like
     # after a DXF upload, since it reads the same _LAST_* caches. Points are in
-    # SVG-display space (Y negated) and inside the room footprint.
+    # SVG-display space (Y negated); the route runs over open floor outside
+    # the room, so it only works because the floor plate is in the footprint.
+    assert len(app_module._LAST_FOOTPRINT["dxf"]) == 2
+    assert app_module._LAST_WALLS["dxf"]
     autopath_resp = client.post("/api/autopath", json={
-        "start": [100, -100],
-        "end": [400, -400],
+        "start": [1000, -750],
+        "end": [1800, -1300],
     })
     assert autopath_resp.status_code == 200
     assert len(autopath_resp.get_json()["waypoints"]) >= 2

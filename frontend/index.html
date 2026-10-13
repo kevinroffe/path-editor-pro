@@ -1362,19 +1362,50 @@ async function doUpload(f, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
-/* ── Folder upload (DXF + IFC together) ── */
+async function doUploadQbiq(jsonFile, svgFile, { silent = false } = {}) {
+  if (!silent) showLoading('Reading qbiq floor plan…');
+  const fd = new FormData();
+  fd.append('json_file', jsonFile);
+  fd.append('svg_file', svgFile);
+  fd.append('level', 'L-0');
+  try {
+    const res = await fetch(`${API}/api/upload-qbiq`, { method:'POST', body:fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed');
+    applyFloorPlan(data);
+    showHeaderHint('', '');
+  } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
+  finally { if (!silent) hideLoading(); }
+}
+
+/* Pick a qbiq .json + .svg pair: same basename stem, else the only one of each. Never guess. */
+function findQbiqPair(files) {
+  const stem = f => f.name.toLowerCase().replace(/\.[^.]+$/, '');
+  const jsons = files.filter(f => f.name.toLowerCase().endsWith('.json'));
+  const svgs = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
+  for (const json of jsons) {
+    const svg = svgs.find(s => stem(s) === stem(json));
+    if (svg) return { json, svg };
+  }
+  return jsons.length === 1 && svgs.length === 1 ? { json: jsons[0], svg: svgs[0] } : null;
+}
+
+/* ── Folder upload (DXF, qbiq JSON+SVG, or IFC) ── */
 async function onFolderSelected(inp) {
   const files = Array.from(inp.files);
   const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
-  const ifc = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
+  const qbiq = dxf ? null : findQbiqPair(files);
+  const ifcFile = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
+  const ifc = qbiq ? null : ifcFile;
   inp.value = '';
 
-  if (!dxf && !ifc) {
-    toast('No DXF or IFC files found in that folder', 'err'); return;
+  if (!dxf && !qbiq && !ifc) {
+    toast('No DXF, qbiq JSON+SVG pair, or IFC file found in that folder', 'err'); return;
   }
 
   const parts = [];
   if (dxf) parts.push('DXF');
+  if (qbiq) parts.push('qbiq');
   if (ifc) parts.push('IFC');
 
   const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
@@ -1388,9 +1419,12 @@ async function onFolderSelected(inp) {
     // Upload in parallel — both use silent=true so they don't fight over the spinner
     await Promise.all([
       dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
+      qbiq ? doUploadQbiq(qbiq.json, qbiq.svg, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
-    toast(`Loaded ${parts.join(' + ')} from "${folderName}"`, 'ok');
+    const note = qbiq && ifcFile ? ' (IFC ignored — not supported with qbiq)'
+      : dxf && findQbiqPair(files) ? ' (qbiq JSON+SVG ignored — DXF takes precedence)' : '';
+    toast(`Loaded ${parts.join(' + ')} from "${folderName}"${note}`, 'ok');
     // Open 3D panel after both are done if IFC was included
     if (ifc) {
       if (!document.getElementById('preview-3d').classList.contains('visible')) {
@@ -1462,10 +1496,14 @@ function applyFloorPlan(data) {
   state.bounds = data.bounds; state.level = data.level;
   state.unitsToMetres = data.units_to_metres ?? 1.0;
   state.source = data.source ?? 'demo';
-  // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them
+  // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them.
+  // Only DXF pairs with an IFC; standalone sources (qbiq, demo) clear the
+  // backend's IFC caches, so drop the stale model here too.
   const savedMeshes = state.geometry?.meshes;
   state.geometry = data.geometry ?? null;
-  if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
+  if (state.source !== 'dxf') {
+    state.ifcGeometry = null;
+  } else if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
     state.geometry.meshes = savedMeshes;
   }
   document.getElementById('h-level').textContent = data.level;

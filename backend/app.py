@@ -18,6 +18,7 @@ import os
 import sys
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -34,6 +35,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
+from qbiq_extractor  import extract_qbiq
 
 try:
     from dxf_extractor import extract_dxf
@@ -200,6 +202,48 @@ def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
+def _load_2d_geometry(geo, clear_ifc: bool):
+    """Cache a freshly extracted 2D floor plan for routing and return the
+    upload-shaped JSON response. clear_ifc drops any previously loaded IFC
+    so a standalone source (demo, qbiq) never inherits a stale project."""
+    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
+    svg = generate_svg(geo)
+    xmin, ymin, xmax, ymax = geo.bounds()
+
+    _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
+    _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
+    _LAST_DOORS["dxf"] = _door_polylines(geo)
+    _LAST_WALLS["dxf"] = _wall_polylines(geo)
+    _LAST_OTHER_OBSTACLES["dxf"] = _other_obstacle_polylines(geo)
+    _LAST_UNITS_TO_METRES = geo.units_to_metres
+    if clear_ifc:
+        for cache in (_LAST_OBSTACLES, _LAST_FOOTPRINT, _LAST_DOORS, _LAST_WALLS, _LAST_OTHER_OBSTACLES):
+            cache["ifc"] = []
+    _UPLOAD_GENERATION += 1
+    # Entries from older generations can never be looked up again (the cache
+    # key includes the generation), so drop them instead of leaking a whole
+    # walkable polygon + graph per uploaded file for the process's lifetime.
+    _LAST_CIRC_GRAPH.clear()
+
+    return jsonify({
+        "svg": svg,
+        "bounds": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax},
+        "level": geo.level_name,
+        "elevation": geo.elevation,
+        "units_to_metres": geo.units_to_metres,
+        "source": geo.source,
+        "geometry": {
+            "walls":     geo.walls,
+            "spaces":    geo.spaces,
+            "doors":     geo.doors,
+            "columns":   geo.columns,
+            "windows":   geo.windows,
+            "furniture": geo.furniture,
+            "meshes":    geo.meshes,
+        },
+    })
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -243,39 +287,43 @@ def upload():
         log.exception("Extraction failed")
         return _err(str(e))
 
-    svg = generate_svg(geo)
-    xmin, ymin, xmax, ymax = geo.bounds()
+    return _load_2d_geometry(geo, clear_ifc=False)
 
-    _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
-    _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
-    _LAST_DOORS["dxf"] = _door_polylines(geo)
-    _LAST_WALLS["dxf"] = _wall_polylines(geo)
-    _LAST_OTHER_OBSTACLES["dxf"] = _other_obstacle_polylines(geo)
-    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
-    _LAST_UNITS_TO_METRES = geo.units_to_metres
-    _UPLOAD_GENERATION += 1
-    # Entries from older generations can never be looked up again (the cache
-    # key includes the generation), so drop them instead of leaking a whole
-    # walkable polygon + graph per uploaded file for the process's lifetime.
-    _LAST_CIRC_GRAPH.clear()
 
-    return jsonify({
-        "svg": svg,
-        "bounds": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax},
-        "level": geo.level_name,
-        "elevation": geo.elevation,
-        "units_to_metres": geo.units_to_metres,
-        "source": geo.source,
-        "geometry": {
-            "walls":     geo.walls,
-            "spaces":    geo.spaces,
-            "doors":     geo.doors,
-            "columns":   geo.columns,
-            "windows":   geo.windows,
-            "furniture": geo.furniture,
-            "meshes":    geo.meshes,
-        },
-    })
+@app.route("/api/upload-qbiq", methods=["POST"])
+def upload_qbiq():
+    """Accept a qbiq JSON + SVG pair and load it as a standalone 2D floor plan."""
+    if "json_file" not in request.files or "svg_file" not in request.files:
+        return _err("Both json_file and svg_file are required")
+    json_f = request.files["json_file"]
+    svg_f = request.files["svg_file"]
+    if not json_f.filename or not svg_f.filename:
+        return _err("Empty filename")
+
+    level_name = request.form.get("level", "L-0")
+
+    json_name = secure_filename(json_f.filename)
+    svg_name = secure_filename(svg_f.filename)
+    if not json_name or not svg_name:
+        return _err("Invalid filename")
+
+    # Per-request names so concurrent uploads of same-named files can't collide.
+    prefix = uuid.uuid4().hex
+    json_fpath = UPLOAD_DIR / f"{prefix}_{json_name}"
+    svg_fpath = UPLOAD_DIR / f"{prefix}_{svg_name}"
+    try:
+        json_f.save(str(json_fpath))
+        svg_f.save(str(svg_fpath))
+        log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
+        geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
+    except Exception as e:
+        log.exception("qbiq extraction failed")
+        return _err(str(e))
+    finally:
+        json_fpath.unlink(missing_ok=True)
+        svg_fpath.unlink(missing_ok=True)
+
+    return _load_2d_geometry(geo, clear_ifc=True)
 
 
 @app.route("/api/upload-3d", methods=["POST"])
@@ -342,41 +390,7 @@ def demo():
     """Load demo floor plan without uploading a file."""
     from revit_extractor import _demo_geometry
     geo = _demo_geometry("L-0")
-    svg = generate_svg(geo)
-    xmin, ymin, xmax, ymax = geo.bounds()
-
-    _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
-    _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
-    _LAST_DOORS["dxf"] = _door_polylines(geo)
-    _LAST_WALLS["dxf"] = _wall_polylines(geo)
-    _LAST_OTHER_OBSTACLES["dxf"] = _other_obstacle_polylines(geo)
-    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
-    _LAST_UNITS_TO_METRES = geo.units_to_metres
-    _LAST_OBSTACLES["ifc"] = []  # demo is a fresh, unrelated dataset
-    _LAST_FOOTPRINT["ifc"] = []
-    _LAST_DOORS["ifc"] = []
-    _LAST_WALLS["ifc"] = []
-    _LAST_OTHER_OBSTACLES["ifc"] = []
-    _UPLOAD_GENERATION += 1
-    _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
-
-    return jsonify({
-        "svg": svg,
-        "bounds": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax},
-        "level": geo.level_name,
-        "elevation": geo.elevation,
-        "units_to_metres": geo.units_to_metres,
-        "source": geo.source,
-        "geometry": {
-            "walls":     geo.walls,
-            "spaces":    geo.spaces,
-            "doors":     geo.doors,
-            "columns":   geo.columns,
-            "windows":   geo.windows,
-            "furniture": geo.furniture,
-            "meshes":    geo.meshes,
-        },
-    })
+    return _load_2d_geometry(geo, clear_ifc=True)
 
 
 @app.route("/api/autopath", methods=["POST"])

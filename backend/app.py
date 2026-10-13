@@ -18,6 +18,7 @@ import os
 import sys
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -301,17 +302,26 @@ def upload_qbiq():
 
     level_name = request.form.get("level", "L-0")
 
-    json_fpath = UPLOAD_DIR / secure_filename(json_f.filename)
-    svg_fpath = UPLOAD_DIR / secure_filename(svg_f.filename)
-    json_f.save(str(json_fpath))
-    svg_f.save(str(svg_fpath))
-    log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
+    json_name = secure_filename(json_f.filename)
+    svg_name = secure_filename(svg_f.filename)
+    if not json_name or not svg_name:
+        return _err("Invalid filename")
 
+    # Per-request names so concurrent uploads of same-named files can't collide.
+    prefix = uuid.uuid4().hex
+    json_fpath = UPLOAD_DIR / f"{prefix}_{json_name}"
+    svg_fpath = UPLOAD_DIR / f"{prefix}_{svg_name}"
     try:
+        json_f.save(str(json_fpath))
+        svg_f.save(str(svg_fpath))
+        log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
         geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
     except Exception as e:
         log.exception("qbiq extraction failed")
         return _err(str(e))
+    finally:
+        json_fpath.unlink(missing_ok=True)
+        svg_fpath.unlink(missing_ok=True)
 
     return _load_2d_geometry(geo, clear_ifc=True)
 

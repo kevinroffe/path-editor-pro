@@ -346,3 +346,80 @@ def test_extract_qbiq_applies_units_plausibility_correction():
 
     # 400000 units at 0.01 m/unit = 4000m (implausible) -> corrected by /100 to 40m
     assert geo.units_to_metres == pytest.approx(0.0001)
+
+
+def _rooms_svg(body: str) -> str:
+    """Wrap room-group markup in the designg/prop/rooms nesting."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg"><g id="maing"><g id="designg">'
+        f'<g id="prop"><g id="rooms">{body}</g></g></g></g></svg>'
+    )
+
+
+_ROOM = '<path stroke="#000000" d="M 0,0 L 10,0 L 10,10 L 0,10 L 0,0 z" />'
+
+
+def test_door_points_space_separated_are_parsed():
+    root = ET.fromstring(_rooms_svg(
+        _ROOM + '<polyline points="6 0 4 0" fill="#E9D8A6" class="door_id_a"/>'
+    ))
+    _, _, doors = qe._extract_rooms_and_doors(root)
+    assert doors == [[(6.0, 0.0), (4.0, 0.0)]]
+
+
+def test_malformed_door_polyline_is_skipped_not_fatal():
+    root = ET.fromstring(_rooms_svg(
+        _ROOM
+        + '<polyline points="6,0 4" fill="#E9D8A6" class="door_id_bad"/>'
+        + '<polyline points="1,x 2,3" fill="#E9D8A6" class="door_id_worse"/>'
+        + '<polyline points="8,0 9,0" fill="#E9D8A6" class="door_id_ok"/>'
+    ))
+    walls, spaces, doors = qe._extract_rooms_and_doors(root)
+    assert len(spaces) == 1 and len(walls) == 1
+    assert doors == [[(8.0, 0.0), (9.0, 0.0)]]
+
+
+def test_parse_path_d_rejects_relative_move():
+    with pytest.raises(ValueError, match=r"unsupported.*'m'"):
+        qe._parse_path_d("m 0,0 L 1,0 L 1,1 z")
+
+
+def test_parse_path_d_accepts_exponent_coordinates():
+    assert qe._parse_path_d("M 1e2,-1.5E-3 L 2 3") == [(100.0, -0.0015), (2.0, 3.0)]
+
+
+def test_parse_path_d_z_closes_the_ring():
+    assert qe._parse_path_d("M 0,0 L 10,0 L 10,10 z") == [
+        (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0),
+    ]
+
+
+def test_z_only_closed_room_keeps_its_closing_wall_segment():
+    root = ET.fromstring(_rooms_svg('<path stroke="#000" d="M 0,0 L 10,0 L 10,10 z" />'))
+    walls, _, _ = qe._extract_rooms_and_doors(root)
+    segs = qe._to_segments(walls)
+    assert len(segs) == 3
+    assert [(10.0, 10.0), (0.0, 0.0)] in segs
+
+
+def test_room_path_with_too_few_points_is_skipped():
+    root = ET.fromstring(_rooms_svg('<path stroke="#000" d="M 0,0 L 10,0" />' + _ROOM))
+    walls, spaces, _ = qe._extract_rooms_and_doors(root)
+    assert len(spaces) == 1 and len(walls) == 1
+
+
+def test_floor_plates_accepts_near_closed_perimeter():
+    data = {"perimeter_ls": [[[0, 0], [10, 0]], [[10, 0], [10, 10]],
+                             [[10, 10], [0, 10]], [[0, 10], [1e-8, 0]]]}
+    plates = qe._floor_plates(data)
+    assert len(plates) == 1
+    assert qe._key(plates[0][0]) == qe._key(plates[0][-1])
+
+
+def test_to_segments_drops_duplicate_and_reversed_segments():
+    a = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+    b = [(10.0, 10.0), (10.0, 0.0), (0.0, 0.0)]  # same two edges, reversed
+    c = [(0.0, 0.0), (10.0, 0.0)]                 # exact duplicate
+    assert qe._to_segments([a, b, c]) == [
+        [(0.0, 0.0), (10.0, 0.0)], [(10.0, 0.0), (10.0, 10.0)],
+    ]

@@ -34,6 +34,8 @@ def generate_svg(geo: LevelGeometry) -> str:
     vh = (ymax0 - ymin0) + 2 * margin
 
     is_dxf = (geo.source == "dxf")
+    is_qbiq = (geo.source == "qbiq")
+    close_lines = not is_qbiq
 
     sw = ext * 0.0008   # adaptive stroke width
 
@@ -55,6 +57,12 @@ def generate_svg(geo: LevelGeometry) -> str:
         STYLE_COLUMN    = 'fill:#7f8c8d;stroke:none'
         STYLE_WINDOW    = f'fill:#a8d4e8;stroke:#6aabcc;stroke-width:{space_sw:.4f};opacity:0.9'
         STYLE_FURNITURE = f'fill:none;stroke:#5a7a8a;stroke-width:{furn_sw:.4f};opacity:0.7'
+        if is_qbiq:
+            # qbiq walls/doors/mullions are 2-point segments with zero area,
+            # so a fill-only style would render nothing — stroke them open.
+            STYLE_WALL = f'fill:none;stroke:#1e2d3d;stroke-width:{sw * 3:.4f};stroke-linecap:round;stroke-linejoin:round'
+            STYLE_DOOR = f'fill:none;stroke:#e07020;stroke-width:{sw * 2:.4f};stroke-linecap:round;stroke-linejoin:round'
+            STYLE_WINDOW = f'fill:none;stroke:#6aabcc;stroke-width:{sw:.4f};stroke-linecap:round;stroke-linejoin:round'
 
     out: List[str] = []
     out.append(
@@ -100,15 +108,15 @@ def generate_svg(geo: LevelGeometry) -> str:
         out.append('  </g>')
         out.append('  <g id="layer-walls">')
         for poly in geo.walls:
-            out.append(f'    {_path(poly, STYLE_WALL, close=True)}')
+            out.append(f'    {_path(poly, STYLE_WALL, close=close_lines)}')
         out.append('  </g>')
         out.append('  <g id="layer-doors">')
         for poly in geo.doors:
-            out.append(f'    {_path(poly, STYLE_DOOR, close=True)}')
+            out.append(f'    {_path(poly, STYLE_DOOR, close=close_lines)}')
         out.append('  </g>')
         out.append('  <g id="layer-windows">')
         for poly in geo.windows:
-            out.append(f'    {_path(poly, STYLE_WINDOW, close=True)}')
+            out.append(f'    {_path(poly, STYLE_WINDOW, close=close_lines)}')
         out.append('  </g>')
         out.append('  <g id="layer-columns">')
         for poly in geo.columns:

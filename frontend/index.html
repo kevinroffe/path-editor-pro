@@ -1422,7 +1422,8 @@ async function onFolderSelected(inp) {
       qbiq ? doUploadQbiq(qbiq.json, qbiq.svg, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
-    const note = qbiq && ifcFile ? ' (IFC ignored — not supported with qbiq)' : '';
+    const note = qbiq && ifcFile ? ' (IFC ignored — not supported with qbiq)'
+      : dxf && findQbiqPair(files) ? ' (qbiq JSON+SVG ignored — DXF takes precedence)' : '';
     toast(`Loaded ${parts.join(' + ')} from "${folderName}"${note}`, 'ok');
     // Open 3D panel after both are done if IFC was included
     if (ifc) {

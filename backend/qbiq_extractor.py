@@ -97,27 +97,41 @@ def _stitch_segments(segments: list) -> list:
 
 
 _COMMAND_LETTER_RE = re.compile(r"[A-Za-z]")
-_SUPPORTED_PATH_COMMANDS = set("MLZ")
-_COORD_PAIR_RE = re.compile(r"(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
+_SUPPORTED_PATH_COMMANDS = set("MLZz")
+_NUMBER_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+
+def _parse_coord_pairs(s: str) -> list[tuple[float, float]]:
+    """Parse an SVG coordinate list ("1,2 3,4", "1 2 3 4", "1e2,-1.5E-3")
+    into (x, y) pairs. Raises ValueError on stray characters or an odd
+    number count."""
+    if _NUMBER_RE.sub(" ", s).replace(",", " ").strip():
+        raise ValueError(f"unparseable coordinate list {s!r}")
+    nums = [float(n) for n in _NUMBER_RE.findall(s)]
+    if len(nums) % 2:
+        raise ValueError(f"odd number count ({len(nums)}) in coordinate list {s!r}")
+    return list(zip(nums[::2], nums[1::2]))
 
 
 def _parse_path_d(d: str) -> list[tuple[float, float]]:
     """
-    Parse an SVG path `d` attribute into a point list. Only M/L/Z are
-    supported — every room path in the one real reference export uses
-    exactly these (a plain polygon outline) — anything else (a curve
-    command: C/Q/A/S/T) must fail loudly rather than silently produce a
-    wrong or truncated polygon, since a future qbiq export could add a
-    rounded corner or arc that this simple walk cannot represent.
+    Parse an SVG path `d` attribute into a point list. Only absolute M/L
+    and Z/z are supported — every room path in the one real reference
+    export uses exactly these (a plain polygon outline) — anything else
+    (relative m/l, or a curve command: C/Q/A/S/T) must fail loudly rather
+    than silently produce a wrong or truncated polygon. Z/z closes the ring
+    by repeating the first point when the source didn't already.
     """
-    letters = set(_COMMAND_LETTER_RE.findall(d.upper()))
-    unsupported = sorted(letters - _SUPPORTED_PATH_COMMANDS)
-    if unsupported:
+    letters = set(_COMMAND_LETTER_RE.findall(_NUMBER_RE.sub(" ", d)))
+    if unsupported := sorted(letters - _SUPPORTED_PATH_COMMANDS):
         raise ValueError(
             f"unsupported SVG path command(s) {unsupported!r} in d={d!r} — "
-            "only M/L/Z are handled"
+            "only absolute M/L and Z/z are handled"
         )
-    return [(float(x), float(y)) for x, y in _COORD_PAIR_RE.findall(d)]
+    pts = _parse_coord_pairs(re.sub(r"[MLZz]", " ", d))
+    if letters & {"Z", "z"} and pts and _key(pts[0]) != _key(pts[-1]):
+        pts.append(pts[0])
+    return pts
 
 
 def _has_dashed_stroke(elem) -> bool:
@@ -177,6 +191,7 @@ def _extract_rooms_and_doors(svg_root):
     door_candidates = {}  # door_id -> list of (fill, points)
 
     if rooms_group is None:
+        log.warning("qbiq SVG: no designg/prop/rooms group found — no rooms, room walls or doors will be imported")
         return wall_polylines, space_polylines, []
 
     for elem in rooms_group.iter():
@@ -189,6 +204,9 @@ def _extract_rooms_and_doors(svg_root):
             except ValueError:
                 log.warning("skipping unparseable room path: %s", elem.get("d"))
                 continue
+            if len(pts) < 3:
+                log.warning("skipping room path with fewer than 3 points: %s", elem.get("d"))
+                continue
             space_polylines.append(pts)
             if not _has_dashed_stroke(elem):
                 wall_polylines.append(pts)
@@ -200,11 +218,11 @@ def _extract_rooms_and_doors(svg_root):
             )
             if door_id is None:
                 continue
-            points_str = elem.get("points", "")
-            pts = [
-                (float(x), float(y))
-                for x, y in (pair.split(",") for pair in points_str.split())
-            ]
+            try:
+                pts = _parse_coord_pairs(elem.get("points", ""))
+            except ValueError as e:
+                log.warning("skipping unparseable %s polyline: %s", door_id, e)
+                continue
             fill = elem.get("fill", "None")
             door_candidates.setdefault(door_id, []).append((fill, pts))
 
@@ -232,14 +250,21 @@ def _ls_to_polylines(segments_raw: list) -> list:
 def _floor_plates(data: dict) -> list:
     """Closed perimeter_ls loops — the whole floor plate, so circulation
     space between rooms is routable, not just room interiors."""
-    return [c for c in _ls_to_polylines(data.get("perimeter_ls", [])) if len(c) >= 4 and c[0] == c[-1]]
+    return [c for c in _ls_to_polylines(data.get("perimeter_ls", [])) if len(c) >= 4 and _key(c[0]) == _key(c[-1])]
 
 
 def _to_segments(polylines: list) -> list:
     """Explode polylines into 2-point segments — the shape DXF walls arrive in,
     which both routers assume (grid A* blocks each wall's whole bbox, so a
-    closed ring would block everything inside it)."""
-    return [[a, b] for pl in polylines for a, b in zip(pl, pl[1:]) if a != b]
+    closed ring would block everything inside it). Duplicate edges (room
+    rings share edges with neighbours and with JSON walls) are dropped,
+    regardless of direction, and zero-length edges are skipped."""
+    seen, segments = set(), []
+    for a, b in (pair for pl in polylines for pair in zip(pl, pl[1:])):
+        if len(k := frozenset((_key(a), _key(b)))) == 2 and k not in seen:
+            seen.add(k)
+            segments.append([a, b])
+    return segments
 
 
 def _extract_json_structure(data: dict):
@@ -325,7 +350,11 @@ def extract_qbiq(json_path: str, svg_path: str, level_name: str = "L-0") -> Leve
     svg_root = ET.parse(svg_path).getroot()
     svg_walls, spaces, doors = _extract_rooms_and_doors(svg_root)
 
-    spaces = _floor_plates(data) + spaces
+    if not (plates := _floor_plates(data)) and data.get("perimeter_ls"):
+        log.warning("qbiq JSON: perimeter_ls has no closed loop — no floor plate, so corridors between rooms won't be routable")
+    if not doors:
+        log.warning("qbiq SVG: no doors extracted — routes between rooms may be blocked")
+    spaces = plates + spaces
     walls = _to_segments(json_walls + svg_walls)
 
     units_to_metres = _fix_implausible_units(0.01, extent_points)

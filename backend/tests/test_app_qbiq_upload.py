@@ -89,3 +89,18 @@ def test_upload_qbiq_missing_file_field_returns_400(client):
         content_type="multipart/form-data",
     )
     assert resp.status_code == 400
+
+
+def test_upload_qbiq_removes_uploaded_files(client):
+    before = set(app_module.UPLOAD_DIR.iterdir())
+    assert _post_pair(client).status_code == 200
+    assert set(app_module.UPLOAD_DIR.iterdir()) == before
+
+
+def test_upload_qbiq_rejects_filename_that_sanitises_to_empty(client):
+    resp = client.post(
+        "/api/upload-qbiq",
+        data={"json_file": (json_bytes(), "../.."), "svg_file": (svg_bytes(), "job.svg")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400

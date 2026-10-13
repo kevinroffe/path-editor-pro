@@ -95,3 +95,55 @@ def _stitch_segments(segments: list) -> list:
 
         chains.append(chain)
     return chains
+
+
+_COMMAND_LETTER_RE = re.compile(r"[A-Za-z]")
+_SUPPORTED_PATH_COMMANDS = set("MLZ")
+_COORD_PAIR_RE = re.compile(r"(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
+
+
+def _parse_path_d(d: str) -> list:
+    """
+    Parse an SVG path `d` attribute into a point list. Only M/L/Z are
+    supported — every room path in the one real reference export uses
+    exactly these (a plain polygon outline) — anything else (a curve
+    command: C/Q/A/S/T) must fail loudly rather than silently produce a
+    wrong or truncated polygon, since a future qbiq export could add a
+    rounded corner or arc that this simple walk cannot represent.
+    """
+    letters = set(_COMMAND_LETTER_RE.findall(d.upper()))
+    unsupported = sorted(letters - _SUPPORTED_PATH_COMMANDS)
+    if unsupported:
+        raise ValueError(
+            f"unsupported SVG path command(s) {unsupported!r} in d={d!r} — "
+            "only M/L/Z are handled"
+        )
+    return [(float(x), float(y)) for x, y in _COORD_PAIR_RE.findall(d)]
+
+
+def _has_dashed_stroke(elem) -> bool:
+    """
+    True if this SVG element's stroke is dashed, via EITHER the plain
+    `stroke-dasharray` attribute or an inline `style="...stroke-dasharray:
+    ...  "` declaration (the reference export uses the plain attribute, but
+    both are valid SVG and a future export could use either).
+    """
+    if elem.get("stroke-dasharray"):
+        return True
+    style = elem.get("style") or ""
+    return "stroke-dasharray" in style
+
+
+def _pick_door_polyline(candidates: list):
+    """
+    Among every polyline sharing one door_id_... class (jamb lines, swing-
+    arc detail, and exactly one real opening-width reference line in the
+    real reference export), return the points of the one with a real
+    (non-"None") fill — that is the actual opening location/width. Returns
+    None if no candidate has a real fill, so the caller can skip that door
+    with a clear log message instead of guessing.
+    """
+    for fill, points in candidates:
+        if fill and fill != "None":
+            return points
+    return None

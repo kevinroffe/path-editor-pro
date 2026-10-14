@@ -148,8 +148,10 @@ department, polygon, label point, stop, `is_open`), entrance.
   error with location; never leaves the corridor.
 - Corridor in several disconnected pieces → tour covers the piece containing the
   entrance; unreachable rooms listed.
-- No `circulation` in the file → fall back to current design-JSON routing (floor
-  plate minus walls) with a warning; labels/info still work.
+- No `circulation` in the file → no plan model: routing falls back to current
+  design-JSON routing (floor plate minus walls), and auto tour, stops and labels
+  are unavailable, with a warning. (Stops need a corridor; a design JSON without
+  one has not been seen.)
 - Large plans → corridor distances computed once per tour; fine for hundreds of
   rooms.
 

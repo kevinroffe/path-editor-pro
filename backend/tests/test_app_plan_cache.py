@@ -35,6 +35,20 @@ def test_design_upload_returns_and_caches_display_space_plan(client):
     assert app_module._LAST_PLAN.entrance[1] == pytest.approx(-460.0, abs=1.0)
 
 
+def test_plan_failure_still_loads_floor_plan(client, monkeypatch):
+    import plan_model
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("plan exploded")
+
+    monkeypatch.setattr(plan_model, "build_plan_model", boom)
+    r = client.post("/api/upload-qbiq-design", data={"json_file": (_design_json(), "d.json")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["plan"] is None
+    assert app_module._LAST_PLAN is None
+
+
 def test_demo_clears_plan(client):
     client.post("/api/upload-qbiq-design", data={"json_file": (_design_json(), "d.json")},
                 content_type="multipart/form-data")

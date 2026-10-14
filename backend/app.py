@@ -210,7 +210,6 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     upload-shaped JSON response. clear_ifc drops any previously loaded IFC
     so a standalone source (demo, qbiq) never inherits a stale project."""
     global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION, _LAST_PLAN
-    _LAST_PLAN = plan
     svg = generate_svg(geo)
     xmin, ymin, xmax, ymax = geo.bounds()
 
@@ -228,6 +227,7 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     # key includes the generation), so drop them instead of leaking a whole
     # walkable polygon + graph per uploaded file for the process's lifetime.
     _LAST_CIRC_GRAPH.clear()
+    _LAST_PLAN = plan
 
     return jsonify({
         "svg": svg,

@@ -592,7 +592,11 @@ def extract_qbiq_design_with_plan(json_path: str, level_name: str = "L-0"):
     with open(json_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
     geo = _design_geometry(data, json_path, level_name)
-    return geo, build_plan_model(data, geo.units_to_metres)
+    try:
+        return geo, build_plan_model(data, geo.units_to_metres)
+    except Exception:
+        log.exception("qbiq design: plan model failed; loading the floor plan without corridor features")
+        return geo, None
 
 
 def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometry:

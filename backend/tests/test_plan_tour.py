@@ -66,3 +66,36 @@ def test_tour_without_matching_rooms_raises(plan, get_graph):
     polygon, graph = get_graph(0.2)
     with pytest.raises(ValueError, match="no rooms of the selected types"):
         pt.build_tour(plan, graph, polygon, get_graph, room_types=["Nonexistent"])
+
+
+def test_tour_room_ids_visit_in_given_order(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph, room_ids=["D", "A", "B"])
+    assert [s["room_id"] for s in tour["stops"]] == ["D", "A", "B"]
+    idx = [s["index"] for s in tour["stops"]]
+    assert idx == sorted(set(idx))
+    assert tour["waypoints"][0] == pytest.approx(list(plan.entrance), abs=1.0)
+
+
+def test_tour_room_ids_collapse_duplicates(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph, room_ids=["B", "A", "B"])
+    assert [s["room_id"] for s in tour["stops"]] == ["B", "A"]
+
+
+def test_tour_room_ids_unknown_raises(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    with pytest.raises(ValueError, match="unknown room id: Z"):
+        pt.build_tour(plan, graph, polygon, get_graph, room_ids=["A", "Z"])
+
+
+def test_tour_room_ids_empty_raises(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    with pytest.raises(ValueError, match="no rooms selected"):
+        pt.build_tour(plan, graph, polygon, get_graph, room_ids=[])
+
+
+def test_tour_room_ids_beat_room_types(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph, room_types=["Kitchen"], room_ids=["D"])
+    assert [s["room_id"] for s in tour["stops"]] == ["D"]

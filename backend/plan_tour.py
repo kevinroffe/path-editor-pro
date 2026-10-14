@@ -58,17 +58,43 @@ def _route_length_m(waypoints: list, u: float) -> float:
     return sum(math.dist(a, b) for a, b in zip(waypoints, waypoints[1:])) * u
 
 
-def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: float = 0.2,
-               smoothing: float = 1.0) -> dict:
-    """Ordered corridor tour from the entrance through each selected room's stop."""
-    types = set(room_types) if room_types else {r.space_type for r in plan.rooms} - BACK_OF_HOUSE
-    if not (rooms := [r for r in plan.rooms if r.space_type in types]):
-        raise ValueError("no rooms of the selected types")
-    start = plan.entrance or rooms[0].stop.point
+def _rooms_by_ids(plan, room_ids: list) -> list:
+    """Plan rooms in the given id order; duplicates keep their first occurrence."""
+    if not room_ids:
+        raise ValueError("no rooms selected")
+    by_id = {r.id: r for r in plan.rooms}
+    if missing := next((i for i in room_ids if i not in by_id), None):
+        raise ValueError(f"unknown room id: {missing}")
+    return [by_id[i] for i in dict.fromkeys(room_ids)]
+
+
+def _visit_clicked(graph, start, rooms: list) -> tuple[list, list]:
+    """Reachable rooms in the given order, plus the names of the unreachable ones."""
     dist = _distances(graph, [start] + [r.stop.point for r in rooms])
-    order = order_stops(dist)
-    unreachable = [r.space_type or r.id for j, r in enumerate(rooms, 1) if j not in order]
-    visit = [rooms[j - 1] for j in order]
+    visit = [r for j, r in enumerate(rooms, 1) if math.isfinite(dist[0][j])]
+    if not visit:
+        raise ValueError("none of the selected rooms can be reached from the entrance")
+    return visit, [r.space_type or r.id for r in rooms if r not in visit]
+
+
+def _visit_by_type(graph, start, rooms: list) -> tuple[list, list]:
+    """Reachable rooms in short corridor order, plus the names of the unreachable ones."""
+    order = order_stops(_distances(graph, [start] + [r.stop.point for r in rooms]))
+    return ([rooms[j - 1] for j in order],
+            [r.space_type or r.id for j, r in enumerate(rooms, 1) if j not in order])
+
+
+def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: float = 0.2,
+               smoothing: float = 1.0, room_ids: list | None = None) -> dict:
+    """Tour from the entrance through the chosen rooms: exact id order, else short corridor order."""
+    if room_ids is not None:
+        rooms = _rooms_by_ids(plan, room_ids)
+    else:
+        types = set(room_types) if room_types else {r.space_type for r in plan.rooms} - BACK_OF_HOUSE
+        if not (rooms := [r for r in plan.rooms if r.space_type in types]):
+            raise ValueError("no rooms of the selected types")
+    start = plan.entrance or rooms[0].stop.point
+    visit, unreachable = (_visit_clicked if room_ids is not None else _visit_by_type)(graph, start, rooms)
     metas = [None] + [stop_meta(r) for r in visit]
     routed = route_on_plan(plan, [start] + [r.stop.point for r in visit], get_graph,
                            clearance_m=clearance_m, smoothing=smoothing, metas=metas)

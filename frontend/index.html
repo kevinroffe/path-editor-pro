@@ -355,8 +355,15 @@ body {
   box-shadow: 0 6px 20px rgba(0,0,0,.14); display: flex; flex-direction: column; gap: 6px;
 }
 .tour-title { font-size: 11px; font-weight: 700; color: var(--text2); }
-.tour-type { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); padding: 2px 0; }
-.tour-count { margin-left: auto; font-size: 10px; color: var(--text3); }
+.tour-hint { font-size: 11px; color: var(--text3); max-width: 240px; }
+.tour-pick { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); padding: 2px 0; }
+.tour-pick-n { font-weight: 700; color: var(--blue-dk); min-width: 16px; }
+.tour-pick-x { margin-left: auto; border: 0; background: none; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; }
+.tour-pick-x:hover { color: var(--text); }
+.tour-sel-room { fill: rgba(47,107,255,.18); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
+.tour-badge circle { fill: var(--blue); }
+.tour-badge text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
+.tour-badge { pointer-events: none; }
 .tour-msg { font-size: 11px; color: var(--text3); max-width: 260px; }
 .tour-msg:empty { display: none; }
 .wp-stop {
@@ -754,10 +761,12 @@ body {
         <button class="tb-btn-auto" id="btn-autotour" hidden title="Plan a tour through the rooms along the corridor" onclick="toggleTourPanel()">Auto Tour</button>
         <div id="tour-panel" class="tour-panel" hidden>
           <div class="tour-title">Rooms to visit</div>
-          <div id="tour-types"></div>
+          <div class="tour-hint">Click rooms on the plan in the order you want to visit them</div>
+          <div id="tour-list"></div>
+          <button class="tb-btn-auto" onclick="clearTourRooms()">Clear</button>
           <div id="tour-warn" class="tour-msg"></div>
           <div id="tour-msg" class="tour-msg"></div>
-          <button class="tb-btn-auto" onclick="generateTour()">Generate tour</button>
+          <button class="tb-btn-auto" id="btn-gen-tour" onclick="generateTour()">Generate tour</button>
         </div>
       </span>
       <button class="tb-btn-auto active" id="btn-labels" hidden title="Show or hide room names" onclick="toggleLabels()">Labels</button>
@@ -834,6 +843,7 @@ const state = {
   source:        'demo',
   geometry:      null,
   showLabels:    true,
+  tourRooms:     [],
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3 };
@@ -925,6 +935,52 @@ function renderPlanLayer() {
     .attr('font-size', r => Math.max(18, Math.min(60, Math.sqrt(r.area_m2) * 9)) * scale)
     .text(r => r.name);
   g.classed('labels-off', !state.showLabels);
+  renderTourSelection();
+}
+
+const tourPicking = () => !document.getElementById('tour-panel').hidden;
+
+/* Point-in-polygon (even-odd) in display space */
+function pointInPolygon(x, y, poly) {
+  return poly.reduce((inside, [xi, yi], i) => {
+    const [xj, yj] = poly[(i + poly.length - 1) % poly.length];
+    return (yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi ? !inside : inside;
+  }, false);
+}
+
+function toggleTourRoom(e) {
+  const m = s2m(e), room = state.plan?.rooms.find(r => pointInPolygon(m.x, m.y, r.polygon));
+  if (!room) return;
+  const i = state.tourRooms.indexOf(room.id);
+  if (i < 0) state.tourRooms.push(room.id); else state.tourRooms.splice(i, 1);
+  renderTourSelection(); renderTourPanel();
+}
+
+function removeTourRoom(id) {
+  state.tourRooms = state.tourRooms.filter(r => r !== id);
+  renderTourSelection(); renderTourPanel();
+}
+
+function clearTourRooms() {
+  state.tourRooms = [];
+  renderTourSelection(); renderTourPanel();
+}
+
+/* Selected rooms: tint + outline + numbered badge above the label, in the zoomed plan group */
+function renderTourSelection() {
+  d3.select('#tour-selection').remove();
+  const layer = d3.select('#plan-layer');
+  if (layer.empty() || !tourPicking()) return;
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  const sel = state.tourRooms.map((id, i) => ({ r: byId.get(id), n: i + 1 })).filter(d => d.r);
+  const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9), rad = 30 * scale;
+  const g = layer.append('g').attr('id', 'tour-selection');
+  g.selectAll('path').data(sel).join('path').attr('class', 'tour-sel-room')
+    .attr('d', d => 'M' + d.r.polygon.map(p => p.join(',')).join('L') + 'Z');
+  const badges = g.selectAll('g').data(sel).join('g').attr('class', 'tour-badge')
+    .attr('transform', d => `translate(${d.r.label_point[0]},${d.r.label_point[1] - 2.2 * rad})`);
+  badges.append('circle').attr('r', rad);
+  badges.append('text').attr('font-size', rad * 1.2).text(d => d.n);
 }
 
 function showRoomTip(e, r) {
@@ -977,13 +1033,14 @@ function fitView() {
 function handleClick(e) {
   if (!state.loaded || e.button !== 0) return;
   if (e.target?.classList.contains('wp-dot')) return;
+  if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
   if (state.mode !== 'waypoint') return;
   const m = s2m(e); addWaypoint(m.x, m.y);
 }
 
 /* ── Freehand ── */
-function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
 function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
 function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
 function drawFHPreview() {
@@ -1313,6 +1370,7 @@ function handleCanvasClick(e) {
 function setMode(m) {
   state.mode = m;
   state.autopathPoints = [];
+  if (m === 'autopath' && tourPicking()) toggleTourPanel();
   document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
   document.getElementById('mode-wp').classList.toggle('active', m==='waypoint');
   document.getElementById('mode-fh').classList.toggle('active', m==='freehand');
@@ -1378,23 +1436,20 @@ function toggleTourPanel() {
   const panel = document.getElementById('tour-panel');
   if (panel.hidden) renderTourPanel();
   panel.hidden = !panel.hidden;
+  renderTourSelection();
 }
 
-/* Checkbox values are JSON so an untyped room's null type round-trips to the backend as null. */
 function renderTourPanel() {
-  const counts = new Map();
-  state.plan.rooms.forEach(r => counts.set(r.type ?? null, (counts.get(r.type ?? null) || 0) + 1));
-  const types = [...counts.keys()].filter(t => t !== null).sort().concat(counts.has(null) ? [null] : []);
-  const defaults = new Set(state.plan.default_tour_types);
-  document.getElementById('tour-types').innerHTML = types.map(t =>
-    `<label class="tour-type"><input type="checkbox" value="${esc(JSON.stringify(t))}" ${defaults.has(t) ? 'checked' : ''}/>
-     ${esc(t ?? 'Other / untyped')} <span class="tour-count">${counts.get(t)}</span></label>`).join('');
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  document.getElementById('tour-list').innerHTML = state.tourRooms.map((id, i) =>
+    `<div class="tour-pick"><span class="tour-pick-n">${i + 1}.</span>${esc(byId.get(id)?.name)}
+     <button class="tour-pick-x" title="Remove" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button></div>`).join('');
+  document.getElementById('btn-gen-tour').disabled = !state.tourRooms.length;
   const warned = new Map();
   state.plan.rooms.filter(r => r.stop?.warning).forEach(r =>
     warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
   document.getElementById('tour-warn').textContent =
     [...warned].map(([w, names]) => `${w}: ${names.join(', ')}`).join(' · ');
-  document.getElementById('tour-msg').textContent = '';
 }
 
 function setVideoLength(s) {
@@ -1406,13 +1461,12 @@ function setVideoLength(s) {
 }
 
 async function generateTour() {
-  const types = [...document.querySelectorAll('#tour-types input:checked')].map(i => JSON.parse(i.value));
-  if (!types.length) { toast('Pick at least one room type', 'inf'); return; }
+  if (!state.tourRooms.length) { toast('Click at least one room on the plan', 'inf'); return; }
   showLoading('Planning the tour through the corridor…');
   try {
     const res = await fetch(`${API}/api/auto-tour`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_types: types, smoothing: cam.smo }),
+      body: JSON.stringify({ room_ids: state.tourRooms, smoothing: cam.smo }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
@@ -1807,6 +1861,7 @@ function applyFloorPlan(data) {
   }
   document.getElementById('h-level').textContent = data.level;
   state.plan = data.plan || null;
+  state.tourRooms = [];
   document.getElementById('btn-autotour').hidden = !state.plan;
   document.getElementById('btn-labels').hidden = !state.plan;
   document.getElementById('tour-panel').hidden = true;

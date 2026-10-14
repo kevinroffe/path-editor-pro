@@ -927,7 +927,7 @@ function renderPlanLayer() {
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9);
   g.selectAll('path.corridor').data(state.plan.corridor).join('path')
     .attr('class', 'corridor').attr('d', line);
-  const rooms = g.selectAll('g.room').data(state.plan.rooms).join('g').attr('class', 'room');
+  const rooms = g.selectAll('g.room').data([...state.plan.rooms].sort((a, b) => b.area_m2 - a.area_m2)).join('g').attr('class', 'room');
   rooms.append('path').attr('class', 'room-hit').attr('d', r => line(r.polygon))
     .on('mousemove', (e, r) => showRoomTip(e, r)).on('mouseleave', hideRoomTip);
   rooms.append('text').attr('class', 'room-label')
@@ -949,7 +949,9 @@ function pointInPolygon(x, y, poly) {
 }
 
 function toggleTourRoom(e) {
-  const m = s2m(e), room = state.plan?.rooms.find(r => pointInPolygon(m.x, m.y, r.polygon));
+  const m = s2m(e);
+  const room = state.plan?.rooms.filter(r => pointInPolygon(m.x, m.y, r.polygon))
+    .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
   if (!room) return;
   const i = state.tourRooms.indexOf(room.id);
   if (i < 0) state.tourRooms.push(room.id); else state.tourRooms.splice(i, 1);
@@ -1440,6 +1442,7 @@ function toggleTourPanel() {
 }
 
 function renderTourPanel() {
+  document.getElementById('tour-msg').textContent = '';
   const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
   document.getElementById('tour-list').innerHTML = state.tourRooms.map((id, i) =>
     `<div class="tour-pick"><span class="tour-pick-n">${i + 1}.</span>${esc(byId.get(id)?.name)}

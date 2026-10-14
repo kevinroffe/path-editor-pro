@@ -63,8 +63,8 @@ def _rooms_by_ids(plan, room_ids: list) -> list:
     if not room_ids:
         raise ValueError("no rooms selected")
     by_id = {r.id: r for r in plan.rooms}
-    if missing := next((i for i in room_ids if i not in by_id), None):
-        raise ValueError(f"unknown room id: {missing}")
+    if missing := [i for i in room_ids if i not in by_id]:
+        raise ValueError(f"unknown room id: {missing[0]}")
     return [by_id[i] for i in dict.fromkeys(room_ids)]
 
 

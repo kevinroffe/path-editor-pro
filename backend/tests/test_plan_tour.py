@@ -99,3 +99,10 @@ def test_tour_room_ids_beat_room_types(plan, get_graph):
     polygon, graph = get_graph(0.2)
     tour = pt.build_tour(plan, graph, polygon, get_graph, room_types=["Kitchen"], room_ids=["D"])
     assert [s["room_id"] for s in tour["stops"]] == ["D"]
+
+
+@pytest.mark.parametrize("bad", [0, ""])
+def test_tour_room_ids_falsy_unknown_raises(plan, get_graph, bad):
+    polygon, graph = get_graph(0.2)
+    with pytest.raises(ValueError, match="unknown room id"):
+        pt.build_tour(plan, graph, polygon, get_graph, room_ids=[bad])

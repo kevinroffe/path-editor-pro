@@ -44,3 +44,9 @@ def test_auto_tour_room_ids_in_click_order(client):
 def test_auto_tour_bad_room_ids_is_400(client, bad):
     _upload(client)
     assert client.post("/api/auto-tour", json={"room_ids": bad}).status_code == 400
+
+
+@pytest.mark.parametrize("bad", [0, ""])
+def test_auto_tour_falsy_unknown_room_id_is_400(client, bad):
+    _upload(client)
+    assert client.post("/api/auto-tour", json={"room_ids": [bad]}).status_code == 400

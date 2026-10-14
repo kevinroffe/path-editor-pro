@@ -38,6 +38,7 @@ from revit_extractor import extract_level
 from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import flipped, plan_to_json
+from plan_routing import CorridorBlocked, corridor_graph_for, route_on_plan
 
 try:
     from dxf_extractor import extract_dxf
@@ -83,6 +84,7 @@ _UPLOAD_GENERATION = 0
 # keeps upload latency unaffected even for a real file with tens of
 # thousands of furniture entities.
 _LAST_CIRC_GRAPH: dict = {}
+_LAST_PLAN_GRAPH: dict = {}
 
 
 def _flip(poly):
@@ -187,6 +189,18 @@ def _get_circ_graph_and_polygon(clearance_m: float):
         _LAST_CIRC_GRAPH[key] = (polygon, graph)
     return _LAST_CIRC_GRAPH[key]
 
+
+def _plan_graph(clearance_m: float):
+    """Cached corridor graph of the current plan at a clearance."""
+    key = (_UPLOAD_GENERATION, round(clearance_m, 3))
+    if key not in _LAST_PLAN_GRAPH:
+        try:
+            _LAST_PLAN_GRAPH[key] = corridor_graph_for(_LAST_PLAN, clearance_m)
+        except Exception:
+            log.exception("Plan corridor graph build failed")
+            _LAST_PLAN_GRAPH[key] = (None, None)
+    return _LAST_PLAN_GRAPH[key]
+
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -227,6 +241,7 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     # key includes the generation), so drop them instead of leaking a whole
     # walkable polygon + graph per uploaded file for the process's lifetime.
     _LAST_CIRC_GRAPH.clear()
+    _LAST_PLAN_GRAPH.clear()
     _LAST_PLAN = plan
 
     return jsonify({
@@ -388,6 +403,7 @@ def upload_3d():
     _LAST_PLAN = None  # an IFC changes the obstacle set the plan was built for
     _UPLOAD_GENERATION += 1
     _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
+    _LAST_PLAN_GRAPH.clear()
 
     return jsonify({
         "geometry": {
@@ -429,6 +445,13 @@ def autopath():
         points = [start, end]
     else:
         return _err("start and end points are required")
+    if _LAST_PLAN is not None and not data.get("walls"):
+        try:
+            return jsonify(route_on_plan(_LAST_PLAN, points, _plan_graph,
+                                         clearance_m=float(data.get("clearance_m", 0.2)),
+                                         smoothing=float(data.get("smoothing", 1.0))))
+        except CorridorBlocked as e:
+            return _err(str(e))
     # Obstacles (walls + columns + furniture, from both the DXF and any IFC
     # loaded alongside it) are cached server-side from the last upload —
     # sending them again from the client would mean re-transferring tens of

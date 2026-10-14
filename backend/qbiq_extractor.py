@@ -586,10 +586,22 @@ def _room(room: dict):
         return None
 
 
-def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometry:
-    """Parse a single-file qbiq design JSON (WKT geometry in cm) into a LevelGeometry."""
+def extract_qbiq_design_with_plan(json_path: str, level_name: str = "L-0"):
+    """Design JSON -> (LevelGeometry, PlanModel | None), reading the file once."""
+    from plan_model import build_plan_model
     with open(json_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
+    geo = _design_geometry(data, json_path, level_name)
+    return geo, build_plan_model(data, geo.units_to_metres)
+
+
+def extract_qbiq_design(json_path: str, level_name: str = "L-0") -> LevelGeometry:
+    """Parse a single-file qbiq design JSON (WKT geometry in cm) into a LevelGeometry."""
+    return extract_qbiq_design_with_plan(json_path, level_name)[0]
+
+
+def _design_geometry(data: dict, json_path: str, level_name: str) -> LevelGeometry:
+    """Build the LevelGeometry (incl. 3D meshes) from an already-parsed design JSON."""
     if not is_qbiq_design(data):
         raise ValueError("Not a qbiq design JSON: expected a top-level 'rooms' list and 'nfp_data' object")
     nfp = data["nfp_data"]

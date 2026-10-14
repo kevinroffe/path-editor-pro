@@ -36,7 +36,8 @@ sys.path.insert(0, str(BASE_DIR))
 
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
-from qbiq_extractor  import extract_qbiq, extract_qbiq_design
+from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
+from plan_model import flipped, plan_to_json
 
 try:
     from dxf_extractor import extract_dxf
@@ -63,6 +64,7 @@ MAX_UPLOAD_MB = 500
 _LAST_OBSTACLES = {"dxf": [], "ifc": []}
 _LAST_FOOTPRINT = {"dxf": [], "ifc": []}  # FLOOD-layer / room polygons — see _footprint_polylines
 _LAST_DOORS = {"dxf": [], "ifc": []}  # door locations, forced passable — see _door_polylines
+_LAST_PLAN = None  # display-space PlanModel of the last design-JSON upload, else None
 _LAST_UNITS_TO_METRES = 1.0  # from the DXF/demo canvas source, for Auto Path's clearance_m conversion
 
 # Corridor-graph routing needs walls kept SEPARATE from other obstacle
@@ -203,11 +205,12 @@ def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
-def _load_2d_geometry(geo, clear_ifc: bool):
+def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     """Cache a freshly extracted 2D floor plan for routing and return the
     upload-shaped JSON response. clear_ifc drops any previously loaded IFC
     so a standalone source (demo, qbiq) never inherits a stale project."""
-    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
+    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION, _LAST_PLAN
+    _LAST_PLAN = plan
     svg = generate_svg(geo)
     xmin, ymin, xmax, ymax = geo.bounds()
 
@@ -233,6 +236,7 @@ def _load_2d_geometry(geo, clear_ifc: bool):
         "elevation": geo.elevation,
         "units_to_metres": geo.units_to_metres,
         "source": geo.source,
+        "plan": plan_to_json(plan) if plan else None,
         "geometry": {
             "walls":     geo.walls,
             "spaces":    geo.spaces,
@@ -334,11 +338,11 @@ def upload_qbiq_design():
     try:
         with _saved_uploads(request.files["json_file"]) as (json_fpath,):
             log.info("Uploaded qbiq design: %s", json_fpath)
-            geo = extract_qbiq_design(str(json_fpath), level_name)
+            geo, plan = extract_qbiq_design_with_plan(str(json_fpath), level_name)
     except Exception as e:
         log.exception("qbiq design extraction failed")
         return _err(str(e))
-    return _load_2d_geometry(geo, clear_ifc=True)
+    return _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None)
 
 
 @app.route("/api/upload-3d", methods=["POST"])
@@ -380,7 +384,8 @@ def upload_3d():
     other = _other_obstacle_polylines(geo)
     if other:
         _LAST_OTHER_OBSTACLES["ifc"] = other
-    global _UPLOAD_GENERATION
+    global _UPLOAD_GENERATION, _LAST_PLAN
+    _LAST_PLAN = None  # an IFC changes the obstacle set the plan was built for
     _UPLOAD_GENERATION += 1
     _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
 

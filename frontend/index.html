@@ -356,7 +356,7 @@ body {
 .tour-title { font-size: 11px; font-weight: 700; color: var(--text2); }
 .tour-type { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); padding: 2px 0; }
 .tour-count { margin-left: auto; font-size: 10px; color: var(--text3); }
-.tour-msg { font-size: 11px; color: var(--text3); }
+.tour-msg { font-size: 11px; color: var(--text3); max-width: 260px; }
 .tour-msg:empty { display: none; }
 .wp-stop {
   font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; max-width: 90px;
@@ -755,6 +755,7 @@ body {
         <div id="tour-panel" class="tour-panel" hidden>
           <div class="tour-title">Rooms to visit</div>
           <div id="tour-types"></div>
+          <div id="tour-warn" class="tour-msg"></div>
           <div id="tour-msg" class="tour-msg"></div>
           <button class="tb-btn-auto" onclick="generateTour()">Generate tour</button>
         </div>
@@ -930,7 +931,7 @@ function showRoomTip(e, r) {
   const tip = document.getElementById('room-tip');
   tip.innerHTML = `<b>${esc(r.name)}</b>${esc(r.type)}<br>${esc(r.area_m2)} m²<br>`
     + `Headcount ${esc(r.assigned_hc ?? '–')} / ${esc(r.head_count ?? '–')}`
-    + (r.department_id ? `<br>${esc(r.department_id)}` : '')
+    + (r.department_id != null && r.department_id !== '' ? `<br>Department ${esc(r.department_id)}` : '')
     + (r.is_open ? '<br><span class="rt-open">Open area</span>' : '');
   tip.hidden = false;
   const x = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
@@ -1096,12 +1097,12 @@ function updateWpList() {
       <div class="wp-num">${i+1}</div>
       <div class="wp-xy">${wp.x.toFixed(1)}, ${(-wp.y).toFixed(1)}</div>
       <div class="wp-tod-box">
-        <input type="time" value="${wp.timeOfDay||''}"
+        <input type="time" value="${esc(wp.timeOfDay||'')}"
                title="Time of day at this point (leave blank to keep unchanged)"
                onchange="setWpTod(${i},this.value)" onclick="event.stopPropagation()"/>
       </div>
       <div class="wp-yaw-box">
-        <input type="number" min="-180" max="180" step="5" value="${wp.yawOffset||0}"
+        <input type="number" min="-180" max="180" step="5" value="${esc(wp.yawOffset||0)}"
                title="Camera head direction offset"
                onchange="setWpYaw(${i},this.value)" onclick="event.stopPropagation()"/>
         <span class="wp-yaw-unit">°</span>
@@ -1370,6 +1371,7 @@ function applyRouteResult(data) {
              stop: cleanStop(s) };
   });
   renderRoute(); updateWpList(); enableExport(); refreshSpline();
+  if (data.warning) toast(data.warning, 'inf', 6000);
 }
 
 function toggleTourPanel() {
@@ -1378,13 +1380,20 @@ function toggleTourPanel() {
   panel.hidden = !panel.hidden;
 }
 
+/* Checkbox values are JSON so an untyped room's null type round-trips to the backend as null. */
 function renderTourPanel() {
-  const counts = {};
-  state.plan.rooms.forEach(r => { counts[r.type] = (counts[r.type] || 0) + 1; });
+  const counts = new Map();
+  state.plan.rooms.forEach(r => counts.set(r.type ?? null, (counts.get(r.type ?? null) || 0) + 1));
+  const types = [...counts.keys()].filter(t => t !== null).sort().concat(counts.has(null) ? [null] : []);
   const defaults = new Set(state.plan.default_tour_types);
-  document.getElementById('tour-types').innerHTML = Object.keys(counts).sort().map(t =>
-    `<label class="tour-type"><input type="checkbox" value="${esc(t)}" ${defaults.has(t) ? 'checked' : ''}/>
-     ${esc(t)} <span class="tour-count">${counts[t]}</span></label>`).join('');
+  document.getElementById('tour-types').innerHTML = types.map(t =>
+    `<label class="tour-type"><input type="checkbox" value="${esc(JSON.stringify(t))}" ${defaults.has(t) ? 'checked' : ''}/>
+     ${esc(t ?? 'Other / untyped')} <span class="tour-count">${counts.get(t)}</span></label>`).join('');
+  const warned = new Map();
+  state.plan.rooms.filter(r => r.stop?.warning).forEach(r =>
+    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
+  document.getElementById('tour-warn').textContent =
+    [...warned].map(([w, names]) => `${w}: ${names.join(', ')}`).join(' · ');
   document.getElementById('tour-msg').textContent = '';
 }
 
@@ -1397,7 +1406,7 @@ function setVideoLength(s) {
 }
 
 async function generateTour() {
-  const types = [...document.querySelectorAll('#tour-types input:checked')].map(i => i.value);
+  const types = [...document.querySelectorAll('#tour-types input:checked')].map(i => JSON.parse(i.value));
   if (!types.length) { toast('Pick at least one room type', 'inf'); return; }
   showLoading('Planning the tour through the corridor…');
   try {
@@ -1498,16 +1507,31 @@ function onImportPath(inp) {
 function importFromJSON(text, filename) {
   try {
     const data = JSON.parse(text);
-    const wpts = data.waypoints;
-    if (!wpts || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
-    state.waypoints = wpts.map(w => Array.isArray(w)
-      ? { x: w[0], y: w[1], yawOffset: w[2] || 0, timeOfDay: w[3] || '', cutAfter: false, stop: cleanStop(w[4]) }
-      : { x: w.x, y: w.y, yawOffset: w.yawOffset || 0, timeOfDay: w.timeOfDay || '', cutAfter: false, stop: cleanStop(w.stop) });
-    const cuts = data.meta?.cuts || [];
-    cuts.forEach(i => { if (state.waypoints[i]) state.waypoints[i].cutAfter = true; });
+    const wpts = data?.waypoints;
+    if (!Array.isArray(wpts) || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
+    const rows = wpts.map(cleanImportedWp);
+    const cuts = Array.isArray(data.meta?.cuts) ? data.meta.cuts : [];
+    cuts.forEach(i => { if (rows[i]) rows[i].cutAfter = true; });
+    const kept = rows.filter(Boolean);
+    if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
+    state.waypoints = kept;
     renderRoute(); updateWpList(); enableExport();
-    toast(`Loaded ${state.waypoints.length} waypoints from ${filename}`, 'ok');
+    const skipped = rows.length - kept.length;
+    toast(`Loaded ${kept.length} waypoints from ${filename}${skipped ? ` (${skipped} invalid skipped)` : ''}`, 'ok');
   } catch(e) { toast('Invalid JSON file: ' + e.message, 'err'); }
+}
+
+const importNum = v => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? Number(v) : NaN;
+
+/* One imported waypoint ([x, y, yaw, tod, stop] or {x, y, ...}) with numeric fields and an HH:MM time, or null if x/y aren't finite. */
+function cleanImportedWp(w) {
+  const [x, y, yaw, tod, stop] = Array.isArray(w) ? w : [w?.x, w?.y, w?.yawOffset, w?.timeOfDay, w?.stop];
+  const wp = { x: importNum(x), y: importNum(y), yawOffset: importNum(yaw),
+               timeOfDay: typeof tod === 'string' && /^\d{2}:\d{2}$/.test(tod) ? tod : '',
+               cutAfter: false, stop: cleanStop(stop) };
+  if (!Number.isFinite(wp.x) || !Number.isFinite(wp.y)) return null;
+  if (!Number.isFinite(wp.yawOffset)) wp.yawOffset = 0;
+  return wp;
 }
 
 /* ── Import Enscape XML (reverse coordinate mapping) ── */
@@ -1524,9 +1548,9 @@ function importFromXML(text, filename) {
       const pos = kf.querySelector('Position');
       if (!pos) return;
       // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
-      wpts.push({ x: parseFloat(pos.getAttribute('x')) / u,
-                  y: parseFloat(pos.getAttribute('z')) / u,
-                  yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
+      const x = parseFloat(pos.getAttribute('x')) / u, y = parseFloat(pos.getAttribute('z')) / u;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      wpts.push({ x, y, yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
@@ -1551,8 +1575,9 @@ async function doUpload(f, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
-/* Upload multipart `fields` (name → File) to a standalone-2D-plan endpoint and apply the result. */
-async function doUploadPlan(endpoint, fields, { silent = false, loadingText = 'Reading floor plan…' } = {}) {
+/* Upload multipart `fields` (name → File) to a standalone-2D-plan endpoint and apply the result.
+   expectPlan: the source should carry a design plan, so say so when the backend couldn't build one. */
+async function doUploadPlan(endpoint, fields, { silent = false, loadingText = 'Reading floor plan…', expectPlan = false } = {}) {
   if (!silent) showLoading(loadingText);
   const fd = new FormData();
   for (const [name, file] of Object.entries(fields)) fd.append(name, file);
@@ -1563,6 +1588,7 @@ async function doUploadPlan(endpoint, fields, { silent = false, loadingText = 'R
     if (!res.ok) throw new Error(data.error||'Failed');
     applyFloorPlan(data);
     showHeaderHint('', '');
+    if (expectPlan && !data.plan) toast('No circulation in this design — corridor routing and Auto Tour are unavailable', 'inf', 6000);
   } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
   finally { if (!silent) hideLoading(); }
 }
@@ -1638,7 +1664,7 @@ async function loadProjectFiles(files, sourceLabel, { emptyWhere = 'that folder'
     // Upload in parallel — both use silent=true so they don't fight over the spinner
     await Promise.all([
       dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
-      design ? doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true }) : Promise.resolve(),
+      design ? doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true, expectPlan: true }) : Promise.resolve(),
       qbiq ? doUploadPlan('/api/upload-qbiq', { json_file: qbiq.json, svg_file: qbiq.svg }, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
@@ -2181,7 +2207,7 @@ function build3DLabels() {
   state.plan.rooms.forEach(r => {
     const c = document.createElement('canvas'); c.width = 512; c.height = 128;
     const x = c.getContext('2d');
-    x.font = '600 56px "Plus Jakarta Sans", -apple-system, sans-serif';
+    x.font = '600 56px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(0, 0, 512, 128);
     x.fillStyle = '#1d2939'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText(r.name, 256, 64, 496);

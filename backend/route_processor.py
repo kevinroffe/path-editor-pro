@@ -36,6 +36,7 @@ class CameraFrame:
     pitch: float    # degrees, 0 = horizontal
     fov:   float = 90.0
     cut:   bool = False   # True on the last frame of a segment immediately before a hard cut
+    dwell: Optional[str] = None   # "start" / "look" / "end" on a room stop's keyframe-worthy dwell frames
 
 
 # ── public API ────────────────────────────────────────────────────────────────
@@ -221,16 +222,30 @@ def _scaled_dwells(dwells: list, total_duration: float) -> list:
 
 
 def _dwell_frames(f: CameraFrame, look_at, n: int, fps: float) -> list:
-    """n frames holding position while turning toward look_at, holding, and turning back."""
+    """n frames holding position while turning toward look_at, holding, and turning back.
+
+    Yaw stays continuous with the moving frames (never wrapped): the preview lerps it linearly.
+    """
     step = _MAX_YAW_RATE_DEG_PER_SEC / fps
     target = math.degrees(math.atan2(look_at[1] - f.y, look_at[0] - f.x))
     delta = (target - f.yaw + 180) % 360 - 180
     reach = math.copysign(min(abs(delta), step * (n // 2)), delta)
-    turn = int(math.ceil(abs(reach) / step)) if reach else 0
+    turn = min(int(math.ceil(abs(reach) / step)), n // 2) if reach else 0
     yaws = ([f.yaw + reach * (i + 1) / turn for i in range(turn)]
             + [f.yaw + reach] * (n - 2 * turn)
             + [f.yaw + reach * (turn - i - 1) / turn for i in range(turn)])
-    return [CameraFrame(t=0.0, x=f.x, y=f.y, z=f.z, yaw=y % 360, pitch=f.pitch, fov=f.fov) for y in yaws]
+    out = [CameraFrame(t=0.0, x=f.x, y=f.y, z=f.z, yaw=y, pitch=f.pitch, fov=f.fov) for y in yaws]
+    for i, tag in _dwell_tags(n, turn).items():
+        out[i].dwell = tag
+    return out
+
+
+def _dwell_tags(n: int, turn: int) -> dict:
+    """Frame index -> tag of a dwell's keyframe-worthy frames: start, both edges of the look-in hold, end."""
+    tags = {0: "start", n - 1: "end"}
+    if n >= 3:
+        tags |= {min(max(i, 1), n - 2): "look" for i in (turn - 1, n - turn - 1)}
+    return tags
 
 
 def _insert_dwells(frames: list, wp_xy: list, stops: list, dwells: list, fps: float) -> list:

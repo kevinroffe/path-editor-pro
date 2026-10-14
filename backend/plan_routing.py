@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 _COVER_TOL = 1e-6
 _VIDEO_SAMPLES = 20
 _STOP_TOL = 1.0
+UNCONTAINED_WARNING = "The smoothed path may cut slightly outside the corridor in places - try less smoothing"
 
 
 class CorridorBlocked(Exception):
@@ -100,8 +101,8 @@ def _bad_legs(wps: list, covered, smoothing: float) -> set:
     return bad
 
 
-def contain_spline(waypoints: list, corridor, smoothing: float, max_rounds: int = 6) -> list:
-    """Insert leg midpoints until the smoothed path stays inside the corridor."""
+def contain_spline(waypoints: list, corridor, smoothing: float, max_rounds: int = 6) -> tuple:
+    """(waypoints with leg midpoints inserted until the smoothed path stays inside the corridor, whether it does)."""
     covered = prep(corridor.buffer(_COVER_TOL))
     wps = [tuple(p) for p in waypoints]
     for _ in range(max_rounds):
@@ -113,7 +114,8 @@ def contain_spline(waypoints: list, corridor, smoothing: float, max_rounds: int 
     else:
         if _bad_legs(wps, covered, smoothing):
             log.warning("Smoothed path still leaves the corridor after %d rounds", max_rounds)
-    return [list(p) for p in wps]
+            return [list(p) for p in wps], False
+    return [list(p) for p in wps], True
 
 
 def _dist(a, b) -> float:
@@ -171,6 +173,17 @@ def _blocked_leg(snapped: list, get_graph) -> str:
     return f"corridor blocked between ({a[0]:.0f}, {a[1]:.0f}) and ({b[0]:.0f}, {b[1]:.0f})"
 
 
+def clearance_steps(clearance_m: float) -> tuple:
+    """Clearances to try in order when the corridor is too narrow: requested, half, minimum."""
+    return clearance_m, clearance_m / 2, 0.05
+
+
+def first_graph(get_graph, clearance_m: float) -> tuple:
+    """(polygon, graph) at the first clearance step that has a graph, else (None, None)."""
+    return next((pg for c in clearance_steps(clearance_m) if (pg := get_graph(round(c, 3)))[1] is not None),
+                (None, None))
+
+
 def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: float = 1.0,
                   metas: list | None = None) -> dict:
     """Corridor-only route through ordered points; raises CorridorBlocked when unconnected."""
@@ -179,11 +192,12 @@ def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: 
     snapped, snapped_metas = snap_points(plan, points)
     metas = [m or s for m, s in zip(metas, snapped_metas)] if metas else snapped_metas
     max_pts = max(12, 3 * len(snapped))
-    for c in (clearance_m, clearance_m / 2, 0.05):
+    for c in clearance_steps(clearance_m):
         polygon, graph = get_graph(round(c, 3))
         if graph is None:
             continue
         if wps := route_multi(snapped, graph, polygon, max_pts=max_pts):
-            wps = contain_spline(_pin_stops(_pin_ends(wps, snapped), snapped, metas), plan.corridor, smoothing)
-            return {"waypoints": wps, "stops": _attach(wps, snapped, metas)}
+            wps, contained = contain_spline(_pin_stops(_pin_ends(wps, snapped), snapped, metas), plan.corridor, smoothing)
+            out = {"waypoints": wps, "stops": _attach(wps, snapped, metas)}
+            return out if contained else {**out, "warning": UNCONTAINED_WARNING}
     raise CorridorBlocked(_blocked_leg(snapped, get_graph))

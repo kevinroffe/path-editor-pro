@@ -35,11 +35,16 @@ Coordinate system mapping
 
 from __future__ import annotations
 import json
+import logging
 import math
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from typing import List, Dict, Any
 from route_processor import CameraFrame
+
+log = logging.getLogger(__name__)
+
+MAX_KEYFRAMES = 200
 
 
 # ── JSON ──────────────────────────────────────────────────────────────────────
@@ -80,6 +85,28 @@ def _parse_time_of_day(hhmm: str):
         return None
 
 
+def _keyframe_indices(frames: List[CameraFrame], duration: float) -> set:
+    """Frames to export: ~1 per second (2..MAX_KEYFRAMES) plus every cut and room-stop dwell keyframe.
+
+    Enscape interpolates, so we don't need every frame. Frames flagged `cut`
+    (and the frame right after, where the jump lands) are always kept, so a hard
+    cut survives thinning as two closely-timed keyframes rather than being
+    smoothed away. Dwell start / look-in / end frames are kept the same way, so
+    every room stop holds and looks in at any video length; when they and the
+    even ones can't all fit under the cap, the even spacing gives way.
+    """
+    n = len(frames)
+    target_kf = max(2, min(MAX_KEYFRAMES, int(duration)))
+    forced = {j for i, f in enumerate(frames) if f.cut for j in (i, min(i + 1, n - 1))}
+    if not (dwell := {i for i, f in enumerate(frames) if f.dwell}):
+        return set(range(0, n, max(1, n // target_kf))) | forced
+    forced |= dwell | {n - 1}
+    if (budget := min(target_kf, MAX_KEYFRAMES - len(forced))) < 2:
+        log.warning("Enscape export: %d stop/cut keyframes exceed the %d keyframe cap; keeping them all",
+                    len(forced), MAX_KEYFRAMES)
+    return set(range(0, n, max(1, math.ceil(n / max(budget, 1))))) | forced
+
+
 def to_enscape_xml(frames: List[CameraFrame], waypoints: list, meta: Dict[str, Any]) -> str:
     duration    = float(meta.get("duration",        30.0))
     height_m    = 1.75   # fixed — camera always at 1.75 m
@@ -95,19 +122,7 @@ def to_enscape_xml(frames: List[CameraFrame], waypoints: list, meta: Dict[str, A
     # time-of-day across frames by t position (same logic as route_processor)
     has_tod = any(v is not None for v in tod_values)
 
-    # Thin the frames — Enscape interpolates, we don't need every frame.
-    # Target ~1 keyframe per second, minimum 2, maximum 200.
-    # Frames flagged `cut` (and the frame right after, where the jump lands)
-    # are always kept regardless of the regular step, so a hard cut survives
-    # thinning as two closely-timed keyframes rather than being smoothed away.
-    target_kf = max(2, min(200, int(duration)))
-    step = max(1, len(frames) // target_kf)
-    keep = set(range(0, len(frames), step))
-    for i, f in enumerate(frames):
-        if f.cut:
-            keep.add(i)
-            keep.add(min(i + 1, len(frames) - 1))
-    keyframes = [frames[i] for i in sorted(keep)]
+    keyframes = [frames[i] for i in sorted(_keyframe_indices(frames, duration))]
     # Always include last frame
     if keyframes[-1] is not frames[-1]:
         keyframes.append(frames[-1])

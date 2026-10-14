@@ -19,6 +19,7 @@ import sys
 import json
 import logging
 from contextlib import contextmanager
+from functools import partial
 import uuid
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from revit_extractor import extract_level
 from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import GLANCE_RADIUS_M, flipped, plan_to_json
-from plan_routing import CorridorBlocked, corridor_graph_for, route_on_plan
+from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
 from plan_tour import build_tour
 
 try:
@@ -85,6 +86,10 @@ _UPLOAD_GENERATION = 0
 # keeps upload latency unaffected even for a real file with tens of
 # thousands of furniture entities.
 _LAST_CIRC_GRAPH: dict = {}
+# (id(plan), round(clearance_m, 3)) -> (plan, walkable_polygon | None, graph | None).
+# Keyed on the plan itself, not the upload generation: an IFC drop bumps the
+# generation but never changes the plan's corridor. Each entry holds its plan,
+# so the id can't be recycled for a newer plan while the entry exists.
 _LAST_PLAN_GRAPH: dict = {}
 
 
@@ -191,16 +196,16 @@ def _get_circ_graph_and_polygon(clearance_m: float):
     return _LAST_CIRC_GRAPH[key]
 
 
-def _plan_graph(clearance_m: float):
-    """Cached corridor graph of the current plan at a clearance."""
-    key = (_UPLOAD_GENERATION, round(clearance_m, 3))
+def _plan_graph(plan, clearance_m: float):
+    """Cached (walkable polygon, corridor graph) of a plan at a clearance."""
+    key = (id(plan), round(clearance_m, 3))
     if key not in _LAST_PLAN_GRAPH:
         try:
-            _LAST_PLAN_GRAPH[key] = corridor_graph_for(_LAST_PLAN, clearance_m)
+            _LAST_PLAN_GRAPH[key] = (plan, *corridor_graph_for(plan, clearance_m))
         except Exception:
             log.exception("Plan corridor graph build failed")
-            _LAST_PLAN_GRAPH[key] = (None, None)
-    return _LAST_PLAN_GRAPH[key]
+            _LAST_PLAN_GRAPH[key] = (plan, None, None)
+    return _LAST_PLAN_GRAPH[key][1:]
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -215,10 +220,9 @@ CORS(app)
 
 def _camera_hints() -> dict:
     """Glance targets of the loaded plan for process_route (empty without a plan)."""
-    if _LAST_PLAN is None:
+    if (plan := _LAST_PLAN) is None:
         return {}
-    return {"glances": list(_LAST_PLAN.glance_targets),
-            "glance_radius": GLANCE_RADIUS_M / _LAST_PLAN.units_to_metres}
+    return {"glances": list(plan.glance_targets), "glance_radius": GLANCE_RADIUS_M / plan.units_to_metres}
 
 
 def _err(msg: str, code: int = 400):
@@ -236,6 +240,7 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     svg = generate_svg(geo)
     xmin, ymin, xmax, ymax = geo.bounds()
 
+    _LAST_PLAN = plan  # first, so no request after the cache clear below can pair the old plan with new caches
     _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
     _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
     _LAST_DOORS["dxf"] = _door_polylines(geo)
@@ -251,7 +256,6 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     # walkable polygon + graph per uploaded file for the process's lifetime.
     _LAST_CIRC_GRAPH.clear()
     _LAST_PLAN_GRAPH.clear()
-    _LAST_PLAN = plan
 
     return jsonify({
         "svg": svg,
@@ -408,11 +412,11 @@ def upload_3d():
     other = _other_obstacle_polylines(geo)
     if other:
         _LAST_OTHER_OBSTACLES["ifc"] = other
-    global _UPLOAD_GENERATION, _LAST_PLAN
-    _LAST_PLAN = None  # an IFC changes the obstacle set the plan was built for
+    # A loaded design plan is kept: plan routing reads only its own corridor and
+    # columns, never these IFC caches, so an IFC changes nothing it routes on.
+    global _UPLOAD_GENERATION
     _UPLOAD_GENERATION += 1
-    _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
-    _LAST_PLAN_GRAPH.clear()
+    _LAST_CIRC_GRAPH.clear()  # see _load_2d_geometry: old-generation entries are unreachable
 
     return jsonify({
         "geometry": {
@@ -441,17 +445,17 @@ def demo():
 @app.route("/api/auto-tour", methods=["POST"])
 def auto_tour():
     """Auto walkthrough of the loaded design plan."""
-    if _LAST_PLAN is None:
+    if (plan := _LAST_PLAN) is None:
         return _err("Auto tour needs a qbiq design JSON to be loaded")
     data = request.get_json(force=True) or {}
-    clearance_m = float(data.get("clearance_m", 0.2))
-    polygon, graph = _plan_graph(clearance_m)
-    if graph is None:
-        return _err("The corridor is too narrow to route at this clearance")
+    get_graph = partial(_plan_graph, plan)
     try:
-        return jsonify(build_tour(_LAST_PLAN, graph, polygon, _plan_graph,
-                                  room_types=data.get("room_types"), clearance_m=clearance_m,
-                                  smoothing=float(data.get("smoothing", 1.0))))
+        clearance_m, smoothing = float(data.get("clearance_m", 0.2)), float(data.get("smoothing", 1.0))
+        polygon, graph = first_graph(get_graph, clearance_m)
+        if graph is None:
+            return _err("The corridor is too narrow to route at this clearance")
+        return jsonify(build_tour(plan, graph, polygon, get_graph, room_types=data.get("room_types"),
+                                  clearance_m=clearance_m, smoothing=smoothing))
     except (CorridorBlocked, ValueError) as e:
         return _err(str(e))
     except Exception:
@@ -484,9 +488,9 @@ def autopath():
     # ignored and the route came back computed against whatever file was
     # uploaded last.
     explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
-    if _LAST_PLAN is not None and not explicit_geometry:
+    if (plan := _LAST_PLAN) is not None and not explicit_geometry:
         try:
-            return jsonify(route_on_plan(_LAST_PLAN, points, _plan_graph,
+            return jsonify(route_on_plan(plan, points, partial(_plan_graph, plan),
                                          clearance_m=float(data.get("clearance_m", 0.2)),
                                          smoothing=float(data.get("smoothing", 1.0))))
         except CorridorBlocked as e:

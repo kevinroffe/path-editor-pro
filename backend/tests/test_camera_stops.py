@@ -103,3 +103,23 @@ def test_export_json_with_malformed_stop_is_200():
     wps = [[0, 0, 0, "", None], [500, 0, 0, "", {"look_at": [1], "dwell_s": 2}], [1000, 0, 0, ""]]
     r = backend_app.app.test_client().post("/api/export/json", json={"waypoints": wps, "settings": {"duration": 5}})
     assert r.status_code == 200
+
+
+def test_dwell_yaw_stays_continuous_heading_minus_y():
+    wps = [(0, 0, 0, ""), (0, -500, 0, "", {"look_at": [400, -500], "dwell_s": 3.0}), (0, -1000, 0, "")]
+    frames = rp.process_route(wps, total_duration=20.0, fps=FPS)
+    step = rp._MAX_YAW_RATE_DEG_PER_SEC / FPS + 1e-6
+    assert max(abs(b.yaw - a.yaw) for a, b in zip(frames, frames[1:])) <= step
+
+
+def test_dwell_frames_tagged_start_look_end():
+    frames = _route({"look_at": [500, 400], "dwell_s": 3.0})
+    tagged = [(i, f.dwell) for i, f in enumerate(frames) if f.dwell]
+    assert [t for _, t in tagged][0] == "start" and [t for _, t in tagged][-1] == "end"
+    looks = [i for i, t in tagged if t == "look"]
+    assert looks and all(abs(_wrap(frames[i].yaw - 90.0)) < 1.0 for i in looks)
+    assert len({(round(frames[i].x, 6), round(frames[i].y, 6)) for i, _ in tagged}) == 1
+
+
+def test_untagged_without_stops():
+    assert not any(f.dwell for f in _route(duration=10.0))

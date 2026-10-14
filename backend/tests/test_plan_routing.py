@@ -72,15 +72,16 @@ def test_blocked_corridor_raises(plan):
 def test_contain_spline_inserts_points_until_inside(plan):
     corridor = plan.corridor
     zig = [(50, -410), (1000, -590), (1950, -410)]
-    out = pr.contain_spline(zig, corridor, smoothing=1.0)
-    assert len(out) >= len(zig)
+    out, contained = pr.contain_spline(zig, corridor, smoothing=1.0)
+    assert contained and len(out) >= len(zig)
     assert all(corridor.buffer(1e-6).covers(Point(p)) for p in smooth_preview(out, smoothing=1.0))
 
 
 def test_contain_spline_out_and_back_attributes_bulge_to_its_own_leg():
     route = [(0, 0), (2000, 0), (2000, -400), (2000, 0), (0, 0), (0, -400)]
     corridor = LineString(route).buffer(40, cap_style=2, join_style=2)
-    out = pr.contain_spline(route, corridor, smoothing=1.0)
+    out, contained = pr.contain_spline(route, corridor, smoothing=1.0)
+    assert contained
     assert all(corridor.buffer(1e-6).covers(Point(p)) for p in smooth_preview(out, smoothing=1.0))
 
 
@@ -145,7 +146,8 @@ def test_blocked_error_names_the_failing_leg(plan):
 def test_contain_spline_holds_at_video_sampling_density():
     route = [(963, 232), (399, 989), (314, 42), (335, 191), (324, 811), (867, 592)]
     corridor = LineString(route).buffer(40, cap_style=2, join_style=2)
-    out = pr.contain_spline(route, corridor, smoothing=1.0)
+    out, contained = pr.contain_spline(route, corridor, smoothing=1.0)
+    assert contained
     covered = corridor.buffer(1e-6)
     assert all(covered.covers(Point(p)) for p in _centripetal_cr(np.array(out), 1.0, samples=20))
 
@@ -175,3 +177,15 @@ def test_end_over_last_stop_is_kept(plan, get_graph):
     assert [s["index"] for s in out["stops"]] == [0]
     assert wps[0] == pytest.approx(list(b.stop.point), abs=1.0)
     _assert_contained(plan, wps)
+
+
+def test_route_on_plan_warns_when_containment_gives_up(plan, monkeypatch):
+    monkeypatch.setattr(pr, "_bad_legs", lambda wps, covered, smoothing: {0})
+    out = pr.route_on_plan(plan, [(50, -500), (1950, -500)], lambda c: pr.corridor_graph_for(plan, c))
+    assert "corridor" in out["warning"]
+
+
+def test_contain_spline_reports_failure_with_zero_rounds(plan):
+    out_of_corridor = [(50, -500), (1000, -700), (1950, -500)]
+    out, contained = pr.contain_spline(out_of_corridor, plan.corridor, smoothing=1.0, max_rounds=0)
+    assert out == [list(p) for p in out_of_corridor] and not contained

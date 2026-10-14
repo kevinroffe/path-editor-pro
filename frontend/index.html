@@ -334,6 +334,24 @@ body {
 .tb-btn-auto:hover { background: var(--blue-md); }
 .tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
 .tb-btn-auto:disabled { opacity: .5; cursor: not-allowed; }
+.tb-btn-auto[hidden], .tour-panel[hidden] { display: none; }
+.tour-wrap { position: relative; display: flex; }
+.tour-panel {
+  position: absolute; top: 42px; left: 0; z-index: 50; min-width: 200px; padding: 10px 12px;
+  background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.14); display: flex; flex-direction: column; gap: 6px;
+}
+.tour-title { font-size: 11px; font-weight: 700; color: var(--text2); }
+.tour-type { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); padding: 2px 0; }
+.tour-count { margin-left: auto; font-size: 10px; color: var(--text3); }
+.tour-msg { font-size: 11px; color: var(--text3); }
+.tour-msg:empty { display: none; }
+.wp-stop {
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; max-width: 90px;
+  background: var(--blue-lt); color: var(--blue-dk); border: 1px solid var(--blue-md);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wp-dwell { width: 44px; font-size: 10px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 5px; }
 .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
 
@@ -719,6 +737,15 @@ body {
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11.5" cy="3" r="1.6" fill="currentColor"/><path d="M2.5 11C5 11 4 5 7 5S9 3 11.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
         Smart Path
       </button>
+      <span class="tour-wrap">
+        <button class="tb-btn-auto" id="btn-autotour" hidden title="Plan a tour through the rooms along the corridor" onclick="toggleTourPanel()">Auto Tour</button>
+        <div id="tour-panel" class="tour-panel" hidden>
+          <div class="tour-title">Rooms to visit</div>
+          <div id="tour-types"></div>
+          <div id="tour-msg" class="tour-msg"></div>
+          <button class="tb-btn-auto" onclick="generateTour()">Generate tour</button>
+        </div>
+      </span>
       <div class="tb-sep"></div>
       <span class="tb-tip">scroll = zoom · middle click = pan</span>
     </div>
@@ -911,7 +938,7 @@ function finishFreehand() {
   const N = Math.max(1, Math.floor(state.freePts.length/25));
   const s = state.freePts.filter((_,i) => i%N===0);
   if (s[s.length-1] !== state.freePts[state.freePts.length-1]) s.push(state.freePts[state.freePts.length-1]);
-  state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false})));
+  state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null})));
   state.freePts = [];
   renderRoute(); updateWpList(); enableExport();
 }
@@ -938,7 +965,7 @@ function findInsertIndex(x, y) {
 /* ── Waypoints ── */
 function addWaypoint(x, y) {
   const idx = findInsertIndex(x, y);
-  state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false});
+  state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null});
   renderRoute(); updateWpList(); enableExport();
 }
 function clearWaypoints()   { state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
@@ -946,6 +973,9 @@ function undoLast()         { if (!state.waypoints.length) return; state.waypoin
 
 function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
 function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
+const wpWire = w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '', w.stop || null];
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function setWpDwell(i, v) { const w = state.waypoints[i]; if (w && w.stop) w.stop.dwell_s = Math.max(0.5, parseFloat(v) || 0.5); }
 function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
 function toggleCut(i) {
   const wp = state.waypoints[i]; if (!wp) return;
@@ -1010,6 +1040,9 @@ function updateWpList() {
                onchange="setWpYaw(${i},this.value)" onclick="event.stopPropagation()"/>
         <span class="wp-yaw-unit">°</span>
       </div>
+      ${wp.stop ? `<span class="wp-stop" title="Camera stops and looks into this room">${esc(wp.stop.room_name)}</span>
+        <input type="number" class="wp-dwell" min="0.5" max="10" step="0.5" value="${wp.stop.dwell_s}"
+               onchange="setWpDwell(${i}, this.value)" onclick="event.stopPropagation()" title="Seconds the camera spends looking in"/>` : ''}
       <span class="wp-del" onclick="deleteWp(${i})" title="Remove point">×</span>
     </div>
     ${i < n-1 ? `
@@ -1263,6 +1296,60 @@ function addAutopathMarker(x, y, isVia) {
   ov.appendChild(c);
 }
 
+function applyRouteResult(data) {
+  const stops = new Map((data.stops || []).map(s => [s.index, s]));
+  state.waypoints = data.waypoints.map((p, i) => {
+    const s = stops.get(i);
+    return { x: p[0], y: p[1], yawOffset: 0, timeOfDay: '', cutAfter: false,
+             stop: s ? { room_id: s.room_id, room_name: s.room_name, look_at: s.look_at, dwell_s: s.dwell_s } : null };
+  });
+  renderRoute(); updateWpList(); enableExport(); refreshSpline();
+}
+
+function toggleTourPanel() {
+  const panel = document.getElementById('tour-panel');
+  if (panel.hidden) renderTourPanel();
+  panel.hidden = !panel.hidden;
+}
+
+function renderTourPanel() {
+  const counts = {};
+  state.plan.rooms.forEach(r => { counts[r.type] = (counts[r.type] || 0) + 1; });
+  const defaults = new Set(state.plan.default_tour_types);
+  document.getElementById('tour-types').innerHTML = Object.keys(counts).sort().map(t =>
+    `<label class="tour-type"><input type="checkbox" value="${esc(t)}" ${defaults.has(t) ? 'checked' : ''}/>
+     ${esc(t)} <span class="tour-count">${counts[t]}</span></label>`).join('');
+  document.getElementById('tour-msg').textContent = '';
+}
+
+function setVideoLength(s) {
+  const input = document.getElementById('s-dur');
+  if (s > parseFloat(input.max)) input.max = Math.ceil(s);
+  input.value = s;
+  updateSliderFill(input);
+  syncSlider('dur', s);
+}
+
+async function generateTour() {
+  const types = [...document.querySelectorAll('#tour-types input:checked')].map(i => i.value);
+  if (!types.length) { toast('Pick at least one room type', 'inf'); return; }
+  showLoading('Planning the tour through the corridor…');
+  try {
+    const res = await fetch(`${API}/api/auto-tour`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_types: types, smoothing: cam.smo }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    applyRouteResult(data);
+    setVideoLength(data.suggested_duration_s);
+    document.getElementById('tour-msg').textContent = data.unreachable.length
+      ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
+    toast(`Tour: ${data.stops.length} rooms, ${data.suggested_duration_s}s`, 'ok');
+  } catch (e) { toast('Auto tour error: ' + e.message, 'err'); }
+  finally { hideLoading(); }
+}
+
 async function autopathClick(e) {
   const m = s2m(e);
   if (!insidePlanBounds(m.x, m.y)) {
@@ -1301,6 +1388,7 @@ async function autopathClick(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         points,
+        smoothing: cam.smo,
         // walls omitted — the server caches them from the last upload,
         // so this doesn't re-send tens of MB of JSON on every click
       }),
@@ -1309,8 +1397,7 @@ async function autopathClick(e) {
     if (!res.ok) throw new Error(data.error || 'Failed');
     const pts = data.waypoints;
     if (!pts || pts.length < 2) { toast('No path found through those points', 'inf'); return; }
-    state.waypoints = pts.map(p => ({ x: p[0], y: p[1], yawOffset: 0, timeOfDay: '', cutAfter: false }));
-    renderRoute(); updateWpList(); enableExport(); refreshSpline();
+    applyRouteResult(data);
     toast(`Smart Path: ${state.waypoints.length} waypoints`, 'ok');
   } catch (err) {
     toast('Smart Path error: ' + err.message, 'err');
@@ -1348,8 +1435,8 @@ function importFromJSON(text, filename) {
     const wpts = data.waypoints;
     if (!wpts || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
     state.waypoints = wpts.map(w => Array.isArray(w)
-      ? { x: w[0], y: w[1], yawOffset: w[2] || 0, timeOfDay: w[3] || '', cutAfter: false }
-      : { x: w.x, y: w.y, yawOffset: w.yawOffset || 0, timeOfDay: w.timeOfDay || '', cutAfter: false });
+      ? { x: w[0], y: w[1], yawOffset: w[2] || 0, timeOfDay: w[3] || '', cutAfter: false, stop: w[4] || null }
+      : { x: w.x, y: w.y, yawOffset: w.yawOffset || 0, timeOfDay: w.timeOfDay || '', cutAfter: false, stop: w.stop || null });
     const cuts = data.meta?.cuts || [];
     cuts.forEach(i => { if (state.waypoints[i]) state.waypoints[i].cutAfter = true; });
     renderRoute(); updateWpList(); enableExport();
@@ -1373,7 +1460,7 @@ function importFromXML(text, filename) {
       // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
       wpts.push({ x: parseFloat(pos.getAttribute('x')) / u,
                   y: parseFloat(pos.getAttribute('z')) / u,
-                  yawOffset: 0, timeOfDay: '', cutAfter: false });
+                  yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
@@ -1636,6 +1723,9 @@ function applyFloorPlan(data) {
     state.geometry.meshes = savedMeshes;
   }
   document.getElementById('h-level').textContent = data.level;
+  state.plan = data.plan || null;
+  document.getElementById('btn-autotour').hidden = !state.plan;
+  document.getElementById('tour-panel').hidden = true;
   initD3(data.svg); clearWaypoints();
   toast(`Plan loaded — ${data.level}`, 'ok');
   if (document.getElementById('preview-3d').classList.contains('visible')) {
@@ -1664,7 +1754,7 @@ async function exportRoute(fmt) {
   try {
     const res = await fetch(`${API}/api/export/${fmt}`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ waypoints: state.waypoints.map(w=>[w.x,w.y,w.yawOffset||0,w.timeOfDay||'']), cuts: cutIndices(), settings }),
+      body: JSON.stringify({ waypoints: state.waypoints.map(wpWire), cuts: cutIndices(), settings }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error||'Export failed'); }
     const blob = await res.blob();
@@ -2099,7 +2189,7 @@ async function loadPreviewFrames() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        waypoints:    state.waypoints.map(w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '']),
+        waypoints:    state.waypoints.map(wpWire),
         cuts:         cutIndices(),
         smoothing:    cam.smo,
         duration:     cam.dur,

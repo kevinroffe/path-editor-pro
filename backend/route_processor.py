@@ -16,11 +16,14 @@ instead of a hairpin.
 """
 
 from __future__ import annotations
+import logging
 import math
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Iterable
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,8 +72,7 @@ def process_route(
 
     xy_pts      = [(float(p[0]), float(p[1])) for p in waypoints]
     yaw_offsets = [float(p[2]) if len(p) > 2 else 0.0 for p in waypoints]
-    stops = [p[4] if len(p) > 4 and isinstance(p[4], dict) and p[4].get("look_at") else None
-             for p in waypoints]
+    stops = _clean_stops([p[4] if len(p) > 4 else None for p in waypoints])
 
     if not cut_set:
         return _process_segment(xy_pts, yaw_offsets, camera_height, smoothing,
@@ -157,7 +159,7 @@ def _process_segment(
                 for i in range(n_frames)]
 
     stops = stops or [None] * len(xy_pts)
-    dwells = _scaled_dwells([float(s.get("dwell_s", 0.0)) if s else 0.0 for s in stops], total_duration)
+    dwells = _scaled_dwells([s["dwell_s"] if s else 0.0 for s in stops], total_duration)
     move_duration = max(total_duration - sum(dwells), total_duration * 0.1)
 
     pts = np.array(xy_pts, dtype=float)
@@ -181,18 +183,45 @@ def _process_segment(
 
 # ── room stops (dwells) ───────────────────────────────────────────────────────
 
+def _clean_stop(raw):
+    """Normalised {look_at, dwell_s} for a well-formed stop dict, else None."""
+    if not isinstance(raw, dict) or not isinstance(look := raw.get("look_at"), (list, tuple)) or len(look) < 2:
+        return None
+    try:
+        xy, dwell = (float(look[0]), float(look[1])), float(raw.get("dwell_s", 0.0))
+    except (TypeError, ValueError):
+        return None
+    return {"look_at": xy, "dwell_s": dwell} if all(map(math.isfinite, (*xy, dwell))) and dwell >= 0 else None
+
+
+def _clean_stops(raws: list) -> list:
+    """Validate every stop once; malformed ones become None (warned about once)."""
+    stops = [_clean_stop(r) for r in raws]
+    if dropped := sum(1 for r, s in zip(raws, stops) if r is not None and s is None):
+        log.warning("ignored %d malformed waypoint stop(s)", dropped)
+    return stops
+
+
 def _scaled_dwells(dwells: list, total_duration: float) -> list:
-    """Dwells scaled down so they take at most MAX_DWELL_FRACTION of the video."""
+    """Dwells scaled to at most MAX_DWELL_FRACTION of the video, keeping MIN_DWELL_S while the floors fit."""
     cap, total = MAX_DWELL_FRACTION * total_duration, sum(dwells)
     if total <= cap or total <= 0:
         return dwells
-    f = cap / total
-    return [max(d * f, MIN_DWELL_S) if d > 0 else 0.0 for d in dwells]
+    live = [i for i, d in enumerate(dwells) if d > 0]
+    fixed: set = set()
+    while True:
+        if MIN_DWELL_S * len(live) > cap:
+            return [d * cap / total for d in dwells]
+        rest = sum(dwells[i] for i in live if i not in fixed)
+        f = (cap - MIN_DWELL_S * len(fixed)) / rest if rest else 0.0
+        if not (low := {i for i in live if i not in fixed and dwells[i] * f < MIN_DWELL_S}):
+            break
+        fixed |= low
+    return [(MIN_DWELL_S if i in fixed else d * f) if d > 0 else 0.0 for i, d in enumerate(dwells)]
 
 
-def _dwell_frames(f: CameraFrame, look_at, dwell_s: float, fps: float) -> list:
-    """Frames holding position while turning toward look_at, holding, and turning back."""
-    n = max(1, int(round(dwell_s * fps)))
+def _dwell_frames(f: CameraFrame, look_at, n: int, fps: float) -> list:
+    """n frames holding position while turning toward look_at, holding, and turning back."""
     step = _MAX_YAW_RATE_DEG_PER_SEC / fps
     target = math.degrees(math.atan2(look_at[1] - f.y, look_at[0] - f.x))
     delta = (target - f.yaw + 180) % 360 - 180
@@ -207,13 +236,14 @@ def _dwell_frames(f: CameraFrame, look_at, dwell_s: float, fps: float) -> list:
 def _insert_dwells(frames: list, wp_xy: list, stops: list, dwells: list, fps: float) -> list:
     """Splice dwell frames in at the frame nearest each stop waypoint, then retime."""
     pos = np.array([[f.x, f.y] for f in frames])
+    counts = np.diff(np.round(np.cumsum(dwells) * fps), prepend=0).astype(int)
     out, last, k = [], 0, 0
-    for (x, y), stop, d in zip(wp_xy, stops, dwells):
-        if not stop or d <= 0:
+    for (x, y), stop, n in zip(wp_xy, stops, counts):
+        if not stop or n <= 0:
             continue
         k = k + int(np.argmin(np.hypot(pos[k:, 0] - x, pos[k:, 1] - y)))
         out.extend(frames[last:k + 1])
-        out.extend(_dwell_frames(frames[k], stop["look_at"], d, fps))
+        out.extend(_dwell_frames(frames[k], stop["look_at"], int(n), fps))
         last = k + 1
     out.extend(frames[last:])
     for i, f in enumerate(out):

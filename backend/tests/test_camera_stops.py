@@ -67,3 +67,39 @@ def test_four_element_waypoints_unchanged():
     wps = [(0, 0, 0, ""), (500, 0, 0, ""), (1000, 0, 0, "")]
     a = rp.process_route(wps, total_duration=5.0, fps=FPS)
     assert len(a) == pytest.approx(5.0 * FPS, abs=2)
+
+
+def _many_stops(n, dwell, duration):
+    wps = [(i * 100, 0, 0, "", {"look_at": [i * 100, 50], "dwell_s": dwell} if 0 < i < n + 1 else None)
+           for i in range(n + 2)]
+    return wps, rp.process_route(wps, total_duration=duration, fps=FPS)
+
+
+def test_many_stops_respect_cap_and_requested_length():
+    stops = [{"dwell_s": 3.0}] * 20
+    assert sum(rp._scaled_dwells([s["dwell_s"] for s in stops], 10.0)) <= 5.0 + 1e-9
+    _, frames = _many_stops(20, 3.0, 10.0)
+    assert len(frames) == pytest.approx(10.0 * FPS, abs=2)
+
+
+def test_floor_kept_while_it_fits():
+    out = rp._scaled_dwells([0.1, 0.1, 0.1, 6.0], 10.0)
+    assert all(d >= rp.MIN_DWELL_S - 1e-9 for d in out) and sum(out) <= 5.0 + 1e-9
+    assert rp._scaled_dwells([3.0] * 20, 10.0) == pytest.approx([0.25] * 20)
+
+
+BAD_STOPS = [{"look_at": [1], "dwell_s": 2}, {"look_at": [5, 5], "dwell_s": "abc"}, {"look_at": None, "dwell_s": 2},
+             "not a dict", {"look_at": [5, float("nan")], "dwell_s": 2}, {"look_at": [5, 5], "dwell_s": -1}]
+
+
+@pytest.mark.parametrize("bad", BAD_STOPS)
+def test_malformed_stops_ignored(bad):
+    plain = _route(duration=10.0)
+    assert len(_route(stop=bad, duration=10.0)) == len(plain)
+
+
+def test_export_json_with_malformed_stop_is_200():
+    import app as backend_app
+    wps = [[0, 0, 0, "", None], [500, 0, 0, "", {"look_at": [1], "dwell_s": 2}], [1000, 0, 0, ""]]
+    r = backend_app.app.test_client().post("/api/export/json", json={"waypoints": wps, "settings": {"duration": 5}})
+    assert r.status_code == 200

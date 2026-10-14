@@ -445,13 +445,25 @@ def autopath():
         points = [start, end]
     else:
         return _err("start and end points are required")
-    if _LAST_PLAN is not None and not data.get("walls"):
+    # A caller that supplies its own geometry in the request body is by
+    # definition NOT routing against the server's cached floor plan, and the
+    # corridor graph is built from (and cached against) that server-side
+    # cache alone — so honoring explicit geometry means skipping the plan
+    # router and the graph engine entirely and using grid A*, which takes the
+    # geometry as arguments. Without this, explicit geometry was silently
+    # ignored and the route came back computed against whatever file was
+    # uploaded last.
+    explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
+    if _LAST_PLAN is not None and not explicit_geometry:
         try:
             return jsonify(route_on_plan(_LAST_PLAN, points, _plan_graph,
                                          clearance_m=float(data.get("clearance_m", 0.2)),
                                          smoothing=float(data.get("smoothing", 1.0))))
         except CorridorBlocked as e:
             return _err(str(e))
+        except Exception:
+            log.exception("Plan routing failed")
+            return _err("plan routing failed")
     # Obstacles (walls + columns + furniture, from both the DXF and any IFC
     # loaded alongside it) are cached server-side from the last upload —
     # sending them again from the client would mean re-transferring tens of
@@ -470,15 +482,6 @@ def autopath():
     doors = data.get("doors") or (_LAST_DOORS["dxf"] + _LAST_DOORS["ifc"])
 
     clearance_m = float(data.get("clearance_m", 0.2))
-
-    # A caller that supplies its own geometry in the request body is by
-    # definition NOT routing against the server's cached floor plan, and the
-    # corridor graph is built from (and cached against) that server-side
-    # cache alone — so honoring explicit geometry means skipping the graph
-    # engine entirely and using grid A*, which takes the geometry as
-    # arguments. Without this, explicit geometry was silently ignored and the
-    # route came back computed against whatever file was uploaded last.
-    explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
 
     # Corridor-graph routing (primary): a real corridor-centerline graph
     # instead of grid A*'s hand-tuned distance-transform corridor bias — see

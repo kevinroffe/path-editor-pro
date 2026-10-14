@@ -1,10 +1,11 @@
 import networkx as nx
+import numpy as np
 import pytest
 from shapely.geometry import LineString, Point, box
 
 import plan_model as pm
 import plan_routing as pr
-from route_processor import smooth_preview
+from route_processor import _centripetal_cr, smooth_preview
 from tests.test_plan_model import DATA
 
 
@@ -51,6 +52,7 @@ def test_route_stays_in_corridor_and_spline_too(plan, get_graph):
     wps = out["waypoints"]
     assert all(_inside(plan, p) for p in wps)
     assert all(_inside(plan, p) for p in smooth_preview(wps, smoothing=1.0))
+    assert all(_inside(plan, p) for p in _centripetal_cr(np.array(wps), 1.0, samples=20))
 
 
 def test_stops_attached_in_order(plan, get_graph):
@@ -63,7 +65,7 @@ def test_stops_attached_in_order(plan, get_graph):
 
 
 def test_blocked_corridor_raises(plan):
-    with pytest.raises(pr.CorridorBlocked, match="corridor blocked near"):
+    with pytest.raises(pr.CorridorBlocked, match=r"corridor blocked between \(50, -500\) and \(1950, -500\)"):
         pr.route_on_plan(plan, [(50, -500), (1950, -500)], lambda c: (None, None))
 
 
@@ -95,3 +97,54 @@ def test_corridor_graph_edges_stay_inside_walkable_polygon(plan):
     polygon, graph = pr.corridor_graph_for(plan, 0.2)
     inside = polygon.buffer(1e-6)
     assert all(inside.covers(LineString([a, b])) for a, b in graph.edges)
+
+
+def _stop_checks(out, expected):
+    idx = [s["index"] for s in out["stops"]]
+    assert len(idx) == expected and idx == sorted(set(idx))
+    return idx
+
+
+def test_same_room_clicked_twice_gets_two_distinct_stops(plan, get_graph):
+    out = pr.route_on_plan(plan, [(50, -500), (100, -900), (100, -900), (1950, -500)], get_graph)
+    a = next(r for r in plan.rooms if r.id == "A")
+    for i in _stop_checks(out, 2):
+        assert out["waypoints"][i] == pytest.approx(list(a.stop.point), abs=1.0)
+
+
+def test_rooms_with_identical_snap_targets_get_distinct_stops(plan, get_graph, monkeypatch):
+    pt = (100.0, -500.0)
+    metas = [None, {"room_id": "A"}, {"room_id": "B"}, None]
+    monkeypatch.setattr(pr, "snap_points", lambda p, pts: ([(50.0, -500.0), pt, pt, (1950.0, -500.0)], metas))
+    out = pr.route_on_plan(plan, [(0, 0)] * 4, get_graph)
+    assert [s["room_id"] for s in out["stops"]] == ["A", "B"]
+    for i in _stop_checks(out, 2):
+        assert out["waypoints"][i] == pytest.approx(list(pt), abs=1.0)
+
+
+def test_stop_missing_from_route_is_inserted_on_its_leg():
+    wps = [[0.0, 0.0], [1000.0, 0.0]]
+    out = pr._pin_stops(wps, [(0.0, 0.0), (400.0, 0.0), (1000.0, 0.0)], [None, {"room_id": "A"}, None])
+    assert out == [[0.0, 0.0], [400.0, 0.0], [1000.0, 0.0]]
+
+
+def test_metas_length_mismatch_raises(plan, get_graph):
+    with pytest.raises(ValueError, match="metas"):
+        pr.route_on_plan(plan, [(50, -500), (1950, -500)], get_graph, metas=[None])
+
+
+def test_blocked_error_names_the_failing_leg(plan):
+    g = nx.Graph()
+    g.add_edge((0, 0), (100, 0))
+    g.add_edge((1000, 0), (1100, 0))
+    graph = (box(-10, -10, 1200, 10), g)
+    with pytest.raises(pr.CorridorBlocked, match=r"between \(80, -500\) and \(1950, -500\)"):
+        pr.route_on_plan(plan, [(50, -500), (80, -500), (1950, -500)], lambda c: graph)
+
+
+def test_contain_spline_holds_at_video_sampling_density():
+    route = [(963, 232), (399, 989), (314, 42), (335, 191), (324, 811), (867, 592)]
+    corridor = LineString(route).buffer(40, cap_style=2, join_style=2)
+    out = pr.contain_spline(route, corridor, smoothing=1.0)
+    covered = corridor.buffer(1e-6)
+    assert all(covered.covers(Point(p)) for p in _centripetal_cr(np.array(out), 1.0, samples=20))

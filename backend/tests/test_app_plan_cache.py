@@ -4,6 +4,7 @@ import json
 import pytest
 
 import app as app_module
+from plan_routing import CorridorBlocked
 from tests.test_plan_model import DATA
 
 
@@ -56,3 +57,36 @@ def test_demo_clears_plan(client):
     assert r.status_code == 200
     assert r.get_json()["plan"] is None
     assert app_module._LAST_PLAN is None
+
+
+def _load_plan(client):
+    r = client.post("/api/upload-qbiq-design", data={"json_file": (_design_json(), "d.json")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200, r.get_json()
+
+
+def _no_plan_routing(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise CorridorBlocked("route_on_plan must not be used")
+
+    monkeypatch.setattr(app_module, "route_on_plan", boom)
+
+
+@pytest.mark.parametrize("geometry", [{"footprint": [[[0, 0], [10, 0], [10, 10]]]}, {"doors": [[[5, 5], [15, 5]]]}])
+def test_autopath_explicit_footprint_or_doors_skips_plan_routing(client, monkeypatch, geometry):
+    _load_plan(client)
+    _no_plan_routing(monkeypatch)
+    r = client.post("/api/autopath", json={"points": [[50, -500], [1950, -500]], **geometry})
+    assert "route_on_plan must not be used" not in r.get_data(as_text=True)
+
+
+def test_autopath_plan_unexpected_error_is_400_not_500(client, monkeypatch):
+    _load_plan(client)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(app_module, "route_on_plan", boom)
+    r = client.post("/api/autopath", json={"points": [[50, -500], [1950, -500]]})
+    assert r.status_code == 400
+    assert "error" in r.get_json()

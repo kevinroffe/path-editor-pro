@@ -5,6 +5,7 @@ import logging
 import math
 
 import networkx as nx
+import numpy as np
 from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 from shapely.prepared import prep
@@ -12,11 +13,13 @@ from shapely.prepared import prep
 from corridor_graph import build_corridor_graph, build_walkable_polygon, compute_bounds, route_multi
 from plan_model import room_at
 from qbiq_extractor import _to_segments
-from route_processor import smooth_preview
+from route_processor import _centripetal_cr, smooth_preview
 
 log = logging.getLogger(__name__)
 
 _COVER_TOL = 1e-6
+_VIDEO_SAMPLES = 20
+_STOP_TOL = 1.0
 
 
 class CorridorBlocked(Exception):
@@ -83,14 +86,18 @@ def snap_points(plan, points) -> tuple:
 def _bad_legs(wps: list, covered, smoothing: float) -> set:
     """Indices of legs whose spline samples leave the covered area.
 
-    smooth_preview emits the same number of samples per leg, so a sample's leg
-    is its index // per_leg; nearest-leg-by-distance misattributes a bulge to
-    a parallel leg (e.g. the return leg of an out-and-back) and never converges.
+    Checked at preview density and at the video's 20 samples per leg. Both emit
+    the same number of samples per leg, so a sample's leg is its index // per_leg;
+    nearest-leg-by-distance misattributes a bulge to a parallel leg (e.g. the
+    return leg of an out-and-back) and never converges.
     """
-    samples = smooth_preview(wps, smoothing=smoothing)
     legs = len(wps) - 1
-    per_leg = max(1, (len(samples) - 1) // legs)
-    return {min(i // per_leg, legs - 1) for i, s in enumerate(samples) if not covered.covers(Point(s))}
+    bad = set()
+    for samples in (smooth_preview(wps, smoothing=smoothing),
+                    _centripetal_cr(np.array(wps, dtype=float), smoothing, samples=_VIDEO_SAMPLES)):
+        per_leg = max(1, (len(samples) - 1) // legs)
+        bad |= {min(i // per_leg, legs - 1) for i, s in enumerate(samples) if not covered.covers(Point(s))}
+    return bad
 
 
 def contain_spline(waypoints: list, corridor, smoothing: float, max_rounds: int = 6) -> list:
@@ -109,22 +116,56 @@ def contain_spline(waypoints: list, corridor, smoothing: float, max_rounds: int 
     return [list(p) for p in wps]
 
 
-def _attach(waypoints: list, snapped: list, metas: list) -> list:
-    """Stop entries pinned to the waypoint nearest each stop point, in order."""
-    stops, start = [], 0
+def _dist(a, b) -> float:
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _seg_dist(p, a, b) -> float:
+    """Distance from point p to segment a-b."""
+    return Point(p).distance(LineString([a, b])) if a != b else _dist(p, a)
+
+
+def _pin_stops(waypoints: list, snapped: list, metas: list) -> list:
+    """Waypoints with every stop point present, in stop order (inserted on the nearest leg after the previous stop)."""
+    wps, prev = [list(p) for p in waypoints], -1
     for pt, meta in zip(snapped, metas):
         if not meta:
             continue
-        idx = min(range(start, len(waypoints)),
-                  key=lambda i: math.hypot(waypoints[i][0] - pt[0], waypoints[i][1] - pt[1]))
-        stops.append({"index": idx, **meta})
-        start = idx
+        near = min(range(prev + 1, len(wps)), key=lambda i: _dist(wps[i], pt), default=None)
+        if near is not None and _dist(wps[near], pt) <= _STOP_TOL:
+            prev = near
+            continue
+        lo = max(prev, 0)
+        leg = min(range(lo, len(wps) - 1), key=lambda i: _seg_dist(pt, wps[i], wps[i + 1]), default=len(wps) - 2)
+        prev = leg + 1
+        wps.insert(prev, [float(pt[0]), float(pt[1])])
+    return wps
+
+
+def _attach(waypoints: list, snapped: list, metas: list) -> list:
+    """One stop entry per stop meta, pinned to its own waypoint, indices strictly increasing."""
+    stops, prev = [], -1
+    for pt, meta in zip(snapped, metas):
+        if not meta:
+            continue
+        prev = min(range(prev + 1, len(waypoints)), key=lambda i: _dist(waypoints[i], pt))
+        stops.append({"index": prev, **meta})
     return stops
+
+
+def _blocked_leg(snapped: list, get_graph) -> str:
+    """Message naming the first consecutive pair the corridor graph cannot connect."""
+    polygon, graph = get_graph(0.05)
+    pairs = list(zip(snapped, snapped[1:]))
+    a, b = next((pair for pair in pairs if route_multi(list(pair), graph, polygon) is None), pairs[0])
+    return f"corridor blocked between ({a[0]:.0f}, {a[1]:.0f}) and ({b[0]:.0f}, {b[1]:.0f})"
 
 
 def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: float = 1.0,
                   metas: list | None = None) -> dict:
     """Corridor-only route through ordered points; raises CorridorBlocked when unconnected."""
+    if metas is not None and len(metas) != len(points):
+        raise ValueError(f"metas has {len(metas)} entries for {len(points)} points")
     snapped, snapped_metas = snap_points(plan, points)
     metas = [m or s for m, s in zip(metas, snapped_metas)] if metas else snapped_metas
     max_pts = max(12, 3 * len(snapped))
@@ -133,7 +174,6 @@ def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: 
         if graph is None:
             continue
         if wps := route_multi(snapped, graph, polygon, max_pts=max_pts):
-            wps = contain_spline(wps, plan.corridor, smoothing)
+            wps = contain_spline(_pin_stops(wps, snapped, metas), plan.corridor, smoothing)
             return {"waypoints": wps, "stops": _attach(wps, snapped, metas)}
-    x, y = snapped[0]
-    raise CorridorBlocked(f"corridor blocked near ({x:.0f}, {y:.0f})")
+    raise CorridorBlocked(_blocked_leg(snapped, get_graph))

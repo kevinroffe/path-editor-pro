@@ -37,7 +37,7 @@ sys.path.insert(0, str(BASE_DIR))
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
-from plan_model import flipped, plan_to_json
+from plan_model import GLANCE_RADIUS_M, flipped, plan_to_json
 from plan_routing import CorridorBlocked, corridor_graph_for, route_on_plan
 from plan_tour import build_tour
 
@@ -212,6 +212,14 @@ CORS(app)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _camera_hints() -> dict:
+    """Glance targets of the loaded plan for process_route (empty without a plan)."""
+    if _LAST_PLAN is None:
+        return {}
+    return {"glances": list(_LAST_PLAN.glance_targets),
+            "glance_radius": GLANCE_RADIUS_M / _LAST_PLAN.units_to_metres}
+
 
 def _err(msg: str, code: int = 400):
     return jsonify({"error": msg}), code
@@ -566,13 +574,15 @@ def process():
 
     try:
         frames = process_route(
-            waypoints=[(p[0], p[1]) for p in wpts],
+            waypoints=wpts,
             camera_height=settings["camera_height"],
             smoothing=settings["smoothing"],
             total_duration=settings["duration"],
             fps=settings["fps"],
             fov=settings["fov"],
             cuts=cuts,
+            uturn_radius=float(data.get("uturn_radius", 0.0)),
+            **_camera_hints(),
         )
     except Exception as e:
         return _err(str(e))
@@ -604,6 +614,7 @@ def export_json():
         fov=float(settings.get("fov", 90.0)),
         uturn_radius=float(settings.get("uturn_radius", 0.0)),
         cuts=cuts,
+        **_camera_hints(),
     )
     settings = {**settings, "cuts": cuts}  # round-trips through JSON re-import
     out = to_json(frames, wpts, settings)
@@ -628,6 +639,7 @@ def export_xml():
         fov=float(settings.get("fov", 90.0)),
         uturn_radius=float(settings.get("uturn_radius", 0.0)),
         cuts=cuts,
+        **_camera_hints(),
     )
     out = to_enscape_xml(frames, wpts, settings)
     return app.response_class(out, mimetype="application/xml",

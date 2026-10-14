@@ -43,7 +43,7 @@ _HOLD_SECONDS = 0.4
 
 
 def process_route(
-    waypoints:      List[Tuple],          # (x, y) or (x, y, yaw_offset)
+    waypoints:      List[Tuple],          # (x, y[, yaw_offset, time_of_day, stop])
     camera_height:  float = 1.75,
     smoothing:      float = 1.0,
     total_duration: float = 30.0,
@@ -51,6 +51,8 @@ def process_route(
     fov:            float = 90.0,
     uturn_radius:   float = 0.0,
     cuts:           Optional[Iterable[int]] = None,
+    glances:        Optional[list] = None,
+    glance_radius:  float = 0.0,
 ) -> List[CameraFrame]:
     """
     `cuts` is a set of waypoint indices: a cut at index i means the path breaks
@@ -67,10 +69,12 @@ def process_route(
 
     xy_pts      = [(float(p[0]), float(p[1])) for p in waypoints]
     yaw_offsets = [float(p[2]) if len(p) > 2 else 0.0 for p in waypoints]
+    stops = [p[4] if len(p) > 4 and isinstance(p[4], dict) and p[4].get("look_at") else None
+             for p in waypoints]
 
     if not cut_set:
         return _process_segment(xy_pts, yaw_offsets, camera_height, smoothing,
-                                 total_duration, fps, fov, uturn_radius)
+                                 total_duration, fps, fov, uturn_radius, stops, glances, glance_radius)
 
     # Split into segments at each cut point
     bounds: List[Tuple[int, int]] = []
@@ -115,6 +119,7 @@ def process_route(
         seg_frames = _process_segment(
             xy_pts[s:e+1], yaw_offsets[s:e+1], camera_height, smoothing,
             max(seg_duration, 1e-6), fps, fov, uturn_radius,
+            stops[s:e+1], glances, glance_radius,
         )
         is_last_segment = seg_i == len(bounds) - 1
         for f in seg_frames:
@@ -139,6 +144,9 @@ def _process_segment(
     fps:            float,
     fov:            float,
     uturn_radius:   float,
+    stops:          Optional[list] = None,
+    glances:        Optional[list] = None,
+    glance_radius:  float = 0.0,
 ) -> List[CameraFrame]:
     if len(xy_pts) < 2:
         # Degenerate single-point "hold" segment — a still frame before a cut.
@@ -148,20 +156,88 @@ def _process_segment(
                              yaw=0.0, pitch=0.0, fov=fov)
                 for i in range(n_frames)]
 
+    stops = stops or [None] * len(xy_pts)
+    dwells = _scaled_dwells([float(s.get("dwell_s", 0.0)) if s else 0.0 for s in stops], total_duration)
+    move_duration = max(total_duration - sum(dwells), total_duration * 0.1)
+
     pts = np.array(xy_pts, dtype=float)
 
     if uturn_radius > 0 and len(pts) >= 3:
         pts = _preprocess_sharp_turns(pts, uturn_radius)
 
     smooth_pts = _centripetal_cr(pts, smoothing, samples=20)
-    n_frames   = max(2, int(total_duration * fps))
+    n_frames   = max(2, int(move_duration * fps))
     resampled  = _resample(smooth_pts, n_frames)
-    frames     = _build_frames(resampled, camera_height, total_duration, fov)
+    frames     = _build_frames(resampled, camera_height, (n_frames - 1) / fps, fov, glances, glance_radius)
 
     if any(o != 0.0 for o in yaw_offsets):
         _apply_yaw_offsets(frames, xy_pts, yaw_offsets)
 
+    if any(dwells):
+        frames = _insert_dwells(frames, xy_pts, stops, dwells, fps)
+
     return frames
+
+
+# ── room stops (dwells) ───────────────────────────────────────────────────────
+
+def _scaled_dwells(dwells: list, total_duration: float) -> list:
+    """Dwells scaled down so they take at most MAX_DWELL_FRACTION of the video."""
+    cap, total = MAX_DWELL_FRACTION * total_duration, sum(dwells)
+    if total <= cap or total <= 0:
+        return dwells
+    f = cap / total
+    return [max(d * f, MIN_DWELL_S) if d > 0 else 0.0 for d in dwells]
+
+
+def _dwell_frames(f: CameraFrame, look_at, dwell_s: float, fps: float) -> list:
+    """Frames holding position while turning toward look_at, holding, and turning back."""
+    n = max(1, int(round(dwell_s * fps)))
+    step = _MAX_YAW_RATE_DEG_PER_SEC / fps
+    target = math.degrees(math.atan2(look_at[1] - f.y, look_at[0] - f.x))
+    delta = (target - f.yaw + 180) % 360 - 180
+    reach = math.copysign(min(abs(delta), step * (n // 2)), delta)
+    turn = int(math.ceil(abs(reach) / step)) if reach else 0
+    yaws = ([f.yaw + reach * (i + 1) / turn for i in range(turn)]
+            + [f.yaw + reach] * (n - 2 * turn)
+            + [f.yaw + reach * (turn - i - 1) / turn for i in range(turn)])
+    return [CameraFrame(t=0.0, x=f.x, y=f.y, z=f.z, yaw=y % 360, pitch=f.pitch, fov=f.fov) for y in yaws]
+
+
+def _insert_dwells(frames: list, wp_xy: list, stops: list, dwells: list, fps: float) -> list:
+    """Splice dwell frames in at the frame nearest each stop waypoint, then retime."""
+    pos = np.array([[f.x, f.y] for f in frames])
+    out, last, k = [], 0, 0
+    for (x, y), stop, d in zip(wp_xy, stops, dwells):
+        if not stop or d <= 0:
+            continue
+        k = k + int(np.argmin(np.hypot(pos[k:, 0] - x, pos[k:, 1] - y)))
+        out.extend(frames[last:k + 1])
+        out.extend(_dwell_frames(frames[k], stop["look_at"], d, fps))
+        last = k + 1
+    out.extend(frames[last:])
+    for i, f in enumerate(out):
+        f.t = i / max(len(out) - 1, 1)
+    return out
+
+
+def _apply_glances(pts: np.ndarray, raw_yaw: np.ndarray, glances: list, radius: float, la: int) -> np.ndarray:
+    """Blend raw yaw toward nearby rooms (<= GLANCE_MAX_DEG), suppressed while the path turns."""
+    gp = np.array([g[0] for g in glances], dtype=float)
+    gl = np.array([g[1] for g in glances], dtype=float)
+    out, n = raw_yaw.copy(), len(pts)
+    for i in range(n):
+        # spline corners are rounded, so measure the turn over 2*la each side, wider than the yaw look-ahead
+        turning = abs((raw_yaw[min(i + 2 * la, n - 1)] - raw_yaw[max(i - 2 * la, 0)] + 180) % 360 - 180)
+        s = max(0.0, 1.0 - turning / GLANCE_TURN_SUPPRESS_DEG)
+        d = np.hypot(gp[:, 0] - pts[i, 0], gp[:, 1] - pts[i, 1])
+        j = int(np.argmin(d))
+        if s <= 0 or d[j] >= radius:
+            continue
+        target = math.degrees(math.atan2(gl[j, 1] - pts[i, 1], gl[j, 0] - pts[i, 0]))
+        delta = (target - raw_yaw[i] + 180) % 360 - 180
+        out[i] = raw_yaw[i] + max(-GLANCE_MAX_DEG, min(GLANCE_MAX_DEG, delta)) * (1 - d[j] / radius) * s
+    return out
 
 
 def smooth_preview(
@@ -287,6 +363,10 @@ def _resample(pts: np.ndarray, n: int) -> np.ndarray:
 # ── camera frames ─────────────────────────────────────────────────────────────
 
 _MAX_YAW_RATE_DEG_PER_SEC = 180.0  # cinematic cap on how fast the camera may turn
+GLANCE_MAX_DEG = 30.0
+GLANCE_TURN_SUPPRESS_DEG = 45.0
+MAX_DWELL_FRACTION = 0.5
+MIN_DWELL_S = 0.6
 
 
 def _build_frames(
@@ -294,6 +374,8 @@ def _build_frames(
     height:   float,
     duration: float,
     fov:      float,
+    glances:  Optional[list] = None,
+    glance_radius: float = 0.0,
 ) -> List[CameraFrame]:
     n  = len(pts)
     la = max(1, int(n * 0.03))   # look-ahead: ~3 % of frames
@@ -306,6 +388,9 @@ def _build_frames(
             dx = x - pts[i-1, 0]
             dy = y - pts[i-1, 1]
         raw_yaw[i] = math.degrees(math.atan2(dy, dx))
+
+    if glances and glance_radius > 0:
+        raw_yaw = _apply_glances(pts, raw_yaw, glances, glance_radius, la)
 
     # Rate-limit the yaw signal rather than use the raw look-ahead angle
     # directly. Near a sharp reversal (a real "go out and come back"

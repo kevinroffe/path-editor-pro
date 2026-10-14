@@ -329,7 +329,7 @@ body {
   display: flex; align-items: center; gap: 6px;
   height: 34px; padding: 0 14px; border-radius: 9px; border: none;
   background: var(--blue-lt); color: var(--blue-dk); font-size: 12px; font-weight: 600;
-  cursor: pointer; transition: all .15s; font-family: inherit;
+  cursor: pointer; transition: all .15s; font-family: inherit; white-space: nowrap; flex-shrink: 0;
 }
 .tb-btn-auto:hover { background: var(--blue-md); }
 .tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
@@ -349,7 +349,8 @@ body {
 .room-tip .rt-open { color: var(--blue-dk); font-weight: 600; }
 .tour-wrap { position: relative; display: flex; }
 .tour-panel {
-  position: absolute; top: 42px; left: 0; z-index: 50; min-width: 200px; padding: 10px 12px;
+  position: absolute; bottom: 42px; left: 0; z-index: 50; min-width: 220px; padding: 10px 12px;
+  max-height: min(60vh, 480px); overflow-y: auto;
   background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 6px 20px rgba(0,0,0,.14); display: flex; flex-direction: column; gap: 6px;
 }

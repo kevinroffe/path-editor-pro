@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass, replace
 
 from shapely.affinity import scale
@@ -98,18 +99,19 @@ def _door_candidates(door: list, offset: float) -> list:
 
 def _door_stop(poly, doors, corridor, inner, offset, label, dwell) -> Stop:
     """Stop in the corridor in front of the door that best faces it."""
+    cands = [c for door in doors for c in _door_candidates(door, offset)]
     best = min(
         ((corridor.distance(Point(c)), Point(c).distance(poly.centroid), c)
-         for door in doors for c in _door_candidates(door, offset)),
+         for c in [c for c in cands if not poly.covers(Point(c))] or cands),
         key=lambda t: (round(t[0], 6), t[1]),
     )
     warning = "door does not open onto the corridor" if best[0] > offset / 2 else None
     return Stop(_into(inner, corridor, best[2]), label, dwell, warning)
 
 
-def _open_stop(poly, corridor, inner, label, dwell) -> Stop:
+def _open_stop(poly, corridor, inner, label, dwell, tol: float) -> Stop:
     """Stop on the corridor edge shared with an open area, nearest its centre."""
-    shared = poly.boundary.intersection(corridor.buffer(1e-6))
+    shared = poly.boundary.intersection(corridor.buffer(tol))
     if shared.is_empty:
         p = nearest_points(inner, Point(label))[0]
         return Stop((p.x, p.y), label, dwell, "open area does not touch the corridor")
@@ -140,7 +142,7 @@ def _plan_room(raw: dict, parsed, corridor, inner, u: float) -> PlanRoom | None:
     dwell = dwell_for(raw.get("space_type"))
     offset = STOP_OFFSET_M / u
     is_open = not parsed.enclosed
-    stop = (_open_stop(poly, corridor, inner, label, dwell) if is_open or not parsed.doors
+    stop = (_open_stop(poly, corridor, inner, label, dwell, FRONT_TOL_M / u) if is_open or not parsed.doors
             else _door_stop(poly, parsed.doors, corridor, inner, offset, label, dwell))
     if stop.warning:
         log.warning("plan model: room %s (%s): %s", raw.get("id"), raw.get("space_type"), stop.warning)
@@ -156,6 +158,16 @@ def _glances(rooms: list, corridor, u: float) -> tuple:
                  for pt in _front_samples(r.polygon, corridor, spacing, tol))
 
 
+def _unique_ids(rooms: list) -> list:
+    """Keep the first of each repeated id; suffix later ones with #2, #3, ..."""
+    seen = Counter()
+    out = []
+    for r in rooms:
+        seen[r.id] += 1
+        out.append(r if seen[r.id] == 1 else replace(r, id=f"{r.id}#{seen[r.id]}"))
+    return out
+
+
 def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     """Semantic plan model from a design JSON; None when it has no circulation."""
     if (corridor := _corridor(data)) is None:
@@ -169,7 +181,7 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     me = qe._wkt(nfp.get("main_entrance"))
     entrance = _into(inner, corridor, (me.x, me.y)) if me is not None and me.geom_type == "Point" else None
     columns = [pl for g in qe._wkt_many(nfp.get("columns")) for pl in qe._polylines(g)]
-    return PlanModel(corridor, columns, tuple(rooms), entrance, _glances(rooms, corridor, u), u)
+    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, _glances(rooms, corridor, u), u)
 
 
 def _fy(pt) -> tuple:

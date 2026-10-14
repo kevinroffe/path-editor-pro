@@ -124,3 +124,37 @@ def test_plan_to_json_shape(plan):
     assert {"id", "name", "type", "area_m2", "head_count", "assigned_hc",
             "department_id", "polygon", "label_point", "is_open", "stop"} <= set(r)
     assert "Storage Room" not in js["default_tour_types"]
+
+
+def test_open_area_slightly_off_corridor_still_uses_shared_edge():
+    data = {**DATA, "rooms": [_room(
+        "E", "Open Space WorkStation", "POLYGON ((1000 600.2, 2000 600.2, 2000 1000, 1000 1000, 1000 600.2))",
+        [_door("LINESTRING (1000 600.2, 2000 600.2)", shown=False)])]}
+    e = pm.build_plan_model(data, U).rooms[0]
+    assert e.stop.warning is None
+    assert e.stop.point[0] == pytest.approx(1500.0, abs=1.0)
+    assert e.stop.point[1] == pytest.approx(540.0, abs=1.0)
+
+
+def test_door_stop_never_on_room_side():
+    data = {
+        "circulation": ["POLYGON ((0 300, 2000 300, 2000 380, 0 380, 0 300))",
+                        "POLYGON ((215 760, 300 760, 300 1000, 215 1000, 215 760))"],
+        "rooms": [_room("A", "Conference", "POLYGON ((0 600, 200 600, 200 1000, 0 1000, 0 600))",
+                        [_door("LINESTRING (0 600, 200 600)",
+                               geom="GEOMETRYCOLLECTION (LINESTRING (50 600, 50 610), LINESTRING (150 600, 150 610))")])],
+        "nfp_data": {},
+    }
+    plan = pm.build_plan_model(data, U)
+    a = plan.rooms[0]
+    assert not a.polygon.covers(Point(a.stop.point))
+    assert plan.corridor.covers(Point(a.stop.point))
+    assert a.stop.point[1] < 400
+
+
+def test_room_ids_are_unique():
+    dup = _room("A", "Kitchen", "POLYGON ((1000 0, 1500 0, 1500 400, 1000 400, 1000 0))", [])
+    plan = pm.build_plan_model({**DATA, "rooms": DATA["rooms"] + [dup, dup]}, U)
+    ids = [r.id for r in plan.rooms]
+    assert len(set(ids)) == len(ids)
+    assert ids[:4] == ["A", "B", "C", "D"] and ids[4:] == ["A#2", "A#3"]

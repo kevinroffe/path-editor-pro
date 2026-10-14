@@ -39,6 +39,7 @@ from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import flipped, plan_to_json
 from plan_routing import CorridorBlocked, corridor_graph_for, route_on_plan
+from plan_tour import build_tour
 
 try:
     from dxf_extractor import extract_dxf
@@ -427,6 +428,27 @@ def demo():
     from revit_extractor import _demo_geometry
     geo = _demo_geometry("L-0")
     return _load_2d_geometry(geo, clear_ifc=True)
+
+
+@app.route("/api/auto-tour", methods=["POST"])
+def auto_tour():
+    """Auto walkthrough of the loaded design plan."""
+    if _LAST_PLAN is None:
+        return _err("Auto tour needs a qbiq design JSON to be loaded")
+    data = request.get_json(force=True) or {}
+    clearance_m = float(data.get("clearance_m", 0.2))
+    polygon, graph = _plan_graph(clearance_m)
+    if graph is None:
+        return _err("The corridor is too narrow to route at this clearance")
+    try:
+        return jsonify(build_tour(_LAST_PLAN, graph, polygon, _plan_graph,
+                                  room_types=data.get("room_types"), clearance_m=clearance_m,
+                                  smoothing=float(data.get("smoothing", 1.0))))
+    except (CorridorBlocked, ValueError) as e:
+        return _err(str(e))
+    except Exception:
+        log.exception("Auto tour failed")
+        return _err("auto tour failed")
 
 
 @app.route("/api/autopath", methods=["POST"])

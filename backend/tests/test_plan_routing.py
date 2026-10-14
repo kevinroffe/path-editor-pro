@@ -148,3 +148,30 @@ def test_contain_spline_holds_at_video_sampling_density():
     out = pr.contain_spline(route, corridor, smoothing=1.0)
     covered = corridor.buffer(1e-6)
     assert all(covered.covers(Point(p)) for p in _centripetal_cr(np.array(out), 1.0, samples=20))
+
+
+def _assert_contained(plan, wps):
+    assert all(_inside(plan, p) for p in smooth_preview(wps, smoothing=1.0))
+    assert all(_inside(plan, p) for p in _centripetal_cr(np.array(wps), 1.0, samples=20))
+
+
+def test_start_over_first_stop_is_kept(plan, get_graph):
+    b = next(r for r in plan.rooms if r.id == "B")
+    start = (b.stop.point[0], -460.0)
+    out = pr.route_on_plan(plan, [start, b.stop.point], get_graph, metas=[None, pr.stop_meta(b)])
+    wps = out["waypoints"]
+    assert wps[0] == pytest.approx(start, abs=1.0)
+    assert [s["index"] for s in out["stops"]] == [1]
+    assert wps[1] == pytest.approx(list(b.stop.point), abs=1.0)
+    _assert_contained(plan, wps)
+
+
+def test_end_over_last_stop_is_kept(plan, get_graph):
+    b = next(r for r in plan.rooms if r.id == "B")
+    end = (b.stop.point[0], -460.0)
+    out = pr.route_on_plan(plan, [b.stop.point, end], get_graph, metas=[pr.stop_meta(b), None])
+    wps = out["waypoints"]
+    assert wps[-1] == pytest.approx(end, abs=1.0)
+    assert [s["index"] for s in out["stops"]] == [0]
+    assert wps[0] == pytest.approx(list(b.stop.point), abs=1.0)
+    _assert_contained(plan, wps)

@@ -125,6 +125,16 @@ def _seg_dist(p, a, b) -> float:
     return Point(p).distance(LineString([a, b])) if a != b else _dist(p, a)
 
 
+def _pin_ends(waypoints: list, snapped: list) -> list:
+    """Waypoints that begin at the first snapped point and end at the last (route_multi drops an endpoint that snaps onto a neighbouring via-point's node)."""
+    wps = [list(p) for p in waypoints]
+    if _dist(wps[0], snapped[0]) > _STOP_TOL:
+        wps.insert(0, [float(snapped[0][0]), float(snapped[0][1])])
+    if _dist(wps[-1], snapped[-1]) > _STOP_TOL:
+        wps.append([float(snapped[-1][0]), float(snapped[-1][1])])
+    return wps
+
+
 def _pin_stops(waypoints: list, snapped: list, metas: list) -> list:
     """Waypoints with every stop point present, in stop order (inserted on the nearest leg after the previous stop)."""
     wps, prev = [list(p) for p in waypoints], -1
@@ -174,6 +184,6 @@ def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: 
         if graph is None:
             continue
         if wps := route_multi(snapped, graph, polygon, max_pts=max_pts):
-            wps = contain_spline(_pin_stops(wps, snapped, metas), plan.corridor, smoothing)
+            wps = contain_spline(_pin_stops(_pin_ends(wps, snapped), snapped, metas), plan.corridor, smoothing)
             return {"waypoints": wps, "stops": _attach(wps, snapped, metas)}
     raise CorridorBlocked(_blocked_leg(snapped, get_graph))

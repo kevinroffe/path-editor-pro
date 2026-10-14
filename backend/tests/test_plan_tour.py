@@ -1,0 +1,68 @@
+import math
+
+import pytest
+
+import plan_model as pm
+import plan_routing as pr
+import plan_tour as pt
+from tests.test_plan_model import DATA
+
+
+@pytest.fixture(scope="module")
+def plan():
+    return pm.flipped(pm.build_plan_model(DATA, 0.01))
+
+
+@pytest.fixture(scope="module")
+def get_graph(plan):
+    cache = {}
+    return lambda c: cache.setdefault(c, pr.corridor_graph_for(plan, c))
+
+
+def _length(order, dist):
+    seq = [0] + order
+    return sum(dist[a][b] for a, b in zip(seq, seq[1:]))
+
+
+def test_order_stops_beats_naive_and_visits_each_once():
+    pts = [(0, 0), (10, 0), (1, 0), (9, 0), (2, 0)]
+    dist = [[math.dist(a, b) for b in pts] for a in pts]
+    order = pt.order_stops(dist)
+    assert sorted(order) == [1, 2, 3, 4]
+    assert _length(order, dist) <= _length([1, 2, 3, 4], dist)
+    assert _length(order, dist) == pytest.approx(10.0)
+
+
+def test_order_stops_skips_unreachable():
+    inf = math.inf
+    dist = [[0, 1, inf], [1, 0, inf], [inf, inf, 0]]
+    assert pt.order_stops(dist) == [1]
+
+
+def test_tour_default_types_exclude_back_of_house(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph)
+    ids = [s["room_id"] for s in tour["stops"]]
+    assert "C" not in ids                      # Storage Room is back-of-house
+    assert sorted(ids) == ["A", "B", "D"]
+    assert len(ids) == len(set(ids))
+
+
+def test_tour_starts_at_entrance_and_sets_duration(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph)
+    assert tour["waypoints"][0] == pytest.approx(list(plan.entrance), abs=1.0)
+    assert tour["suggested_duration_s"] >= 10 and tour["suggested_duration_s"] % 5 == 0
+    assert tour["unreachable"] == []
+
+
+def test_tour_respects_requested_types(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.build_tour(plan, graph, polygon, get_graph, room_types=["Storage Room"])
+    assert [s["room_id"] for s in tour["stops"]] == ["C"]
+
+
+def test_tour_without_matching_rooms_raises(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    with pytest.raises(ValueError, match="no rooms of the selected types"):
+        pt.build_tour(plan, graph, polygon, get_graph, room_types=["Nonexistent"])

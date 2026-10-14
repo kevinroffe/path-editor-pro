@@ -556,14 +556,14 @@ body {
   <span class="level-tag" id="h-level">No plan loaded</span>
   <div class="header-sep"></div>
 
-  <!-- Folder upload (DXF and/or IFC) -->
-  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a project folder containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair">
+  <!-- Design JSON upload -->
+  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
       <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <span id="load-folder-btn-text">Load Project</span>
-    <input type="file" id="file-folder-input" webkitdirectory multiple onchange="onFolderSelected(this)"/>
+    <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
   </label>
 
   <button class="btn-3d-toggle" id="btn-3d-toggle" onclick="toggle3DPanel()" title="Toggle 3D walkthrough preview">
@@ -729,9 +729,8 @@ body {
     <div class="empty-state" id="empty-state">
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
-        Click <strong>Load Project</strong> in the top bar to select a folder<br/>
-        containing a .dxf and/or .ifc file, a qbiq design .json, or a qbiq .json + .svg pair<br/>
-        — or <strong>drag &amp; drop</strong> the files here
+        Click <strong>Load Project</strong> in the top bar to select a qbiq design .json<br/>
+        — or <strong>drag &amp; drop</strong> the file here
       </div>
     </div>
 
@@ -806,7 +805,7 @@ body {
 <div class="drop-overlay" id="drop-overlay">
   <div class="drop-card">
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><path d="M20 6v20M12 18l8 8 8-8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 27v4a3 3 0 0 0 3 3h20a3 3 0 0 0 3-3v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-    Drop a qbiq design .json, a .json + .svg pair, a .dxf or an .ifc
+    Drop a qbiq design .json
   </div>
 </div>
 
@@ -1629,11 +1628,29 @@ function findQbiqPair(files) {
 }
 
 /* ── Folder upload (DXF, qbiq design JSON, qbiq JSON+SVG, or IFC) ── */
-async function onFolderSelected(inp) {
+async function onDesignSelected(inp) {
   const files = Array.from(inp.files);
   inp.value = '';
-  const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
-  await loadProjectFiles(files, folderName);
+  await loadDesignJson(files);
+}
+
+const DESIGN_ONLY_MSG = 'Only qbiq design JSON files are supported';
+
+/* Load a single qbiq design JSON; anything else is rejected. */
+async function loadDesignJson(files) {
+  const design = files.length === 1 ? await findQbiqDesign(files) : null;
+  if (!design) { toast(DESIGN_ONLY_MSG, 'inf'); return; }
+  const btn = document.getElementById('load-folder-btn-wrap');
+  const txt = document.getElementById('load-folder-btn-text');
+  txt.textContent = design.name.length > 18 ? design.name.slice(0, 16) + '…' : design.name;
+  btn.classList.add('loaded');
+  showLoading('Loading qbiq design…');
+  try {
+    await doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true, expectPlan: true });
+    toast(`Loaded qbiq design from "${design.name}"`, 'ok');
+  } finally {
+    hideLoading();
+  }
 }
 
 /* Detect the project's source files (DXF > qbiq design JSON > JSON+SVG pair > IFC) and upload them. */
@@ -1684,21 +1701,7 @@ async function loadProjectFiles(files, sourceLabel, { emptyWhere = 'that folder'
   }
 }
 
-/* ── Drag & drop loading (files, or a single dropped folder via webkitGetAsEntry) ── */
-const readDirEntries = reader => new Promise((res, rej) => reader.readEntries(res, rej));
-const entryFile = entry => new Promise((res, rej) => entry.file(res, rej));
-
-/* Recursively collect every File under a FileSystemEntry. readEntries returns batches, so loop until empty. */
-async function filesFromEntry(entry) {
-  if (entry.isFile) return [await entryFile(entry)];
-  const reader = entry.createReader();
-  const out = [];
-  for (let batch; (batch = await readDirEntries(reader)).length;) {
-    for (const child of batch) out.push(...await filesFromEntry(child));
-  }
-  return out;
-}
-
+/* ── Drag & drop loading (single design JSON) ── */
 (function initDropLoading() {
   const overlay = document.getElementById('drop-overlay');
   const isFileDrag = e => Array.from(e.dataTransfer?.types || []).includes('Files');
@@ -1726,23 +1729,10 @@ async function filesFromEntry(entry) {
     e.preventDefault();
     depth = 0;
     show(false);
-    // Entries must be read synchronously inside the drop handler — DataTransfer is cleared afterwards.
-    const entries = Array.from(e.dataTransfer.items || [])
-      .filter(it => it.kind === 'file')
-      .map(it => it.webkitGetAsEntry?.())
-      .filter(Boolean);
-    const dirs = entries.filter(en => en.isDirectory);
-    if (!dirs.length) {
-      await loadProjectFiles(Array.from(e.dataTransfer.files), 'dropped files', { emptyWhere: 'the dropped files' });
-      return;
-    }
-    if (dirs.length > 1) { toast('Drop one folder at a time — or use Load Project for folders', 'err'); return; }
-    try {
-      const files = (await Promise.all(entries.map(filesFromEntry))).flat();
-      await loadProjectFiles(files, dirs[0].name, { emptyWhere: `"${dirs[0].name}"` });
-    } catch (err) {
-      toast('Could not read the dropped folder — use Load Project for folders', 'err');
-    }
+    const files = Array.from(e.dataTransfer.files);
+    const hasDir = Array.from(e.dataTransfer.items || []).some(it => it.webkitGetAsEntry?.()?.isDirectory);
+    if (hasDir) { toast(DESIGN_ONLY_MSG, 'inf'); return; }
+    await loadDesignJson(files);
   });
 })();
 

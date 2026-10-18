@@ -336,10 +336,157 @@ def _assign_times(drafts: list, duration: float, pan_s: float = 0.0) -> tuple:
     return v, length_m
 
 
+# ── gaze ──────────────────────────────────────────────────────────────────────
+
+_LOOK_EASE_S = 1.5
+_EDGE_DEDUP_M = 0.2
+
+
+def _wrap(a: float) -> float:
+    return (a + 180.0) % 360.0 - 180.0
+
+
+def _smoothstep(x: float) -> float:
+    x = min(max(x, 0.0), 1.0)
+    return x * x * (3 - 2 * x)
+
+
+def _with_look_edges(drafts: list, legs: list, stops: list, v: float, u: float) -> list:
+    """Drafts plus keyframes at each room look's window edges (anchor +- half its look time)."""
+    extra = []
+    for a in drafts:
+        if a.wp is None or not (stop := stops[a.wp]) or stop["dwell_s"] <= 0:
+            continue
+        leg = legs[a.seg]
+        for sign in (-1, 1):
+            s_m = a.s_m + sign * v * stop["dwell_s"] / 2
+            local = min(max((s_m - leg.s0_m) / u, 0.0), float(leg.arc[-1]))
+            s_m = leg.s0_m + local * u
+            if all(abs(d.s_m - s_m) >= _EDGE_DEDUP_M for d in drafts + extra if d.seg == a.seg):
+                x, y, h = _at(leg, local)
+                extra.append(_Draft(x, y, s_m, h, a.seg))
+    merged = sorted(drafts + extra, key=lambda d: (d.seg, d.s_m))
+    for a, b in zip(merged, merged[1:]):
+        a.cut_after = a.seg != b.seg
+    merged[-1].cut_after = False
+    return merged
+
+
+def _lead_yaw(drafts: list, legs: list, v: float, u: float) -> list:
+    """Travel direction TURN_LEAD_S ahead (the head turns before the body), continuous."""
+    out = [_at(legs[d.seg], (d.s_m - legs[d.seg].s0_m + TURN_LEAD_S * v) / u)[2] for d in drafts]
+    return list(np.degrees(np.unwrap(np.radians(out))))
+
+
+def _room_look_offsets(drafts: list, base: list, stops: list) -> list:
+    """Per-draft gaze offset toward the nearest active room look (clamped, eased)."""
+    anchors = [(d.t_s, d.seg, stops[d.wp]) for d in drafts if d.wp is not None and stops[d.wp]]
+    out = []
+    for d, b in zip(drafts, base):
+        best = None
+        for t_a, seg, stop in anchors:
+            dist, half = abs(d.t_s - t_a), stop["dwell_s"] / 2
+            w = 1.0 if dist <= half + 1e-6 else _smoothstep(1 - (dist - half) / _LOOK_EASE_S)
+            if seg == d.seg and w > 0 and (best is None or dist < best[0]):
+                bearing = math.degrees(math.atan2(stop["look_at"][1] - d.y, stop["look_at"][0] - d.x))
+                best = (dist, w * max(-ROOM_LOOK_MAX_DEG, min(ROOM_LOOK_MAX_DEG, _wrap(bearing - b))))
+        out.append(best[1] if best else 0.0)
+    return out
+
+
+def _user_offsets(drafts: list, offsets: list) -> list:
+    """User heading offsets at their waypoint keyframe, half on each neighbour (short way round)."""
+    out = [0.0] * len(drafts)
+    for i, d in enumerate(drafts):
+        if d.wp is None or not (o := _wrap(offsets[d.wp])):
+            continue
+        out[i] += o
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(drafts) and drafts[j].seg == d.seg:
+                out[j] += o / 2
+    return out
+
+
+_REVERSAL_STEP_DEG = 3.0
+_LIMIT_PASSES = 50
+
+
+def _significant_steps(yaws: list) -> list:
+    """(start index, signed change) of each keyframe step larger than _REVERSAL_STEP_DEG."""
+    return [(i, b - a) for i, (a, b) in enumerate(zip(yaws, yaws[1:])) if abs(b - a) > _REVERSAL_STEP_DEG]
+
+
+def _limit_reversals(drafts: list) -> None:
+    """Flatten the smallest left-right head wobbles until reversals <= MAX_REVERSALS_PER_MIN."""
+    minutes = max((drafts[-1].t_s - drafts[0].t_s) / 60.0, 1e-9)
+    for _ in range(len(drafts) * 2):
+        steps = _significant_steps([d.yaw for d in drafts])
+        flips = [(min(abs(s1), abs(s2)), i1, i2 + 1) for (i1, s1), (i2, s2) in zip(steps, steps[1:]) if s1 * s2 < 0]
+        if len(flips) / minutes <= MAX_REVERSALS_PER_MIN:
+            return
+        _, a, b = min(flips)
+        for k in range(a + 1, b):
+            drafts[k].yaw = drafts[a].yaw + (drafts[b].yaw - drafts[a].yaw) * (k - a) / (b - a)
+
+
+def _segment_indices(drafts: list, i: int) -> range:
+    """Indices of the cut-free segment containing draft i."""
+    lo = i
+    while lo > 0 and not drafts[lo - 1].cut_after:
+        lo -= 1
+    hi = i
+    while hi < len(drafts) - 1 and not drafts[hi].cut_after:
+        hi += 1
+    return range(lo, hi + 1)
+
+
+def _borrow_time(drafts: list, i: int, grow: float) -> float:
+    """Lengthen interval i by up to grow seconds, taken from the segment's other walking intervals."""
+    idx = _segment_indices(drafts, i)
+    lo = idx[0]
+    dts = [drafts[k + 1].t_s - drafts[k].t_s for k in idx[:-1]]
+    floor = [(drafts[k + 1].s_m - drafts[k].s_m) / MAX_SPEED_MPS for k in idx[:-1]]
+    slack = [max(dt - f, 0.0) if k != i and drafts[k + 1].s_m > drafts[k].s_m else 0.0
+             for k, dt, f in zip(idx[:-1], dts, floor)]
+    take = min(grow, sum(slack))
+    if take <= 0:
+        return 0.0
+    dts = [dt - take * s / sum(slack) for dt, s in zip(dts, slack)]
+    dts[i - lo] += take
+    for k, dt in zip(idx[:-1], dts):
+        drafts[k + 1].t_s = drafts[k].t_s + dt
+    return take
+
+
+def _limit_turn_rate(drafts: list, base: list) -> list:
+    """Kevin's rule: slow the walk (to MIN_LOOK_SPEED_MPS) first, then turn less; never faster."""
+    warnings = set()
+    for _ in range(_LIMIT_PASSES):
+        violated = False
+        for i, (a, b) in enumerate(zip(drafts, drafts[1:])):
+            dt = b.t_s - a.t_s
+            need = abs(b.yaw - a.yaw) / MAX_YAW_RATE_DPS
+            if a.cut_after or need <= dt + 1e-9:
+                continue
+            violated = True
+            if (ds := b.s_m - a.s_m) > 0 and (grow := min(need, ds / MIN_LOOK_SPEED_MPS) - dt) > 1e-9:
+                got = _borrow_time(drafts, i, grow)
+                if got < grow - 1e-6:
+                    warnings.add("Video too short for smooth head turns — some looks are shortened")
+                dt += got
+            if need > dt + 1e-9:
+                k, other = (i + 1, i) if abs(b.yaw - base[i + 1]) >= abs(a.yaw - base[i]) else (i, i + 1)
+                diff = drafts[k].yaw - drafts[other].yaw
+                drafts[k].yaw = drafts[other].yaw + math.copysign(MAX_YAW_RATE_DPS * dt, diff)
+        if not violated:
+            return sorted(warnings)
+    log.warning("head-turn limiter did not converge in %d passes", _LIMIT_PASSES)
+    return sorted(warnings)
+
+
 def _to_keyframes(drafts: list) -> list:
-    """Public keyframes with continuous (unwrapped) yaw."""
-    yaw = np.degrees(np.unwrap(np.radians([d.yaw for d in drafts])))
-    return [Keyframe(d.t_s, d.x, d.y, float(y), d.hour, d.cut_after) for d, y in zip(drafts, yaw)]
+    """Public keyframes (yaw already continuous)."""
+    return [Keyframe(d.t_s, d.x, d.y, float(d.yaw), d.hour, d.cut_after) for d in drafts]
 
 
 def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: float, smoothing: float = 1.0,
@@ -349,7 +496,13 @@ def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: f
         raise ValueError("Need at least 2 waypoints")
     u = units_to_metres
     legs, drafts, stops, offsets = _route(waypoints, smoothing, uturn_radius_m, cuts, u)
+    v, _ = _assign_times(drafts, total_duration)
+    drafts = _with_look_edges(drafts, legs, stops, v, u)
     v, length_m = _assign_times(drafts, total_duration)
-    for d in drafts:
-        d.yaw = d.travel
-    return KeyframePlan(_to_keyframes(drafts), u, _speed_warning(v, length_m, 0))
+    base = _lead_yaw(drafts, legs, v, u)
+    gaze = np.add(_room_look_offsets(drafts, base, stops), _user_offsets(drafts, offsets))
+    for d, b, g in zip(drafts, base, gaze):
+        d.yaw = b + g
+    _limit_reversals(drafts)
+    warnings = _speed_warning(v, length_m, 0) + _limit_turn_rate(drafts, base)
+    return KeyframePlan(_to_keyframes(drafts), u, warnings)

@@ -24,7 +24,7 @@ import numpy as np
 import shapely
 from shapely import wkt
 from shapely.affinity import affine_transform
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
@@ -85,6 +85,11 @@ _ROOM_COLOURS = (
 _DEFAULT_ROOM_COLOUR = "#dddad4"
 
 CEILING = 3.0
+CEILING_TOP = 3.05
+CEILING_MAT = _mat("ceiling", "#f7f7f5", roughness=0.95)
+LIGHT_MAT = _mat("light", "#fff6e0", roughness=1.0)
+PANEL_W, PANEL_L, PANEL_PITCH = 0.6, 1.2, 2.4
+PANEL_Z0, PANEL_Z1 = 2.99, 2.995
 WALL_THICK = 0.25
 SILL, HEAD = 0.9, 2.4
 PANE_Z0, PANE_Z1, RAIL_TOP = 0.05, 2.7, 2.8
@@ -343,6 +348,42 @@ def _core(polyline: list, k: float) -> list:
     return [f for seg in zip(polyline, polyline[1:]) for f in _exterior_wall(seg, [], k)]
 
 
+# ── ceiling ─────────────────────────────────────────────────────────────────
+
+def _ceiling_part(poly: Polygon) -> list:
+    """One ceiling polygon: sides, top cap and a downward-facing underside (seen from the room)."""
+    poly = orient(poly, 1.0)
+    tris = shapely.get_parts(shapely.constrained_delaunay_triangles(poly))
+    under = [(CEILING_MAT, [(*q, CEILING) for q in list(orient(t, 1.0).exterior.coords)[:3][::-1]]) for t in tris]
+    return _solid_part(CEILING_MAT, poly, CEILING, CEILING_TOP) + under
+
+
+def _ceiling(plates: list) -> list:
+    """A flat ceiling over every floor plate (holes respected)."""
+    return [f for g in plates for poly in _polygons(g) for f in _ceiling_part(poly)]
+
+
+def _core_area(cores: list, k: float):
+    """The union of core footprints (closed outlines, or open runs as wall-thick strips)."""
+    shapes = [Polygon(c) if len(c) >= 4 and math.dist(c[0], c[-1]) < _MIN_LEN else LineString(c).buffer(WALL_THICK * k / 2)
+              for c in cores if len(c) >= 2]
+    return unary_union(shapes) if shapes else None
+
+
+def _light_panels(plates: list, cores: list, k: float) -> list:
+    """0.6 x 1.2 m recessed panels on a 2.4 m grid, wholly inside a plate and clear of cores."""
+    blocked, pitch, hw, hl = _core_area(cores, k), PANEL_PITCH * k, PANEL_W * k / 2, PANEL_L * k / 2
+    faces = []
+    for plate in plates:
+        x0, y0, x1, y1 = plate.bounds
+        for cx in np.arange(x0 + pitch / 2, x1, pitch):
+            for cy in np.arange(y0 + pitch / 2, y1, pitch):
+                panel = box(cx - hw, cy - hl, cx + hw, cy + hl)
+                if plate.contains(panel) and (blocked is None or not blocked.intersects(panel)):
+                    faces += _prism(LIGHT_MAT, _rect(cx - hw, cx + hw, cy - hl, cy + hl), PANEL_Z0, PANEL_Z1)
+    return faces
+
+
 # ── furniture ───────────────────────────────────────────────────────────────
 
 def _inset(b: Bounds, d: float) -> Bounds:
@@ -563,6 +604,7 @@ def build_design_scene(inp: SceneInputs, units_to_metres: float) -> list[dict]:
     faces += [f for seg in _safe(_partition_segments, inp) for f in _safe(_partition, seg, inp.doors, k)]
     faces += [f for ring in inp.columns for f in _safe(_column, ring)]
     faces += [f for core in inp.cores for f in _safe(_core, core, k)]
+    faces += _safe(_ceiling, inp.plates) + _safe(_light_panels, inp.plates, inp.cores, k)
     furniture, kinds = _furniture(inp.rooms, k)
     meshes = _merge(faces + furniture, units_to_metres)
     per_type = Counter(m["type"] for m in meshes)

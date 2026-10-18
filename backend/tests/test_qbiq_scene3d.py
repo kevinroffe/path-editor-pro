@@ -82,7 +82,7 @@ def test_every_mesh_is_valid(meshes):
         n = len(m["verts"]) // 3
         assert len(m["verts"]) % 3 == 0 and len(m["faces"]) % 3 == 0
         assert m["faces"] and all(0 <= i < n for i in m["faces"])
-        assert m["type"] in {"floor", "wall", "glass", "frame", "column", "door", "window", "furniture"}
+        assert m["type"] in {"floor", "wall", "glass", "frame", "column", "door", "window", "furniture", "ceiling", "light"}
         assert m["color"].startswith("#") and len(m["color"]) == 7
         assert 0 <= m["opacity"] <= 1 and 0 <= m["roughness"] <= 1 and 0 <= m["metalness"] <= 1
 

@@ -2007,10 +2007,20 @@ const P3D_TYPE_STYLE = {
   glass:     { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
   frame:     { color: 0x3a3f45, roughness: 0.45, metalness: 0.4 },
   furniture: { color: 0xc9c6c0 },
+  ceiling:   { color: 0xf7f7f5, roughness: 0.95 },
+  light:     { color: 0xfff6e0 },
   other:     { color: 0xc9c9c9 },
 };
 const P3D_TRANSPARENT_TYPES = new Set(['glass', 'window']);
-const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab']);
+const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab', 'ceiling']);
+const P3D_CEILING_TYPES = new Set(['ceiling', 'light']);
+const P3D_CEILING_HEIGHT = 3.0;   // metres; ceiling and light panels hide when the camera is above it
+
+function syncCeiling() {
+  if (!threeScene || !threeCam) return;
+  const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
+  threeScene.traverse(o => { if (o.userData.ceiling) o.visible = inside; });
+}
 const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
@@ -2185,7 +2195,9 @@ function buildContractMesh(mesh) {
   const style = P3D_TYPE_STYLE[mesh.type] || P3D_TYPE_STYLE.other;
   const opacity = mesh.opacity ?? style.opacity ?? 1.0;
   const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = mesh.type === 'light'
+    ? new THREE.MeshBasicMaterial({ color: p3dColor(mesh.color || style.color), side: THREE.DoubleSide })
+    : new THREE.MeshStandardMaterial({
     color: p3dColor(mesh.color || style.color),
     roughness: mesh.roughness ?? style.roughness ?? 0.85,
     metalness: mesh.metalness ?? style.metalness ?? 0.0,
@@ -2195,7 +2207,11 @@ function buildContractMesh(mesh) {
     depthWrite: !transparent,
   });
   const m = new THREE.Mesh(geo, mat);
-  if (transparent) {
+  m.userData.meshType = mesh.type;
+  m.userData.ceiling = P3D_CEILING_TYPES.has(mesh.type);
+  if (mesh.type === 'light') {
+    m.castShadow = m.receiveShadow = false;
+  } else if (transparent) {
     m.renderOrder = 1;
   } else {
     m.castShadow = !P3D_RECEIVE_ONLY_TYPES.has(mesh.type);
@@ -2315,6 +2331,7 @@ function render3DLoop(now) {
   if (fadeEl) fadeEl.style.opacity = fadeOpacityAt(p3.t);
 
   if (threeRenderer && threeScene && threeCam) {
+    syncCeiling();
     threeRenderer.render(threeScene, threeCam);
   }
 }

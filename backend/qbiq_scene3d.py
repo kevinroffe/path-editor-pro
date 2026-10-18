@@ -47,14 +47,7 @@ GLASS = _mat("glass", "#bcd6e0", 0.28, 0.05)
 FRAME = _mat("frame", "#3a3f45", roughness=0.4, metalness=0.6)
 TRIM = _mat("frame", "#f4f4f2", roughness=0.9)
 COLUMN = _mat("column", "#f2f2f0", roughness=0.9)
-DESK_TOP = _mat("furniture", "#f5f5f3", roughness=0.6)
-DARK = _mat("furniture", "#4a4f55", roughness=0.5, metalness=0.3)
-OAK = _mat("furniture", "#b98a5e", roughness=0.6)
-SEAT = _mat("furniture", "#2f3338", roughness=0.8)
-STORAGE = _mat("furniture", "#d8c3a0", roughness=0.7)
-SOFA = _mat("furniture", "#4a6fd1", roughness=0.9)
 BOOTH = _mat("furniture", "#e2e5ea", roughness=0.7)
-PLANT = _mat("furniture", "#5f8f5a", roughness=0.9)
 NEUTRAL = _mat("furniture", "#c9c6c0", roughness=0.8)
 
 FABRIC_CHARCOAL = _mat("furniture", "#3b3f46", roughness=0.95, smooth=True)
@@ -397,107 +390,20 @@ def _box(mat: Mat, b: Bounds, z0: float, z1: float) -> tuple:
     return (mat, _rect(*b), z0, z1)
 
 
-def _legs(b: Bounds, size: float, z1: float, mat: Mat = DARK) -> list:
-    """Four square legs in the corners of b."""
-    s = min(size, (b.x1 - b.x0) / 3, (b.y1 - b.y0) / 3)
-    xs, ys = ((b.x0, b.x0 + s), (b.x1 - s, b.x1)), ((b.y0, b.y0 + s), (b.y1 - s, b.y1))
-    return [_box(mat, Bounds(*x, *y), 0.0, z1) for x in xs for y in ys]
-
-
-def _chair_pieces(b: Bounds, k: float, back_at_max: bool = True) -> list:
-    """Seat on four thin legs with a back along the local max-y (or min-y) edge."""
-    seat = _inset(b, 0.02 * k)
-    depth = min(0.06 * k, (seat.y1 - seat.y0) / 4)
-    back = seat._replace(y0=seat.y1 - depth) if back_at_max else seat._replace(y1=seat.y0 + depth)
-    return [_box(SEAT, seat, 0.42, 0.47), _box(SEAT, back, 0.47, 0.85)] + _legs(_inset(seat, 0.02 * k), 0.03 * k, 0.42, SEAT)
-
-
-def _chair(b: Bounds, k: float, name: str, bom: str) -> list:
-    """Chairs face local -y: their back is the local +y edge."""
-    return _chair_pieces(b, k)
-
-
-def _desk_top(b: Bounds, k: float) -> list:
-    """White desk top with two dark panel ends."""
-    panel = min(0.03 * k, (b.x1 - b.x0) / 8)
-    legs = _inset(b, 0.03 * k)
-    return [_box(DESK_TOP, b, 0.72, 0.75), _box(DARK, legs._replace(x1=legs.x0 + panel), 0.0, 0.72),
-            _box(DARK, legs._replace(x0=legs.x1 - panel), 0.0, 0.72)]
-
-
-def _desk(b: Bounds, k: float, name: str, bom: str) -> list:
-    """A desk; when the bom says the footprint also holds a task chair, the chair sits on the -y side."""
-    match = re.search(r"T_WS_L\d+_W(\d+)", bom or "")
-    depth = float(match.group(1)) / 100 * k if match else 0.0
-    if not match or (b.y1 - b.y0) - depth < 0.3 * k:
-        return _desk_top(b, k)
-    top, seat_zone = b._replace(y0=b.y1 - depth), b._replace(y1=b.y1 - depth)
-    cx, half = (b.x0 + b.x1) / 2, min(0.25 * k, (b.x1 - b.x0) / 2)
-    return _desk_top(top, k) + _chair_pieces(seat_zone._replace(x0=cx - half, x1=cx + half), k, back_at_max=False)
-
-
 def _ngon(b: Bounds, n: int = 12) -> list:
     """The inscribed circle of b as a CCW n-gon."""
     cx, cy, r = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, min(b.x1 - b.x0, b.y1 - b.y0) / 2
     return [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
 
-def _table(b: Bounds, k: float, name: str, bom: str) -> list:
-    """Conference/dining at 0.75 m on legs, coffee at 0.43 m, round as a 12-gon on a pedestal."""
-    z = 0.43 if "coffee" in name else 0.75
-    if "round" in name:
-        cx, cy, p = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0.05 * k
-        return [(OAK, _ngon(b), z - 0.03, z), _box(DARK, Bounds(cx - p, cx + p, cy - p, cy + p), 0.0, z - 0.03),
-                (DARK, _ngon(_inset(b, 0.25 * (b.x1 - b.x0))), 0.0, 0.02)]
-    return [_box(OAK, b, z - 0.03, z)] + _legs(_inset(b, 0.05 * k), 0.06 * k, z - 0.03)
-
-
-def _storage(b: Bounds, k: float, name: str, bom: str) -> list:
-    """A light-oak cabinet on a dark plinth; _L is low, _H is high (the number is its width)."""
-    tier = re.search(r"_([lh])(?:[_#]|$)", name)
-    height = {"l": 0.8, "h": 1.8}.get(tier.group(1) if tier else "", 1.1)
-    return [_box(DARK, _inset(b, 0.02 * k), 0.0, 0.08), _box(STORAGE, b, 0.08, height)]
-
-
-def _sofa(b: Bounds, k: float, name: str, bom: str) -> list:
-    """Plinth, seat base, back along local +y and two arms."""
-    back = min(0.2 * k, (b.y1 - b.y0) / 3)
-    arm = min(0.2 * k, (b.x1 - b.x0) / 6)
-    front = b._replace(y1=b.y1 - back)
-    return [_box(DARK, _inset(b, 0.05 * k), 0.0, 0.2), _box(SOFA, b, 0.2, 0.42), _box(SOFA, b._replace(y0=b.y1 - back), 0.42, 0.8),
-            _box(SOFA, front._replace(x1=b.x0 + arm), 0.42, 0.6), _box(SOFA, front._replace(x0=b.x1 - arm), 0.42, 0.6)]
-
-
-def _kitchen(b: Bounds, k: float, name: str, bom: str) -> list:
-    """A white counter with a dark worktop band."""
-    return [_box(DESK_TOP, b, 0.0, 0.86), _box(DARK, b, 0.86, 0.9)]
-
-
-def _booth(b: Bounds, k: float, name: str, bom: str) -> list:
-    """A phone booth as a pale box."""
+def _phone_booth(b: Bounds, k: float, name: str, bom: str) -> list:
+    """A phone booth as a pale box (not in the bom catalogue)."""
     return [_box(BOOTH, b, 0.0, 2.2)]
-
-
-def _plant(b: Bounds, k: float, name: str, bom: str) -> list:
-    """A plant as a green box."""
-    return [_box(PLANT, b, 0.0, 1.2)]
 
 
 def _fallback(b: Bounds, k: float, name: str, bom: str) -> list:
     """Anything unrecognised: a neutral box at desk height."""
     return [_box(NEUTRAL, b, 0.0, 0.75)]
-
-
-_FURNITURE_RULES = (
-    (("sofa", "lounge", "armchair"), "sofa", _sofa),
-    (("chair", "seat"), "chair", _chair),
-    (("phone", "booth"), "booth", _booth),
-    (("plant",), "plant", _plant),
-    (("storage", "cabinet", "locker"), "storage", _storage),
-    (("table",), "table", _table),
-    (("desk", "workstation", "unit_fr_os", "bench"), "desk", _desk),
-    (("kitchen", "counter"), "kitchen", _kitchen),
-)
 
 
 # ── bom-driven furniture ────────────────────────────────────────────────────
@@ -755,14 +661,218 @@ _PART_BUILDERS.update({"C_C": _chair_part, "C_K": _chair_part, "C_G": _chair_par
                        "K_DB": _booth_part})
 
 
+# ── tables, desks, storage, kitchen, accessories ────────────────────────────
+
+DESK_H, TOP_T = 0.74, 0.025
+STORAGE_BODY = _mat("furniture", "#ecebe7", roughness=0.55)
+PRINTER = _mat("furniture", "#d9dbde", roughness=0.5)
+_TABLE_H = {"T_C": 0.74, "T_DT": 0.74, "T_CF": 0.42, "T_BR": 1.05, "CO_H": 0.74}
+_TABLE_TOP = {"T_C": OAK_LIGHT, "T_DT": OAK_LIGHT, "T_CF": OAK_LIGHT, "T_BR": LAMINATE, "CO_H": LAMINATE}
+
+
+def _monitor(b: Bounds, k: float) -> list:
+    """A screen on a stand near the back of a desk, and a keyboard in front of it."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    cx = (b.x0 + b.x1) / 2
+    sw, st = _m(0.55, k, w * 0.6) / 2, _m(0.02, k, d / 20)
+    ys = b.y1 - _m(0.15, k, d / 4)
+    col = _m(0.02, k, w / 20)
+    kw, kd, ky = _m(0.21, k, w * 0.3), _m(0.065, k, d / 8), b.y0 + d * 0.35
+    return [(SCREEN, _rect(cx - sw, cx + sw, ys - st, ys), 0.9, 1.22),
+            (SCREEN, _rect(cx - col, cx + col, ys, ys + 2 * col), DESK_H, 0.9),
+            (PLASTIC_BLACK, _rect(cx - 3 * col, cx + 3 * col, ys - col, ys + 3 * col), DESK_H, DESK_H + 0.01),
+            (PLASTIC_BLACK, _round_rect(Bounds(cx - kw, cx + kw, ky - kd, ky + kd), kd / 3), DESK_H, DESK_H + 0.02)]
+
+
+def _reception(b: Bounds, k: float) -> list:
+    """Reception desk: a tall front counter (-y side) with a work surface behind it."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    front = _m(0.3, k, d / 3)
+    return [(LAMINATE, _rect(b.x0, b.x1, b.y0, b.y0 + front), 0.0, 1.02),
+            (OAK_LIGHT, _round_rect(Bounds(b.x0, b.x1, b.y0, b.y0 + front), _m(0.01, k, w / 10)), 1.02, 1.05),
+            (LAMINATE, _rect(b.x0, b.x1, b.y0 + front, b.y1), DESK_H - TOP_T, DESK_H),
+            (LAMINATE, _rect(b.x0, b.x0 + _m(0.025, k, w / 10), b.y0 + front, b.y1), 0.0, DESK_H - TOP_T),
+            (LAMINATE, _rect(b.x1 - _m(0.025, k, w / 10), b.x1, b.y0 + front, b.y1), 0.0, DESK_H - TOP_T)]
+
+
+def _desk_part(b: Bounds, k: float, name: str, part) -> list:
+    """Desk: laminate top, metal frame (workstation) or panel ends, modesty panel; workstations get a monitor."""
+    if part.code == "T_R":
+        return _reception(b, k)
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    leg_t, inset, panel_t = _m(0.05, k, w / 8), _m(0.03, k, d / 8), _m(0.018, k, d / 10)
+    leg_mat = METAL if part.code == "T_WS" else LAMINATE
+    pieces = [(LAMINATE, _round_rect(b, _m(0.01, k, w / 10)), DESK_H - TOP_T, DESK_H)]
+    pieces += [(leg_mat, _rect(x0, x0 + leg_t, b.y0 + inset, b.y1 - inset), 0.0, DESK_H - TOP_T)
+               for x0 in (b.x0 + inset, b.x1 - inset - leg_t)]
+    pieces.append((leg_mat, _rect(b.x0 + inset + leg_t, b.x1 - inset - leg_t, b.y1 - inset - panel_t, b.y1 - inset),
+                   0.3, DESK_H - TOP_T))
+    return pieces + (_monitor(b, k) if part.code == "T_WS" else [])
+
+
+def _cut_triangle(b: Bounds, k: float) -> list:
+    """A triangle in b (base at -y, apex at +y) with its three corners cut: a convex CCW hexagon."""
+    a, bb, c = (b.x0, b.y0), (b.x1, b.y0), ((b.x0 + b.x1) / 2, b.y1)
+    t = 0.18
+
+    def towards(p, q):
+        return (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
+    return [towards(a, bb), towards(bb, a), towards(bb, c), towards(c, bb), towards(c, a), towards(a, c)]
+
+
+def _triangle_table(b: Bounds, k: float, part) -> list:
+    """Collaboration table: a rounded triangle top on three legs."""
+    h = _TABLE_H[part.code]
+    ring = _cut_triangle(b, k)
+    gx, gy = sum(x for x, _ in ring) / 6, sum(y for _, y in ring) / 6
+    r = _m(0.025, k, (b.x1 - b.x0) / 20)
+    corners = [(b.x0, b.y0), (b.x1, b.y0), ((b.x0 + b.x1) / 2, b.y1)]
+    legs = [(METAL_SMOOTH, _disc(x + (gx - x) * 0.3, y + (gy - y) * 0.3, r, 10), 0.0, h - 0.03) for x, y in corners]
+    return [(_TABLE_TOP[part.code], ring, h - 0.03, h)] + legs
+
+
+def _table_part(b: Bounds, k: float, name: str, part) -> list:
+    """Conference / dining / coffee / bar table: round on a pedestal, else rectangular on four legs."""
+    if part.code == "CO_H":
+        return _triangle_table(b, k, part)
+    h, top_mat = _TABLE_H[part.code], _TABLE_TOP[part.code]
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    if "round" in name or "circle" in name:
+        cx, cy, r = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, min(w, d) / 2
+        return [(top_mat, _disc(cx, cy, r, 32), h - 0.03, h), (METAL_SMOOTH, _disc(cx, cy, r * 0.12, 16), 0.02, h - 0.03),
+                (METAL_SMOOTH, _disc(cx, cy, r * 0.45, 24), 0.0, 0.02)]
+    r = _m(0.025, k, min(w, d) / 10)
+    legs = _inset(b, _m(0.06, k, min(w, d) / 6))
+    return [(top_mat, _round_rect(b, _m(0.01, k, min(w, d) / 10)), h - 0.03, h)] + [
+        (METAL_SMOOTH, _disc(x, y, r, 10), 0.0, h - 0.03) for x in (legs.x0, legs.x1) for y in (legs.y0, legs.y1)]
+
+
+def _fronts(b: Bounds, k: float, n: int, z0: float, z1: float, front_mat: Mat, handle_z: tuple) -> list:
+    """n door fronts on b's -y face with 3 mm gaps, each with a bar handle."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    gap, ft, hd = _m(0.003, k, w / 50), _m(0.018, k, d / 10), _m(0.02, k, d / 10)
+    out = []
+    for i in range(n):
+        x0, x1 = b.x0 + w * i / n + gap, b.x0 + w * (i + 1) / n - gap
+        cx, hw = (x0 + x1) / 2, min(_m(0.06, k, w / 8), (x1 - x0) / 3)
+        out += [(front_mat, _rect(x0, x1, b.y0 + hd, b.y0 + hd + ft), z0, z1),
+                (METAL, _rect(cx - hw, cx + hw, b.y0, b.y0 + hd), *handle_z)]
+    return out
+
+
+def _storage_part(b: Bounds, k: float, name: str, part) -> list:
+    """Storage: recessed plinth, carcass and oak door fronts with bar handles (front at -y)."""
+    h = 1.8 if part.code == "S_HS" else 0.8
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    front = _m(0.018, k, d / 10) + _m(0.02, k, d / 10)
+    carcass = b._replace(y0=b.y0 + front)
+    n = max(1, round(part.length / 0.5))
+    i = _m(0.02, k, min(w, d - front) / 6)
+    handle = (h - 0.1, h - 0.08) if h < 1.0 else (0.9, 1.1)
+    return ([(PLASTIC_BLACK, _rect(b.x0 + i, b.x1 - i, carcass.y0 + i, b.y1 - i), 0.0, 0.08),
+             (STORAGE_BODY, _rect(*carcass), 0.08, h)]
+            + _fronts(b, k, n, 0.1, h - 0.01, OAK_LIGHT, handle))
+
+
+def _counter_part(b: Bounds, k: float, name: str, part) -> list:
+    """Kitchen run: recessed plinth, base units with fronts, 40 mm worktop at 0.9 m (front at -y)."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    front = _m(0.018, k, d / 10) + _m(0.02, k, d / 10)
+    i = _m(0.05, k, min(w, d) / 6)
+    n = max(1, round(part.length / 0.6))
+    return ([(PLASTIC_BLACK, _rect(b.x0, b.x1, b.y0 + front + i, b.y1), 0.0, 0.1),
+             (LAMINATE, _rect(b.x0, b.x1, b.y0 + front, b.y1), 0.1, 0.86),
+             (OAK_LIGHT, _rect(*b), 0.86, 0.9)]
+            + _fronts(b._replace(y1=b.y0 + front), k, n, 0.12, 0.84, LAMINATE, (0.76, 0.78)))
+
+
+def _sink_part(b: Bounds, k: float, name: str, part) -> list:
+    """Sink: a stainless basin set into the worktop, with a tap at the back."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    cx = (b.x0 + b.x1) / 2
+    tap, reach = _m(0.015, k, w / 10), _m(0.15, k, d / 3)
+    ty = b.y1 - _m(0.05, k, d / 6)
+    return [(STAINLESS, _rect(*_inset(b, _m(0.02, k, min(w, d) / 6))), 0.86, 0.905),
+            (METAL_SMOOTH, _disc(cx, ty, tap, 12), 0.9, 1.15),
+            (METAL_SMOOTH, _rect(cx - tap / 2, cx + tap / 2, ty - reach, ty), 1.12, 1.15)]
+
+
+def _fridge_part(b: Bounds, k: float, name: str, part) -> list:
+    """Tall fridge: white body, door split and two vertical handles (front at -y)."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    hd = _m(0.03, k, d / 10)
+    body = b._replace(y0=b.y0 + hd)
+    hx = b.x1 - _m(0.06, k, w / 5)
+    bar = _m(0.012, k, w / 20)
+    return [(FRIDGE, _round_rect(body, _m(0.01, k, w / 10)), 0.0, 1.8),
+            (SCREEN, _rect(body.x0, body.x1, body.y0 - _m(0.002, k, hd / 4), body.y0), 1.1, 1.11),
+            (METAL, _rect(hx - bar, hx + bar, b.y0, b.y0 + hd), 1.2, 1.6),
+            (METAL, _rect(hx - bar, hx + bar, b.y0, b.y0 + hd), 0.6, 1.0)]
+
+
+def _plant_part(b: Bounds, k: float, name: str, part) -> list:
+    """Potted plant: terracotta pot with a rim and three overlapping foliage masses."""
+    cx, cy, r = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, min(b.x1 - b.x0, b.y1 - b.y0) / 2
+    return [(TERRACOTTA, _disc(cx, cy, r * 0.7, 16), 0.0, 0.38), (TERRACOTTA, _disc(cx, cy, r * 0.8, 16), 0.34, 0.4),
+            (FOLIAGE, _disc(cx, cy, r * 0.95, 16), 0.4, 0.85),
+            (FOLIAGE_LIGHT, _disc(cx + r * 0.15, cy, r * 0.75, 16), 0.7, 1.1),
+            (FOLIAGE, _disc(cx - r * 0.2, cy + r * 0.1, r * 0.55, 16), 0.95, 1.3)]
+
+
+def _printer_part(b: Bounds, k: float, name: str, part) -> list:
+    """Printer on a low cabinet with an output tray."""
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    return [(LAMINATE, _rect(*b), 0.0, 0.5),
+            (PRINTER, _round_rect(_inset(b, _m(0.05, k, min(w, d) / 6)), _m(0.02, k, w / 10)), 0.5, 0.95),
+            (SCREEN, _rect(*_inset(b, _m(0.12, k, min(w, d) / 4))), 0.95, 0.97)]
+
+
+_PART_BUILDERS.update({"T_WS": _desk_part, "T_D": _desk_part, "T_R": _desk_part, "T_C": _table_part,
+                       "T_CF": _table_part, "T_DT": _table_part, "T_BR": _table_part, "CO_H": _table_part,
+                       "S_LS": _storage_part, "S_HS": _storage_part, "K_C": _counter_part, "K_S": _sink_part,
+                       "K_R": _fridge_part, "V_P": _plant_part, "PH_PR": _printer_part})
+
+# keyword fallback (no usable bom): name keywords -> (kind, bom code built with the item's own box size)
+_FURNITURE_RULES = (
+    (("sofa", "lounge", "armchair"), "sofa", "L_S"),
+    (("stool",), "chair", "C_B"),
+    (("chair", "seat"), "chair", "C_C"),
+    (("phone", "booth"), "booth", None),
+    (("plant",), "plant", "V_P"),
+    (("storage", "cabinet", "locker"), "storage", "S_LS"),
+    (("table",), "table", "T_C"),
+    (("desk", "workstation", "unit_fr_os", "bench"), "desk", "T_WS"),
+    (("kitchen", "counter"), "kitchen", "K_C"),
+)
+
+
+def _refine(code: str, name: str) -> str:
+    """Keyword code refined by name: coffee tables, high storage."""
+    if code == "T_C" and "coffee" in name:
+        return "T_CF"
+    if code == "S_LS" and re.search(r"_h(?:[_#]|$)", name):
+        return "S_HS"
+    return code
+
+
+def _keyword_build(code: str):
+    """A builder that makes a detailed model of `code` sized to the item's own box."""
+    def build(b: Bounds, k: float, name: str, bom: str) -> list:
+        real = _refine(code, name)
+        return _PART_BUILDERS[real](b, k, name, Part(real, (b.x1 - b.x0) / k, (b.y1 - b.y0) / k))
+    return build
+
+
 def classify_furniture(name: str, bom: str = "") -> tuple:
     """(kind, builder) for a component: its bom primary part when known, else keyword rules, else a box."""
     if parts := _known_parts(bom):
         primary = min(parts, key=lambda part: _rank(part.code))
         return primary.code, lambda b, k, nm, _bom: _assemble(b, k, nm, parts)
     lowered = name.lower()
-    return next(((kind, build) for keys, kind, build in _FURNITURE_RULES if any(key in lowered for key in keys)),
-                ("fallback", _fallback))
+    for keys, kind, code in _FURNITURE_RULES:
+        if any(key in lowered for key in keys):
+            return kind, (_keyword_build(code) if code else _phone_booth)
+    return "fallback", _fallback
 
 
 def _flag(value, default: bool) -> bool:

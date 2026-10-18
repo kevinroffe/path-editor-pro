@@ -88,7 +88,7 @@ def test_every_mesh_is_valid(meshes):
 
 
 def test_meshes_are_merged_one_per_material(meshes):
-    keys = [(m["type"], m["color"], m["opacity"], m["roughness"], m["metalness"]) for m in meshes]
+    keys = [(m["type"], m["color"], m["opacity"], m["roughness"], m["metalness"], m["smooth"]) for m in meshes]
     assert len(keys) == len(set(keys))
 
 
@@ -116,19 +116,19 @@ def test_exterior_window_spans_sill_to_head(meshes):
 
 def test_desk_tops_out_at_desk_height(meshes):
     desk = _near(_of(meshes, "furniture"), Polygon([(16.2, 11.6), (17.8, 11.6), (17.8, 12.4), (16.2, 12.4)]))
-    assert desk and max(p[2] for p in desk) == pytest.approx(0.75)
+    assert desk and any(p[2] == pytest.approx(0.74) for p in desk)            # 25 mm laminate top at 0.74 m
 
 
 def test_chair_has_a_back_to_085(meshes):
     chair = _near(_of(meshes, "furniture"), Polygon([(2.21, 2.5), (2.79, 2.5), (2.79, 3.03), (2.21, 3.03)]))
-    assert chair and max(p[2] for p in chair) == pytest.approx(0.85)
+    assert chair and 0.85 <= max(p[2] for p in chair) <= 1.0
 
 
 def test_storage_lies_inside_its_transformed_footprint(meshes):
     (a, b, tx), (c, d, ty), _ = _STORAGE["matrix"]
     footprint = affine_transform(Polygon([(100, 0), (200, 0), (200, 45), (100, 45)]), [a, b, c, d, tx, ty])
     footprint_m = affine_transform(footprint, [0.01, 0, 0, 0.01, 0, 0])
-    storage = [m for m in meshes if m["type"] == "furniture" and m["color"] == "#d8c3a0"]
+    storage = [m for m in meshes if m["type"] == "furniture" and m["color"] == "#ecebe7"]   # storage carcass
     assert storage
     assert all(footprint_m.buffer(1e-3).contains(Point(p[0], p[1])) for m in storage for p in _verts(m))
 
@@ -136,14 +136,14 @@ def test_storage_lies_inside_its_transformed_footprint(meshes):
 def test_grouped_mirrored_desk_keeps_its_top_on_the_drawn_side(meshes):
     zone = Polygon([(2.4, 1.0), (4.0, 1.0), (4.0, 2.16), (2.4, 2.16)])
     pieces = _near(_of(meshes, "furniture"), zone)
-    top = [p for p in pieces if p[2] == pytest.approx(0.75)]
-    back = [p for p in pieces if p[2] == pytest.approx(0.85)]
+    top = [p for p in pieces if p[2] == pytest.approx(0.74)]
+    back = [p for p in pieces if p[2] == pytest.approx(0.95)]   # task chair back top
     assert top and all(1.0 - 1e-6 <= p[1] <= 1.8 + 1e-6 for p in top)
     assert back and all(1.8 - 1e-6 <= p[1] <= 2.16 + 1e-6 for p in back)
 
 
 def test_removed_component_is_skipped(meshes):
-    assert not [m for m in meshes if m["type"] == "furniture" and m["color"] == "#4a6fd1"]
+    assert not [m for m in meshes if m["type"] == "furniture" and m["color"] == "#5b8a8c"]   # sofa teal
 
 
 def test_each_room_gets_a_slab_in_its_type_colour(meshes):

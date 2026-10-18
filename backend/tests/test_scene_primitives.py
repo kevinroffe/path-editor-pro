@@ -42,13 +42,13 @@ def test_bar_ring_runs_from_centre():
 
 
 def test_slanted_piece_top_is_shifted():
-    faces = s3._framed(s3.SEAT, IDENT, s3._rect(0, 10, 0, 10), 0.4, 0.9, (0, 5))
+    faces = s3._framed(s3.LAMINATE, IDENT, s3._rect(0, 10, 0, 10), 0.4, 0.9, (0, 5))
     top = [p for f in faces for p in f[1] if p[2] == pytest.approx(0.9)]
     assert min(y for _, y, _ in top) == pytest.approx(5) and max(y for _, y, _ in top) == pytest.approx(15)
 
 
 def test_slanted_piece_through_mirrored_frame():
-    faces = s3._framed(s3.SEAT, MIRROR_X, s3._rect(0, 10, 0, 10), 0.4, 0.9, (5, 0))
+    faces = s3._framed(s3.LAMINATE, MIRROR_X, s3._rect(0, 10, 0, 10), 0.4, 0.9, (5, 0))
     top = [p for f in faces for p in f[1] if p[2] == pytest.approx(0.9)]
     assert max(x for x, _, _ in top) == pytest.approx(-5)          # shift mirrored with the frame
     caps = [f[1] for f in faces if len({round(p[2], 6) for p in f[1]}) == 1]
@@ -67,7 +67,7 @@ def test_smooth_cylinder_shares_side_vertices():
 
 
 def test_flat_material_unchanged():
-    mesh = _merged(s3.SEAT)
+    mesh = _merged(s3.LAMINATE)
     assert len(mesh["verts"]) // 3 == 16 * 4 + 16 + 16
     assert mesh["smooth"] is False
 

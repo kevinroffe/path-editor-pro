@@ -454,7 +454,7 @@ def _table(b: Bounds, k: float, name: str, bom: str) -> list:
 
 def _storage(b: Bounds, k: float, name: str, bom: str) -> list:
     """A light-oak cabinet on a dark plinth; _L is low, _H is high (the number is its width)."""
-    tier = re.search(r"_([lh])(?:_|$)", name)
+    tier = re.search(r"_([lh])(?:[_#]|$)", name)
     height = {"l": 0.8, "h": 1.8}.get(tier.group(1) if tier else "", 1.1)
     return [_box(DARK, _inset(b, 0.02 * k), 0.0, 0.08), _box(STORAGE, b, 0.08, height)]
 
@@ -500,8 +500,115 @@ _FURNITURE_RULES = (
 )
 
 
-def classify_furniture(name: str) -> tuple:
-    """(kind, builder) for a component name; first matching keyword rule wins."""
+# ── bom-driven furniture ────────────────────────────────────────────────────
+
+Part = namedtuple("Part", "code length width")   # metres
+_BOM_PART = re.compile(r"^([A-Z]+(?:_[A-Z]+)*)_L(\d+)_W(\d+)$")
+_PRIMARY_ORDER = ("T_WS", "T_D", "T_R", "T_C", "T_CF", "T_DT", "T_BR", "CO_H", "K_C", "K_DB", "L_S", "L_B",
+                  "S_LS", "S_HS", "PH_PR", "V_P", "C_C", "C_K", "C_W", "C_E", "C_G", "C_B", "K_S", "K_R")
+_DESKS = frozenset({"T_WS", "T_D", "T_R"})
+_PART_BUILDERS: dict = {}        # code -> builder(b, k, name, part) -> pieces (filled per part kind below)
+_UNKNOWN_CODES: set = set()
+_MIN_CHAIR_ZONE_M = 0.3
+_SINK_MARGIN_M = 0.1
+
+
+def parse_bom(bom) -> list:
+    """The `CODE_L<cm>_W<cm>` parts of a bom string, in metres; malformed parts are skipped."""
+    return [Part(m[1], int(m[2]) / 100, int(m[3]) / 100)
+            for raw in str(bom or "").split("|") if (m := _BOM_PART.match(raw.strip()))]
+
+
+def _rank(code: str) -> int:
+    """Primary-part priority: furniture bodies before the chairs and fittings that come with them."""
+    return _PRIMARY_ORDER.index(code) if code in _PRIMARY_ORDER else len(_PRIMARY_ORDER)
+
+
+def _known_parts(bom: str) -> list:
+    """Parts that have a builder; codes without one are logged once."""
+    parts = parse_bom(bom)
+    for part in parts:
+        if part.code not in _PART_BUILDERS and part.code not in _UNKNOWN_CODES:
+            _UNKNOWN_CODES.add(part.code)
+            log.warning("qbiq scene: no furniture builder for bom code %s", part.code)
+    return [part for part in parts if part.code in _PART_BUILDERS]
+
+
+def _build_part(part: Part, b: Bounds, k: float, name: str) -> list:
+    """Pieces of one bom part filling bounds b."""
+    return _PART_BUILDERS[part.code](b, k, name, part)
+
+
+def _span(b: Bounds, length: float) -> Bounds:
+    """b narrowed to `length` across x, centred (never wider than b)."""
+    w, cx = min(length, b.x1 - b.x0), (b.x0 + b.x1) / 2
+    return b._replace(x0=cx - w / 2, x1=cx + w / 2)
+
+
+def _flip_y(pieces: list, b: Bounds) -> list:
+    """Pieces mirrored across b's middle in local y (a chair turned to face +y)."""
+    def mirror(ring):
+        return [(x, b.y0 + b.y1 - y) for x, y in ring][::-1]
+    return [(mat, mirror(ring), z0, z1, *([(sh[0][0], -sh[0][1])] if (sh := rest) else []))
+            for mat, ring, z0, z1, *rest in pieces]
+
+
+def _desk_assembly(b: Bounds, k: float, name: str, desk: Part, rest: list) -> list:
+    """Desk with its task chair in front; guest chairs beyond it when the box has room for them."""
+    chair = next((p for p in rest if p.code != "C_G"), None)
+    guests = [p for p in rest if p.code == "C_G"]
+    depth, desk_d = b.y1 - b.y0, min(desk.width * k, b.y1 - b.y0)
+    chair_d, guest_d = (chair.width * k if chair else 0.0), max((g.width * k for g in guests), default=0.0)
+    with_guests = bool(guests) and depth >= desk_d + chair_d + guest_d - 1e-9
+    top = b.y1 - (guest_d if with_guests else 0.0)
+    desk_b = _span(b, desk.length * k)._replace(y0=top - desk_d, y1=top)
+    pieces = _build_part(desk, desk_b, k, name)
+    if chair and desk_b.y0 - b.y0 >= _MIN_CHAIR_ZONE_M * k:
+        seat = _span(b, chair.length * k)._replace(y0=max(b.y0, desk_b.y0 - chair_d), y1=desk_b.y0)
+        pieces += _flip_y(_build_part(chair, seat, k, name), seat)
+    if with_guests:
+        slot = (b.x1 - b.x0) / len(guests)
+        for i, g in enumerate(guests):
+            cx, half = b.x0 + slot * (i + 0.5), min(g.length * k, slot) / 2
+            pieces += _build_part(g, Bounds(cx - half, cx + half, b.y1 - guest_d, b.y1), k, name)
+    return pieces
+
+
+def _kitchen_assembly(b: Bounds, k: float, name: str, counter: Part, rest: list) -> list:
+    """Counter run along +y with the fridge at the -x end and the sink set in near the +x end."""
+    fridge = next((p for p in rest if p.code == "K_R"), None)
+    sink = next((p for p in rest if p.code == "K_S"), None)
+    depth = min(counter.width * k, b.y1 - b.y0)
+    run, pieces = Bounds(b.x0, b.x1, b.y1 - depth, b.y1), []
+    if fridge:
+        fw = min(fridge.length * k, (b.x1 - b.x0) / 2)
+        pieces += _build_part(fridge, Bounds(b.x0, b.x0 + fw, b.y1 - min(fridge.width * k, b.y1 - b.y0), b.y1), k, name)
+        run = run._replace(x0=b.x0 + fw)
+    pieces += _build_part(counter, run, k, name)
+    if sink:
+        sw, sd = min(sink.length * k, (run.x1 - run.x0) / 2), min(sink.width * k, depth)
+        x1 = max(run.x1 - _SINK_MARGIN_M * k, run.x0 + sw)
+        cy = (run.y0 + run.y1) / 2
+        pieces += _build_part(sink, Bounds(x1 - sw, x1, cy - sd / 2, cy + sd / 2), k, name)
+    return pieces
+
+
+def _assemble(b: Bounds, k: float, name: str, parts: list) -> list:
+    """Pieces of a bom item: its primary part, plus chairs/fittings laid out around it."""
+    primary = min(parts, key=lambda part: _rank(part.code))
+    rest = [part for part in parts if part is not primary]
+    if primary.code in _DESKS and rest:
+        return _desk_assembly(b, k, name, primary, rest)
+    if primary.code == "K_C" and rest:
+        return _kitchen_assembly(b, k, name, primary, rest)
+    return _build_part(primary, b, k, name)
+
+
+def classify_furniture(name: str, bom: str = "") -> tuple:
+    """(kind, builder) for a component: its bom primary part when known, else keyword rules, else a box."""
+    if parts := _known_parts(bom):
+        primary = min(parts, key=lambda part: _rank(part.code))
+        return primary.code, lambda b, k, nm, _bom: _assemble(b, k, nm, parts)
     lowered = name.lower()
     return next(((kind, build) for keys, kind, build in _FURNITURE_RULES if any(key in lowered for key in keys)),
                 ("fallback", _fallback))
@@ -534,11 +641,12 @@ def _component(comp: dict, k: float) -> tuple:
     """(kind, faces) for one stencil component; ("hidden", []) when removed or not shown."""
     if _flag(comp.get("is_remove"), False) or not _flag(comp.get("show"), True):
         return "hidden", []
-    name = str(comp.get("name") or "").split("#")[0]
+    full = str(comp.get("name") or "")
+    bom = str(comp.get("bom_data") or "")
     m = _affine(comp["matrix3d"])
-    kind, build = classify_furniture(name)
+    kind, build = classify_furniture(full.split("#")[0], bom)
     frame = tuple(float(v) for v in (m[0, 0], m[0, 1], m[1, 0], m[1, 1], m[0, 2], m[1, 2]))
-    pieces = build(_canonical_box(comp), k, name.lower(), str(comp.get("bom_data") or ""))
+    pieces = build(_canonical_box(comp), k, full.lower(), bom)
     return kind, [f for mat, ring, z0, z1, *shift in pieces for f in _framed(mat, frame, ring, z0, z1, *shift)]
 
 

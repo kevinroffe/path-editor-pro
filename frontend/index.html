@@ -139,6 +139,7 @@ body {
 /* ── Waypoints ───────────────────────────────────────────────── */
 .wp-scroll { max-height: 220px; overflow-y: auto; margin-top: 8px; }
 .wp-row {
+  flex-wrap: wrap;
   display: flex; align-items: center; gap: 6px;
   padding: 6px 5px; border-radius: var(--r-sm); transition: background .1s;
 }
@@ -371,6 +372,9 @@ body {
   background: var(--blue-lt); color: var(--blue-dk); border: 1px solid var(--blue-md);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.wp-stop-row { flex-basis: 100%; display: flex; align-items: center; gap: 6px; padding: 2px 0 0 26px; min-width: 0; }
+.wp-pan-label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); cursor: pointer; }
 .wp-dwell { width: 44px; font-size: 10px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 5px; }
 .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
@@ -725,6 +729,10 @@ body {
                      oninput="syncSlider('utr',this.value);debounceSpline()"/>
             </div>
 
+            <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
+              <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
+            </label>
+
           </div>
         </div>
       </div>
@@ -846,7 +854,7 @@ const state = {
   tourRooms:     [],
 };
 
-const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3 };
+const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
 
 let svgEl = null, gRoot = null, zoom = null;
 
@@ -1094,13 +1102,15 @@ function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); update
 function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
 const wpWire = w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '', w.stop || null];
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function setWpPan(i, on) { const w = state.waypoints[i]; if (w && w.stop) w.stop.pan = !!on; }
 function setWpDwell(i, v) { const w = state.waypoints[i]; if (w && w.stop) w.stop.dwell_s = Math.min(10, Math.max(0.5, parseFloat(v) || 0.5)); }
 function cleanStop(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
   const { look_at: la, dwell_s: d } = s;
   if (!Array.isArray(la) || la.length < 2 || !la.slice(0, 2).every(Number.isFinite)) return null;
   if (!Number.isFinite(d) || d < 0) return null;
-  return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d };
+  return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d,
+           pan: s.pan === true };
 }
 function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
 function toggleCut(i) {
@@ -1166,10 +1176,12 @@ function updateWpList() {
                onchange="setWpYaw(${i},this.value)" onclick="event.stopPropagation()"/>
         <span class="wp-yaw-unit">°</span>
       </div>
-      ${wp.stop ? `<span class="wp-stop" title="Camera stops and looks into this room">${esc(wp.stop.room_name)}</span>
-        <input type="number" class="wp-dwell" min="0.5" max="10" step="0.5" value="${esc(wp.stop.dwell_s)}"
-               onchange="setWpDwell(${i}, this.value)" onclick="event.stopPropagation()" title="Seconds the camera spends looking in"/>` : ''}
       <span class="wp-del" onclick="deleteWp(${i})" title="Remove point">×</span>
+      ${wp.stop ? `<div class="wp-stop-row"><span class="wp-stop" title="Camera stops and looks into this room">${esc(wp.stop.room_name)}</span>
+        <input type="number" class="wp-dwell" min="0.5" max="10" step="0.5" value="${esc(wp.stop.dwell_s)}"
+               onchange="setWpDwell(${i}, this.value)" onclick="event.stopPropagation()" title="Seconds spent looking into the room"/>
+        <label class="wp-pan-label" title="Stop here and pan toward the room (max 2 per video)" onclick="event.stopPropagation()">
+          <input type="checkbox" class="wp-pan" ${wp.stop.pan ? 'checked' : ''} onchange="setWpPan(${i}, this.checked)"/>Stand &amp; look</label></div>` : ''}
     </div>
     ${i < n-1 ? `
     <div class="wp-cut-row">
@@ -1196,7 +1208,8 @@ async function refreshSpline() {
       if (slice.length < 2) return slice;
       const r = await fetch(`${API}/api/smooth-preview`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ waypoints: slice, smoothing: cam.smo, uturn_radius: cam.utr }),
+        body: JSON.stringify({ waypoints: slice, smoothing: cam.smo, uturn_radius: cam.utr,
+                               units_to_metres: state.unitsToMetres }),
       });
       return (await r.json()).spline || slice;
     }));
@@ -1890,7 +1903,7 @@ function disableExport() { document.getElementById('btn-json').disabled=true; do
 async function exportRoute(fmt) {
   if (state.waypoints.length < 2) return;
   const settings = {
-    level: state.level, duration: cam.dur, camera_height: 1.75,
+    level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
   };
@@ -2320,8 +2333,9 @@ function updateCameraFromT(t) {
   const fy   = f0.y   + (f1.y   - f0.y)   * blend;
   const yaw  = f0.yaw + (f1.yaw - f0.yaw) * blend;
   const pit  = f0.pitch + (f1.pitch - f0.pitch) * blend;
+  const fz   = f0.z + (f1.z - f0.z) * blend;   // eye height in metres (house style)
 
-  threeCam.position.set(fx * u, 1.75, fy * u);
+  threeCam.position.set(fx * u, fz, fy * u);
 
   const yr = THREE.Math.degToRad(yaw);
   const pr = THREE.Math.degToRad(pit);
@@ -2366,11 +2380,14 @@ async function loadPreviewFrames() {
         fps:          30,
         fov:          cam.fov,
         uturn_radius: cam.utr,
+        units_to_metres: state.unitsToMetres,
+        start_pan:    cam.startPan,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
 
+    (data.warnings || []).forEach(w => toast(w, 'inf'));
     p3.frames   = data.frames;
     p3.duration = cam.dur;
     p3.t        = 0;

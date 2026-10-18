@@ -72,3 +72,9 @@ def test_four_and_five_element_waypoints_still_work(client, stop):
 def test_units_fall_back_to_request_then_default():
     assert app_module._units({"units_to_metres": 0.5}) == 0.5
     assert app_module._units({}) == 1.0
+
+
+def test_smooth_preview_uturn_radius_is_metres(client):
+    body = {"waypoints": [[0, 0], [3000, 0], [0, 100]], "smoothing": 1.0, "uturn_radius": 3, "units_to_metres": U}
+    spline = client.post("/api/smooth-preview", json=body).get_json()["spline"]
+    assert max(p[0] for p in spline) <= 2750

@@ -565,7 +565,7 @@ def smooth_preview_route():
     data = request.get_json(force=True)
     wpts         = data.get("waypoints", [])
     smoothing    = float(data.get("smoothing", 1.0))
-    uturn_radius = float(data.get("uturn_radius", 0.0))
+    uturn_radius = float(data.get("uturn_radius", 0.0)) / _units(data)   # UI radius is metres
     if len(wpts) < 2:
         return jsonify({"spline": wpts})
     spline = smooth_preview(wpts, smoothing=smoothing, uturn_radius=uturn_radius)

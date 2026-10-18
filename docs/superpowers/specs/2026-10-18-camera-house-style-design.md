@@ -62,7 +62,7 @@ glance and 180°/s machinery (`_insert_dwells`, `_dwell_frames`, `_scaled_dwells
 
 `EYE_HEIGHT_M = 1.57`, `KF_SPACING_S ≈ 3.3` (target; allowed 2.8–4.0), `KF_SPACING_M ≈ 3.2`,
 `WALK_SPEED_MPS = 1.1` (allowed 0.8–1.45), `MAX_YAW_RATE_DPS = 25`, `MAX_REVERSALS_PER_MIN = 6`,
-`ROOM_LOOK_MAX_DEG = 60` (gaze off travel when looking at a room), `TURN_LEAD_S ≈ 1.5` (gaze anticipates a turn),
+`ROOM_LOOK_MAX_DEG = 60` (gaze off travel when looking at a room), `MIN_LOOK_SPEED_MPS = 0.8`, `TURN_LEAD_S ≈ 1.5` (gaze anticipates a turn),
 `PAN_DURATION_S = 5`, `PAN_MAX_DEG = 90`, `MAX_PANS = 2`. Constants live in one place; tests assert the outputs,
 not the constants.
 
@@ -89,8 +89,13 @@ Gaze yaw at each keyframe = travel direction, with three deliberate additions, t
   neighbouring keyframes (fixes the old `% 360` wrap spin by construction).
 - **Limit — reversals:** if gaze direction alternates more than `MAX_REVERSALS_PER_MIN`, the smaller
   oscillations are flattened.
-- **Limit — turn speed:** consecutive keyframes may not differ by more than `MAX_YAW_RATE_DPS × Δt`;
-  violations reduce the gaze offset (never speed the head up). Yaw stays continuous (unwrapped).
+- **Limit — turn speed (Kevin's rule: slow down first, then turn less):** consecutive keyframes may not differ
+  by more than `MAX_YAW_RATE_DPS × Δt`. On a violation the planner first gives the head more time by slowing
+  the walk locally around that keyframe, down to `MIN_LOOK_SPEED_MPS = 0.8` (the slowest the references walk);
+  the time added there is taken back evenly from the rest of the path so the video length is unchanged. Only
+  if 0.8 m/s still isn't enough does it reduce the gaze offset. The head is never sped up. Yaw stays
+  continuous (unwrapped). If taking the time back pushes the rest of the path above 1.45 m/s, the normal
+  "video too short" warning fires.
 
 ### Standing pans (optional, off by default)
 

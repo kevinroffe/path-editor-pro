@@ -363,9 +363,17 @@ def _core_area(cores: list, k: float):
     return unary_union(shapes) if shapes else None
 
 
-def _light_panels(plates: list, cores: list, k: float) -> list:
-    """0.6 x 1.2 m recessed panels on a 2.4 m grid, wholly inside a plate and clear of cores."""
-    blocked, pitch, hw, hl = _core_area(cores, k), PANEL_PITCH * k, PANEL_W * k / 2, PANEL_L * k / 2
+def _wall_area(partitions: list, exterior: list, k: float):
+    """Partition bulkheads and exterior walls as areas the ceiling panels must stay clear of."""
+    lines = [LineString(seg).buffer(BULKHEAD_THICK * k / 2) for seg in partitions if math.dist(*seg) > _MIN_LEN]
+    lines += [LineString(seg).buffer(WALL_THICK * k / 2) for seg in exterior if math.dist(*seg) > _MIN_LEN]
+    return unary_union(lines) if lines else None
+
+
+def _light_panels(plates: list, cores: list, k: float, walls=None) -> list:
+    """0.6 x 1.2 m recessed panels on a 2.4 m grid, wholly inside a plate and clear of cores and walls."""
+    blocked = unary_union([g for g in (_core_area(cores, k), walls) if g is not None]) if cores or walls else None
+    pitch, hw, hl = PANEL_PITCH * k, PANEL_W * k / 2, PANEL_L * k / 2
     faces = []
     for plate in plates:
         x0, y0, x1, y1 = plate.bounds
@@ -415,7 +423,6 @@ _PRIMARY_ORDER = ("T_WS", "T_D", "T_R", "T_C", "T_CF", "T_DT", "T_BR", "CO_H", "
 _DESKS = frozenset({"T_WS", "T_D", "T_R"})
 _PART_BUILDERS: dict = {}        # code -> builder(b, k, name, part) -> pieces (filled per part kind below)
 _UNKNOWN_CODES: set = set()
-_MIN_CHAIR_ZONE_M = 0.3
 _SINK_MARGIN_M = 0.1
 
 
@@ -431,13 +438,15 @@ def _rank(code: str) -> int:
 
 
 def _known_parts(bom: str) -> list:
-    """Parts that have a builder; codes without one are logged once."""
+    """Buildable parts when the primary part has a builder (unknown extras skipped, logged once), else []."""
     parts = parse_bom(bom)
     for part in parts:
         if part.code not in _PART_BUILDERS and part.code not in _UNKNOWN_CODES:
             _UNKNOWN_CODES.add(part.code)
             log.warning("qbiq scene: no furniture builder for bom code %s", part.code)
-    return parts if parts and all(part.code in _PART_BUILDERS for part in parts) else []
+    if not parts or min(parts, key=lambda part: _rank(part.code)).code not in _PART_BUILDERS:
+        return []
+    return [part for part in parts if part.code in _PART_BUILDERS]
 
 
 def _build_part(part: Part, b: Bounds, k: float, name: str) -> list:
@@ -459,19 +468,39 @@ def _flip_y(pieces: list, b: Bounds) -> list:
             for mat, ring, z0, z1, *rest in pieces]
 
 
+_GUEST_FIT = 0.9          # guests fit when the box has >= 90% of the depth they need
+_L_DESK_TOP_M, _L_DESK_RETURN_M = 0.72, 0.46
+
+
+def _tucked_chair(zone: Bounds, k: float, name: str, chair: Part, desk_b: Bounds) -> list:
+    """The desk chair at its own depth, facing the desk; it slides under the desk when the zone is shallower."""
+    depth = min(chair.width * k, desk_b.y1 - zone.y0)
+    y0 = max(zone.y0, desk_b.y0 - depth)
+    seat = _span(zone, chair.length * k)._replace(y0=y0, y1=y0 + depth)
+    return _flip_y(_build_part(chair, seat, k, name), seat)
+
+
+def _l_desk(b: Bounds, k: float, name: str, desk: Part, chair) -> list:
+    """An L-desk (top along +y plus a return down +x) with its chair in the notch."""
+    top_d, ret = min(_L_DESK_TOP_M * k, (b.y1 - b.y0) / 2), min(_L_DESK_RETURN_M * k, (b.x1 - b.x0) / 3)
+    band = b._replace(y0=b.y1 - top_d)
+    pieces = _build_part(desk, band, k, name) + _build_part(desk, Bounds(b.x1 - ret, b.x1, b.y0, band.y0), k, name)
+    return pieces + (_tucked_chair(Bounds(b.x0, b.x1 - ret, b.y0, band.y0), k, name, chair, band) if chair else [])
+
+
 def _desk_assembly(b: Bounds, k: float, name: str, desk: Part, rest: list) -> list:
-    """Desk with its task chair in front; guest chairs beyond it when the box has room for them."""
+    """Desk with its chair tucked in front; guest chairs beyond it when the box (nearly) has room."""
     chair = next((p for p in rest if p.code != "C_G"), None)
     guests = [p for p in rest if p.code == "C_G"]
-    depth, desk_d = b.y1 - b.y0, min(desk.width * k, b.y1 - b.y0)
-    chair_d, guest_d = (chair.width * k if chair else 0.0), max((g.width * k for g in guests), default=0.0)
-    with_guests = bool(guests) and depth >= desk_d + chair_d + guest_d - 1e-9
-    top = b.y1 - (guest_d if with_guests else 0.0)
-    desk_b = _span(b, desk.length * k)._replace(y0=top - desk_d, y1=top)
-    pieces = _build_part(desk, desk_b, k, name)
-    if chair and desk_b.y0 - b.y0 >= _MIN_CHAIR_ZONE_M * k:
-        seat = _span(b, chair.length * k)._replace(y0=max(b.y0, desk_b.y0 - chair_d), y1=desk_b.y0)
-        pieces += _flip_y(_build_part(chair, seat, k, name), seat)
+    depth = b.y1 - b.y0
+    if desk.width * k >= _GUEST_FIT * depth:
+        return _l_desk(b, k, name, desk, chair)
+    desk_d, chair_d = min(desk.width * k, depth), (chair.width * k if chair else 0.0)
+    guest_d = max((g.width * k for g in guests), default=0.0)
+    with_guests = bool(guests) and depth >= _GUEST_FIT * (desk_d + chair_d + guest_d)
+    guest_d = min(guest_d, depth - desk_d - chair_d / 2) if with_guests else 0.0
+    desk_b = _span(b, desk.length * k)._replace(y0=b.y1 - guest_d - desk_d, y1=b.y1 - guest_d)
+    pieces = _build_part(desk, desk_b, k, name) + (_tucked_chair(b, k, name, chair, desk_b) if chair else [])
     if with_guests:
         slot = (b.x1 - b.x0) / len(guests)
         for i, g in enumerate(guests):
@@ -685,14 +714,15 @@ def _monitor(b: Bounds, k: float) -> list:
 
 
 def _reception(b: Bounds, k: float) -> list:
-    """Reception desk: a tall front counter (-y side) with a work surface behind it."""
+    """Reception desk: a tall counter on the visitor side (+y) with the work surface toward the chair (-y)."""
     w, d = b.x1 - b.x0, b.y1 - b.y0
-    front = _m(0.3, k, d / 3)
-    return [(LAMINATE, _rect(b.x0, b.x1, b.y0, b.y0 + front), 0.0, 1.02),
-            (OAK_LIGHT, _round_rect(Bounds(b.x0, b.x1, b.y0, b.y0 + front), _m(0.01, k, w / 10)), 1.02, 1.05),
-            (LAMINATE, _rect(b.x0, b.x1, b.y0 + front, b.y1), DESK_H - TOP_T, DESK_H),
-            (LAMINATE, _rect(b.x0, b.x0 + _m(0.025, k, w / 10), b.y0 + front, b.y1), 0.0, DESK_H - TOP_T),
-            (LAMINATE, _rect(b.x1 - _m(0.025, k, w / 10), b.x1, b.y0 + front, b.y1), 0.0, DESK_H - TOP_T)]
+    front, end = _m(0.3, k, d / 3), _m(0.025, k, w / 10)
+    counter = b._replace(y0=b.y1 - front)
+    return [(LAMINATE, _rect(*counter), 0.0, 1.02),
+            (OAK_LIGHT, _round_rect(counter, _m(0.01, k, w / 10)), 1.02, 1.05),
+            (LAMINATE, _rect(b.x0, b.x1, b.y0, counter.y0), DESK_H - TOP_T, DESK_H),
+            (LAMINATE, _rect(b.x0, b.x0 + end, b.y0, counter.y0), 0.0, DESK_H - TOP_T),
+            (LAMINATE, _rect(b.x1 - end, b.x1, b.y0, counter.y0), 0.0, DESK_H - TOP_T)]
 
 
 def _desk_part(b: Bounds, k: float, name: str, part) -> list:
@@ -973,7 +1003,8 @@ def build_design_scene(inp: SceneInputs, units_to_metres: float) -> list[dict]:
     faces += [f for seg in _safe(_partition_segments, inp) for f in _safe(_partition, seg, inp.doors, k)]
     faces += [f for ring in inp.columns for f in _safe(_column, ring)]
     faces += [f for core in inp.cores for f in _safe(_core, core, k)]
-    faces += _safe(_ceiling, inp.plates) + _safe(_light_panels, inp.plates, inp.cores, k)
+    walls = _safe(_wall_area, _safe(_partition_segments, inp), inp.exterior, k) or None
+    faces += _safe(_ceiling, inp.plates) + _safe(_light_panels, inp.plates, inp.cores, k, walls)
     furniture, kinds = _furniture(inp.rooms, k)
     meshes = _merge(faces + furniture, units_to_metres)
     per_type = Counter(m["type"] for m in meshes)

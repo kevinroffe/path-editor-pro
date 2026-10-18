@@ -107,5 +107,5 @@ def test_assembly_stays_inside_box(builders, bom, box):
     assert pieces and _inside(pieces, b)
 
 
-def test_item_with_any_unknown_part_uses_keywords(builders):
-    assert s3.classify_furniture("qbiq_fr_kitchen_chair", "C_K_L40_W50|X_Y_L1_W1")[0] == "chair"
+def test_unknown_secondary_part_is_skipped(builders):
+    assert s3.classify_furniture("qbiq_fr_kitchen_chair", "C_K_L40_W50|X_Y_L1_W1")[0] == "C_K"   # unknown secondary skipped

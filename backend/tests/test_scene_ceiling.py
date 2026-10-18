@@ -64,3 +64,22 @@ def test_ceiling_survives_the_vertex_cap(monkeypatch):
     monkeypatch.setattr(s3, "_MAX_VERTS", structure + 10)
     meshes = _scene(rooms=rooms)
     assert any(m["type"] == "ceiling" for m in meshes) and any(m["type"] == "light" for m in meshes)
+
+
+def test_panels_avoid_partitions_and_exterior_walls():
+    partition = ((1080, 0), (1080, 1000))      # through a panel centre (grid at 1.2 + 2.4 n m)
+    exterior = [((0, 0), (2000, 0)), ((2000, 0), (2000, 1000)), ((2000, 1000), (0, 1000)), ((0, 1000), (0, 0))]
+    inp = s3.SceneInputs(plates=[PLATE], rooms=[], exterior=exterior, windows=[], partitions=[partition],
+                         doors=[], columns=[], cores=[])
+    light = _one(s3.build_design_scene(inp, U), "light")
+    xs = light["verts"][::3]
+    ys = light["verts"][1::3]
+    wall = s3.WALL_THICK / 2
+    corners = {(round(x, 3), round(y, 3)) for x, y in zip(xs, ys)}
+
+    def spans(x, y):
+        return any(x2 > 10.8 and y2 == y and x2 - x <= s3.PANEL_W + 1e-6 for x2, y2 in corners)
+    straddles = [(x, y) for x, y in corners if x < 10.8 and spans(x, y)]
+    assert not straddles                                                         # no panel spans the partition
+    assert all(wall - 1e-6 <= x <= 20 - wall + 1e-6 and wall - 1e-6 <= y <= 10 - wall + 1e-6 for x, y in zip(xs, ys))
+    assert len(xs) > 0

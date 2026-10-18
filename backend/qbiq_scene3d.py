@@ -30,13 +30,14 @@ from shapely.ops import unary_union
 
 log = logging.getLogger(__name__)
 
-Mat = namedtuple("Mat", "type color opacity roughness metalness")
+Mat = namedtuple("Mat", "type color opacity roughness metalness smooth", defaults=(False,))
 Bounds = namedtuple("Bounds", "x0 x1 y0 y1")
 
 
-def _mat(kind: str, color: str, opacity: float = 1.0, roughness: float = 0.85, metalness: float = 0.0) -> Mat:
-    """A material key; faces with equal keys are merged into one mesh."""
-    return Mat(kind, color, opacity, roughness, metalness)
+def _mat(kind: str, color: str, opacity: float = 1.0, roughness: float = 0.85, metalness: float = 0.0,
+         smooth: bool = False) -> Mat:
+    """A material key; faces with equal keys are merged into one mesh (smooth ones share side vertices)."""
+    return Mat(kind, color, opacity, roughness, metalness, smooth)
 
 
 PLATE = _mat("floor", "#e9e7e2", roughness=0.9)
@@ -55,6 +56,23 @@ SOFA = _mat("furniture", "#4a6fd1", roughness=0.9)
 BOOTH = _mat("furniture", "#e2e5ea", roughness=0.7)
 PLANT = _mat("furniture", "#5f8f5a", roughness=0.9)
 NEUTRAL = _mat("furniture", "#c9c6c0", roughness=0.8)
+
+FABRIC_CHARCOAL = _mat("furniture", "#3b3f46", roughness=0.95, smooth=True)
+FABRIC_GREY = _mat("furniture", "#8a8f96", roughness=0.95, smooth=True)
+FABRIC_SAND = _mat("furniture", "#c9b79c", roughness=0.95, smooth=True)
+FABRIC_TEAL = _mat("furniture", "#5b8a8c", roughness=0.95, smooth=True)
+OAK_LIGHT = _mat("furniture", "#c49a6c", roughness=0.6)
+LAMINATE = _mat("furniture", "#f3f3f1", roughness=0.55)
+METAL = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7)
+METAL_SMOOTH = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7, smooth=True)
+PLASTIC_BLACK = _mat("furniture", "#25282c", roughness=0.5)
+PLASTIC_BLACK_SMOOTH = _mat("furniture", "#25282c", roughness=0.5, smooth=True)
+STAINLESS = _mat("furniture", "#c9cdd2", roughness=0.25, metalness=0.8)
+FRIDGE = _mat("furniture", "#eef0f2", roughness=0.4)
+FOLIAGE = _mat("furniture", "#4f7d4a", roughness=0.9, smooth=True)
+FOLIAGE_LIGHT = _mat("furniture", "#5f9558", roughness=0.9, smooth=True)
+TERRACOTTA = _mat("furniture", "#b5674d", roughness=0.85, smooth=True)
+SCREEN = _mat("furniture", "#15171a", roughness=0.2, metalness=0.2)
 
 _ROOM_COLOURS = (
     (("open space", "workstation"), "#dcdcdc"),
@@ -95,14 +113,35 @@ class SceneInputs:
 
 # ── primitives ──────────────────────────────────────────────────────────────
 
-def _sides(mat: Mat, ring: list, z0: float, z1: float) -> list:
-    """One outward quad per edge of an (open) ring extruded z0→z1."""
-    return [(mat, [(*a, z0), (*b, z0), (*b, z1), (*a, z1)]) for a, b in zip(ring, ring[1:] + ring[:1])]
+def _sides(mat: Mat, ring: list, z0: float, z1: float, top: list | None = None) -> list:
+    """One outward quad per edge of an (open) ring extruded z0→z1 (top ring may be shifted), tagged "side"."""
+    top = top or ring
+    n = len(ring)
+    return [(mat, [(*ring[i], z0), (*ring[(i + 1) % n], z0), (*top[(i + 1) % n], z1), (*top[i], z1)], "side")
+            for i in range(n)]
 
 
-def _prism(mat: Mat, ring: list, z0: float, z1: float) -> list:
-    """A convex CCW ring extruded z0→z1, with both caps."""
-    return _sides(mat, ring, z0, z1) + [(mat, [(*p, z1) for p in ring]), (mat, [(*p, z0) for p in ring[::-1]])]
+def _prism(mat: Mat, ring: list, z0: float, z1: float, shift: tuple = (0.0, 0.0)) -> list:
+    """A convex CCW ring extruded z0→z1 with both caps; a shift slants the top ring (chair backs, legs)."""
+    top = [(x + shift[0], y + shift[1]) for x, y in ring]
+    return _sides(mat, ring, z0, z1, top) + [(mat, [(*p, z1) for p in top]), (mat, [(*p, z0) for p in ring[::-1]])]
+
+
+def _round_rect(b: Bounds, r: float, seg: int = 4) -> list:
+    """A CCW rectangle ring with rounded corners (radius clamped to the box)."""
+    r = max(0.0, min(r, (b.x1 - b.x0) / 2, (b.y1 - b.y0) / 2))
+    corners = ((b.x1 - r, b.y0 + r, -math.pi / 2), (b.x1 - r, b.y1 - r, 0.0),
+               (b.x0 + r, b.y1 - r, math.pi / 2), (b.x0 + r, b.y0 + r, math.pi))
+    return [(cx + r * math.cos(a0 + math.pi / 2 * i / seg), cy + r * math.sin(a0 + math.pi / 2 * i / seg))
+            for cx, cy, a0 in corners for i in range(seg + 1)]
+
+
+def _bar_ring(cx: float, cy: float, length: float, width: float, angle: float) -> list:
+    """A CCW rectangle from (cx, cy) outward `length` along `angle`, `width` wide (star-base spokes)."""
+    ux, uy, h = math.cos(angle), math.sin(angle), width / 2
+    nx, ny = -uy * h, ux * h
+    return [(cx - nx, cy - ny), (cx + ux * length - nx, cy + uy * length - ny),
+            (cx + ux * length + nx, cy + uy * length + ny), (cx + nx, cy + ny)]
 
 
 def _polygons(geom) -> list:
@@ -135,10 +174,12 @@ def _rect(x0: float, x1: float, y0: float, y1: float) -> list:
     return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
 
 
-def _framed(mat: Mat, frame: tuple, ring: list, z0: float, z1: float) -> list:
-    """A local convex ring placed through a frame; mirrored frames keep CCW winding."""
+def _framed(mat: Mat, frame: tuple, ring: list, z0: float, z1: float, shift: tuple = (0.0, 0.0)) -> list:
+    """A local convex ring (top optionally shifted) placed through a frame; mirrored frames keep CCW winding."""
+    a, b, c, d = frame[:4]
     world = [_apply(frame, *p) for p in ring]
-    return _prism(mat, world if frame[0] * frame[3] - frame[1] * frame[2] > 0 else world[::-1], z0, z1)
+    world_shift = (a * shift[0] + b * shift[1], c * shift[0] + d * shift[1])
+    return _prism(mat, world if a * d - b * c > 0 else world[::-1], z0, z1, world_shift)
 
 
 def _seg_frame(p, q) -> tuple:
@@ -457,7 +498,7 @@ def _component(comp: dict, k: float) -> tuple:
     kind, build = classify_furniture(name)
     frame = tuple(float(v) for v in (m[0, 0], m[0, 1], m[1, 0], m[1, 1], m[0, 2], m[1, 2]))
     pieces = build(_canonical_box(comp), k, name.lower(), str(comp.get("bom_data") or ""))
-    return kind, [f for mat, ring, z0, z1 in pieces for f in _framed(mat, frame, ring, z0, z1)]
+    return kind, [f for mat, ring, z0, z1, *shift in pieces for f in _framed(mat, frame, ring, z0, z1, *shift)]
 
 
 # ── assembly ────────────────────────────────────────────────────────────────
@@ -484,19 +525,31 @@ def _furniture(rooms: list, k: float) -> tuple:
 def _merge(faces: list, u: float) -> list:
     """Merge faces into one mesh per material, scaling x/y to metres; stop at the vertex cap."""
     groups, total, dropped = {}, 0, 0
-    for mat, pts in faces:
+    for mat, pts, *tag in faces:
         if total + len(pts) > _MAX_VERTS:
             dropped += 1
             continue
-        verts, idx = groups.setdefault(mat, ([], []))
-        base = len(verts) // 3
-        verts.extend(round(c, 4) for x, y, z in pts for c in (x * u, y * u, z))
-        idx.extend(i for j in range(1, len(pts) - 1) for i in (base, base + j, base + j + 1))
+        verts, idx, shared = groups.setdefault(mat, ([], [], {}))
+        ids = [_vertex(verts, shared if mat.smooth and tag == ["side"] else None, (x * u, y * u, z))
+               for x, y, z in pts]
+        idx.extend(i for j in range(1, len(ids) - 1) for i in (ids[0], ids[j], ids[j + 1]))
         total += len(pts)
     if dropped:
         log.warning("qbiq scene: vertex cap %d reached — dropped %d faces", _MAX_VERTS, dropped)
     return [{"type": m.type, "verts": v, "faces": f, "color": m.color, "opacity": m.opacity,
-             "roughness": m.roughness, "metalness": m.metalness} for m, (v, f) in groups.items()]
+             "roughness": m.roughness, "metalness": m.metalness, "smooth": m.smooth} for m, (v, f, _) in groups.items()]
+
+
+def _vertex(verts: list, shared: dict | None, p: tuple) -> int:
+    """Index of point p in verts; smooth side faces reuse an existing vertex at the same rounded position."""
+    key = tuple(round(c, 4) for c in p)
+    if shared is not None and key in shared:
+        return shared[key]
+    verts.extend(key)
+    index = len(verts) // 3 - 1
+    if shared is not None:
+        shared[key] = index
+    return index
 
 
 def build_design_scene(inp: SceneInputs, units_to_metres: float) -> list[dict]:

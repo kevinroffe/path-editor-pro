@@ -531,7 +531,7 @@ def _known_parts(bom: str) -> list:
         if part.code not in _PART_BUILDERS and part.code not in _UNKNOWN_CODES:
             _UNKNOWN_CODES.add(part.code)
             log.warning("qbiq scene: no furniture builder for bom code %s", part.code)
-    return [part for part in parts if part.code in _PART_BUILDERS]
+    return parts if parts and all(part.code in _PART_BUILDERS for part in parts) else []
 
 
 def _build_part(part: Part, b: Bounds, k: float, name: str) -> list:
@@ -602,6 +602,157 @@ def _assemble(b: Bounds, k: float, name: str, parts: list) -> list:
     if primary.code == "K_C" and rest:
         return _kitchen_assembly(b, k, name, primary, rest)
     return _build_part(primary, b, k, name)
+
+
+# ── seating ─────────────────────────────────────────────────────────────────
+
+ARM_Z = (0.62, 0.65)          # chair armrest pads
+SPOKE_Z = (0.06, 0.09)        # five-star base spokes
+CASTOR_Z = (0.0, 0.06)
+FOOTREST_Z = (0.28, 0.30)
+SOFA_SEAT_Z = (0.38, 0.46)    # sofa seat cushions
+SOFA_ARM_Z = (0.08, 0.62)     # sofa arms (full height block from the plinth)
+_CHAIR_FABRIC = {"C_C": FABRIC_GREY, "C_K": FABRIC_SAND, "C_G": FABRIC_GREY, "C_W": FABRIC_CHARCOAL,
+                 "C_E": FABRIC_CHARCOAL}
+_BACK_TOP = {"C_C": 0.88, "C_K": 0.86, "C_G": 0.88, "C_W": 0.95, "C_E": 1.15}
+_SEAT_H = {"C_C": 0.46, "C_K": 0.46, "C_G": 0.46, "C_W": 0.47, "C_E": 0.47}
+
+
+def _disc(cx: float, cy: float, r: float, n: int = 12) -> list:
+    """A CCW n-gon of radius r around (cx, cy)."""
+    return _ngon(Bounds(cx - r, cx + r, cy - r, cy + r), n)
+
+
+def _m(v: float, k: float, cap: float) -> float:
+    """v metres in model units, never more than cap (small footprints)."""
+    return min(v * k, cap)
+
+
+def _has_arms(code: str, name: str) -> bool:
+    """Office chairs always have arms; others when the name says #arms (and not #no_arms)."""
+    return code in ("C_W", "C_E") or ("#arms" in name and "no_arms" not in name)
+
+
+def _chair_seat(b: Bounds, k: float, code: str) -> tuple:
+    """(seat bounds, pieces) for a chair's shell, cushion and slanted back."""
+    seat_h, fabric = _SEAT_H[code], _CHAIR_FABRIC[code]
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    seat = _inset(b, _m(0.02, k, w / 10))
+    back_d, tilt = _m(0.05, k, d / 6), _m(0.05, k, d / 6)
+    cushion = seat._replace(y1=seat.y1 - back_d - tilt)
+    back = Bounds(seat.x0 + _m(0.01, k, w / 20), seat.x1 - _m(0.01, k, w / 20), seat.y1 - back_d - tilt, seat.y1 - tilt)
+    shell = PLASTIC_BLACK if code in ("C_W", "C_E") else (OAK_LIGHT if code == "C_K" else PLASTIC_BLACK)
+    return seat, [(shell, _round_rect(cushion, _m(0.03, k, w / 4)), seat_h - 0.08, seat_h - 0.06),
+                  (fabric, _round_rect(cushion, _m(0.04, k, w / 4)), seat_h - 0.06, seat_h),
+                  (fabric, _round_rect(back, _m(0.02, k, w / 8)), seat_h, _BACK_TOP[code], (0.0, tilt))]
+
+
+def _chair_arms(seat: Bounds, k: float, code: str) -> list:
+    """Two armrest pads on posts along the seat's sides."""
+    w, d = seat.x1 - seat.x0, seat.y1 - seat.y0
+    aw = _m(0.04, k, w / 8)
+    y0, y1 = seat.y0 + d * 0.25, seat.y1 - d * 0.15
+    out = []
+    for x0 in (seat.x0, seat.x1 - aw):
+        pad = Bounds(x0, x0 + aw, y0, y1)
+        post = Bounds(x0, x0 + aw, (y0 + y1) / 2 - aw / 2, (y0 + y1) / 2 + aw / 2)
+        out += [(PLASTIC_BLACK_SMOOTH, _round_rect(pad, aw / 2), *ARM_Z), (METAL, _rect(*post), _SEAT_H[code], ARM_Z[0])]
+    return out
+
+
+def _star_base(seat: Bounds, k: float, code: str) -> list:
+    """Gas column, five spokes and five castors under an office chair."""
+    cx, cy = (seat.x0 + seat.x1) / 2, (seat.y0 + seat.y1) / 2
+    reach = min(seat.x1 - seat.x0, seat.y1 - seat.y0) / 2 - _m(0.025, k, (seat.x1 - seat.x0) / 10)
+    col, spoke_w, castor = _m(0.03, k, reach / 4), _m(0.03, k, reach / 4), _m(0.025, k, reach / 5)
+    out = [(METAL_SMOOTH, _disc(cx, cy, col, 16), SPOKE_Z[1], _SEAT_H[code] - 0.08)]
+    for i in range(5):
+        a = math.pi / 2 + 2 * math.pi * i / 5
+        out.append((PLASTIC_BLACK, _bar_ring(cx, cy, reach, spoke_w, a), *SPOKE_Z))
+        out.append((PLASTIC_BLACK_SMOOTH, _disc(cx + (reach - castor) * math.cos(a), cy + (reach - castor) * math.sin(a),
+                                                castor, 10), *CASTOR_Z))
+    return out
+
+
+def _four_legs(seat: Bounds, k: float, top: float, mat: Mat) -> list:
+    """Four round legs in the seat's corners."""
+    r = _m(0.015, k, min(seat.x1 - seat.x0, seat.y1 - seat.y0) / 8)
+    inset = _inset(seat, r * 1.5)
+    return [(mat, _disc(x, y, r, 10), 0.0, top) for x in (inset.x0, inset.x1) for y in (inset.y0, inset.y1)]
+
+
+def _chair_part(b: Bounds, k: float, name: str, part) -> list:
+    """Conference / kitchen / guest / task / executive chair facing local -y."""
+    seat, pieces = _chair_seat(b, k, part.code)
+    if _has_arms(part.code, name):
+        pieces += _chair_arms(seat, k, part.code)
+    if part.code in ("C_W", "C_E"):
+        return pieces + _star_base(seat, k, part.code)
+    legs = OAK_LIGHT if part.code == "C_K" else METAL_SMOOTH
+    return pieces + _four_legs(seat._replace(y1=seat.y1 - _m(0.05, k, (seat.y1 - seat.y0) / 6)), k,
+                               _SEAT_H[part.code] - 0.08, legs)
+
+
+def _bar_stool(b: Bounds, k: float, name: str, part) -> list:
+    """Round upholstered seat on a column with a footrest and a round base."""
+    cx, cy = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2
+    r = min(b.x1 - b.x0, b.y1 - b.y0) / 2
+    return [(FABRIC_CHARCOAL, _disc(cx, cy, r * 0.8, 24), 0.72, 0.75),
+            (METAL_SMOOTH, _disc(cx, cy, r * 0.12, 12), 0.02, 0.72),
+            (METAL_SMOOTH, _disc(cx, cy, r * 0.65, 24), *FOOTREST_Z),
+            (METAL_SMOOTH, _disc(cx, cy, r * 0.75, 24), 0.0, 0.02)]
+
+
+def _seat_count(name: str, width_m: float) -> int:
+    """Seat cushions: from SOFA_<n>_SEAT, 1 for armchairs, else one per ~0.65 m."""
+    if m := re.search(r"sofa_(\d)_seat", name):
+        return int(m.group(1))
+    return 1 if "armchair" in name else max(1, round(width_m / 0.65))
+
+
+def _sofa_part(b: Bounds, k: float, name: str, part) -> list:
+    """Sofa / armchair: legs, base, two rounded arms, a back and one cushion per seat (back at +y)."""
+    fabric = FABRIC_SAND if "armchair" in name else FABRIC_TEAL
+    w, d = b.x1 - b.x0, b.y1 - b.y0
+    arm, back = _m(0.16, k, w / 6), _m(0.18, k, d / 3)
+    body = _inset(b, _m(0.01, k, w / 20))
+    pieces = _four_legs(_inset(b, _m(0.05, k, w / 8)), k, 0.08, PLASTIC_BLACK)
+    pieces += [(fabric, _round_rect(body._replace(x0=b.x0 + arm, x1=b.x1 - arm), _m(0.02, k, w / 8)), 0.08, SOFA_SEAT_Z[0]),
+               (fabric, _round_rect(Bounds(b.x0 + arm, b.x1 - arm, b.y1 - back, b.y1), _m(0.06, k, back / 2)), 0.08, 0.82)]
+    for x0, x1 in ((b.x0, b.x0 + arm), (b.x1 - arm, b.x1)):
+        pieces.append((fabric, _round_rect(Bounds(x0, x1, b.y0, b.y1), arm / 2), *SOFA_ARM_Z))
+    n = _seat_count(name, part.length)
+    slot = (b.x1 - b.x0 - 2 * arm) / n
+    gap = _m(0.01, k, slot / 10)
+    for i in range(n):
+        cell = Bounds(b.x0 + arm + slot * i + gap, b.x0 + arm + slot * (i + 1) - gap, b.y0 + gap, b.y1 - back - gap)
+        pieces.append((fabric, _round_rect(cell, _m(0.05, k, slot / 4)), *SOFA_SEAT_Z))
+    return pieces
+
+
+def _bench_part(b: Bounds, k: float, name: str, part) -> list:
+    """Upholstered bench block on short legs."""
+    w = b.x1 - b.x0
+    return (_four_legs(_inset(b, _m(0.04, k, w / 8)), k, 0.08, PLASTIC_BLACK)
+            + [(FABRIC_GREY, _round_rect(_inset(b, _m(0.01, k, w / 20)), _m(0.04, k, w / 6)), 0.08, 0.45)])
+
+
+def _booth_part(b: Bounds, k: float, name: str, part) -> list:
+    """Dining booth: two benches with tall backs facing a table between them."""
+    d, w = b.y1 - b.y0, b.x1 - b.x0
+    bench, back = min(0.45 * k, d / 3), _m(0.1, k, d / 10)
+    table = _inset(Bounds(b.x0, b.x1, b.y0 + bench, b.y1 - bench), _m(0.05, k, w / 8))
+    pieces = [(LAMINATE, _round_rect(table, _m(0.02, k, w / 8)), 0.715, 0.74),
+              (METAL_SMOOTH, _disc((table.x0 + table.x1) / 2, (table.y0 + table.y1) / 2, _m(0.04, k, w / 8), 12), 0.0, 0.715)]
+    for y0, y1, by0, by1 in ((b.y0, b.y0 + bench, b.y0, b.y0 + back), (b.y1 - bench, b.y1, b.y1 - back, b.y1)):
+        pieces += [(FABRIC_TEAL, _round_rect(Bounds(b.x0, b.x1, y0, y1), _m(0.03, k, w / 8)), 0.0, 0.45),
+                   (FABRIC_TEAL, _round_rect(Bounds(b.x0, b.x1, by0, by1), back / 2), 0.45, 1.1)]
+    return pieces
+
+
+_PART_BUILDERS.update({"C_C": _chair_part, "C_K": _chair_part, "C_G": _chair_part, "C_W": _chair_part,
+                       "C_E": _chair_part, "C_B": _bar_stool, "L_S": _sofa_part, "L_B": _bench_part,
+                       "K_DB": _booth_part})
 
 
 def classify_furniture(name: str, bom: str = "") -> tuple:

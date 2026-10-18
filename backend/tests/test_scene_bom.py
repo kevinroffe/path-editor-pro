@@ -105,3 +105,7 @@ def test_assembly_stays_inside_box(builders, bom, box):
     _, build = s3.classify_furniture("item", bom)
     pieces = build(b, K, "item", "")
     assert pieces and _inside(pieces, b)
+
+
+def test_item_with_any_unknown_part_uses_keywords(builders):
+    assert s3.classify_furniture("qbiq_fr_kitchen_chair", "C_K_L40_W50|X_Y_L1_W1")[0] == "chair"

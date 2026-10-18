@@ -2,6 +2,7 @@ import math
 
 import pytest
 
+import camera_style as cs
 import plan_model as pm
 import plan_routing as pr
 import plan_tour as pt
@@ -54,6 +55,16 @@ def test_tour_starts_at_entrance_and_sets_duration(plan, get_graph):
     assert tour["waypoints"][0] == pytest.approx(list(plan.entrance), abs=1.0)
     assert tour["suggested_duration_s"] >= 10 and tour["suggested_duration_s"] % 5 == 0
     assert tour["unreachable"] == []
+
+
+def test_tour_duration_uses_house_style_walking_speed(plan):
+    big = pm.flipped(pm.build_plan_model(DATA, 0.05))      # 5 cm units: a 100 m floor, long enough to matter
+    cache = {}
+    get = lambda c: cache.setdefault(c, pr.corridor_graph_for(big, c))  # noqa: E731
+    polygon, graph = get(0.2)
+    tour = pt.build_tour(big, graph, polygon, get, room_ids=["A", "D"])
+    length_m = sum(math.dist(a, b) for a, b in zip(tour["waypoints"], tour["waypoints"][1:])) * big.units_to_metres
+    assert tour["suggested_duration_s"] == cs.suggest_duration_s(length_m)
 
 
 def test_tour_respects_requested_types(plan, get_graph):

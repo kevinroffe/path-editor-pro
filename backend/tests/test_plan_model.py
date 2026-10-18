@@ -95,12 +95,6 @@ def test_room_info_fields(plan):
     assert (a.head_count, a.assigned_hc, a.department_id) == (4, 3, 1)
 
 
-def test_glance_targets_only_for_enclosed_rooms(plan):
-    looks = {t[1] for t in plan.glance_targets}
-    assert _by_id(plan, "A").label_point in looks
-    assert _by_id(plan, "B").label_point not in looks
-
-
 def test_flipped_negates_y(plan):
     f = pm.flipped(plan)
     assert _by_id(f, "A").stop.point == pytest.approx((350.0, -540.0))

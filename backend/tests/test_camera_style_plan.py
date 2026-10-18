@@ -79,6 +79,20 @@ def test_cut_splits_into_jump():
     assert 0 < b.t_s - a.t_s <= 0.1
 
 
+def test_stop_near_route_start_keeps_its_look():
+    stop = {"room_id": "r", "room_name": "Room", "look_at": [60, 400], "dwell_s": 3.0}
+    plan = _plan([(0, 0, 0, "", None), (60, 0, 0, "", stop), (5000, 0, 0, "", None)], 50)
+    assert max(k.yaw for k in plan.keyframes[:4]) >= 30
+
+
+def test_room_looks_do_not_crowd_keyframes():
+    stop = {"room_id": "r", "room_name": "Room", "dwell_s": 3.0}
+    wps = [(0, 0, 0, "", None)] + [(1500 * i, 0, 0, "", stop | {"look_at": [1500 * i, 400]}) for i in range(1, 7)] \
+        + [(9000, 0, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(90))
+    assert style_metrics(plan.keyframes, U)["s_per_kf"] >= 2.8
+
+
 def test_suggest_duration():
     assert cs.suggest_duration_s(110) == 100
     assert cs.suggest_duration_s(5) == 10

@@ -33,12 +33,12 @@ def test_room_look_reaches_room():
     plan = _plan([(0, 0, 0, "", None), (2000, 0, 0, "", _stop(2000, 300)), (5000, 0, 0, "", None)], 50)
     window = [k for k in plan.keyframes if 1000 <= k.x <= 3000]
     best = min(abs(k.yaw - 90.0) for k in window)
-    assert best <= 15 or max(abs(k.yaw) for k in window) == pytest.approx(60, abs=0.5)
+    assert best <= 15 or 55 <= max(abs(k.yaw) for k in window) <= 60.5   # head rule may trim the cap a little
 
 
 def test_room_look_capped_at_60():
     plan = _plan([(0, 0, 0, "", None), (2000, 0, 0, "", _stop(1000, 10)), (5000, 0, 0, "", None)], 50)
-    assert max(abs(k.yaw) for k in plan.keyframes) == pytest.approx(60, abs=0.5)
+    assert 55 <= max(abs(k.yaw) for k in plan.keyframes) <= 60.5
 
 
 def test_look_is_held_for_its_look_time():
@@ -118,5 +118,35 @@ def test_reversal_limit():
         (800 + 400 * i, 0, 0, "", _stop(800 + 400 * i, 300 if i % 2 else -300, dwell=0.5)) for i in range(6)
     ] + [(3300, 0, 0, "", None)]
     plan = _plan(wps, 30)
-    assert style_metrics(plan.keyframes, U)["reversals_per_min"] <= cs.MAX_REVERSALS_PER_MIN
+    assert style_metrics(plan.keyframes, U)["reversals_per_min"] <= cs.MAX_REVERSALS_PER_MIN + 1e-9
     assert np.all(np.isfinite([k.yaw for k in plan.keyframes]))
+
+
+def test_uturn_at_a_room_turns_through_the_room():
+    # out along +x to a door at the dead end, back along y=+10 cm; the room is on the -y side
+    stop = {"room_id": "r", "room_name": "Room", "look_at": [3000, -400], "dwell_s": 2.0}
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", stop), (0, 10, 0, "", None)], cs.suggest_duration_s(60))
+    near = [k for k in plan.keyframes if math.hypot(k.x - 3000, k.y) <= 300]
+    err = min(abs((k.yaw - math.degrees(math.atan2(-400 - k.y, 3000 - k.x)) + 180) % 360 - 180) for k in near)
+    assert err <= 30
+
+
+def test_gaze_drifts_toward_passing_rooms():
+    rooms = [(500 + 600 * i, 350) for i in range(10)]   # offices along one wall
+    plan = _plan([(0, 0), (6500, 0)], cs.suggest_duration_s(65), interests=rooms)
+    m = style_metrics(plan.keyframes, U)
+    assert 8 <= m["look_vs_travel_med"] <= 32
+    assert m["reversals_per_min"] <= cs.MAX_REVERSALS_PER_MIN + 1e-9
+    assert max(abs(k.yaw) for k in plan.keyframes) <= cs.INTEREST_MAX_DEG + 1e-6
+
+
+def test_no_interests_means_straight_gaze():
+    plan = _plan([(0, 0), (6500, 0)], cs.suggest_duration_s(65))
+    assert max(abs(k.yaw) for k in plan.keyframes) <= 0.5
+
+
+def test_dead_end_door_is_reached_not_stood_short_of():
+    stop = {"room_id": "r", "room_name": "Room", "look_at": [3000, 400], "dwell_s": 3.0}
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", stop), (0, 0, 0, "", None)], cs.suggest_duration_s(60))
+    assert max(k.x for k in plan.keyframes) >= 2950
+    assert style_metrics(plan.keyframes, U)["n_pans"] == 0

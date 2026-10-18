@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 EYE_HEIGHT_M = 1.57
 KF_SPACING_S = 3.3
+KF_FILL_S = 3.6      # fill target; corner and look keyframes pull the average toward KF_SPACING_S
 KF_SPACING_M = 3.2
 WALK_SPEED_MPS = 1.1
 MIN_SPEED_MPS = 0.8
@@ -156,7 +157,6 @@ def interpolate(plan: KeyframePlan, fps: float, fov: float = 90.0) -> list:
 
 CUT_GAP_S = 0.05
 HOLD_S = 0.4
-_CORNER_WINDOW_M = 1.5
 
 
 @dataclass
@@ -173,6 +173,7 @@ class _Draft:
     hour: float | None = None
     cut_after: bool = False
     pan: bool = False
+    kind: str = "fill"
 
 
 @dataclass
@@ -235,79 +236,98 @@ def _waypoint_arcs(leg: _Leg, raw_pts: np.ndarray) -> list:
     return out
 
 
-def _corner_arcs(leg: _Leg, u: float) -> list:
-    """Arc lengths of corner apexes: heading change >= CORNER_DEG within +-_CORNER_WINDOW_M."""
-    w = _CORNER_WINDOW_M / u
-    change = np.abs(np.interp(leg.arc + w, leg.arc, leg.heading) - np.interp(leg.arc - w, leg.arc, leg.heading))
-    runs, i, hot = [], 0, change >= CORNER_DEG
-    while i < len(hot):
-        if not hot[i]:
-            i += 1
-            continue
-        j = i
-        while j < len(hot) and hot[j]:
-            j += 1
-        runs.append(float(leg.arc[i + int(np.argmax(change[i:j]))]))
-        i = j
-    return runs
-
-
-def _stations(leg: _Leg, anchors: dict, u: float) -> list:
-    """Sorted (arc, waypoint|None): anchors + corners merged within MERGE_M, gaps filled every KF_SPACING_M."""
-    marks = sorted([(s, wp) for wp, s in anchors.items()] + [(s, None) for s in _corner_arcs(leg, u)],
-                   key=lambda m: (m[0], m[1] is None))
-    kept = []
-    for s, wp in marks:
-        if kept and (s - kept[-1][0]) * u < MERGE_M:
-            if wp is not None and kept[-1][1] is None:
-                kept[-1] = (s, wp)
-            continue
-        kept.append((s, wp))
-    if kept[-1][0] < leg.arc[-1]:
-        kept[-1] = (float(leg.arc[-1]), kept[-1][1])
-    out = [kept[0]]
-    for (a, _), (b, wp) in zip(kept, kept[1:]):
-        n = max(1, round((b - a) * u / KF_SPACING_M))
-        out += [(a + (b - a) * k / n, None) for k in range(1, n)] + [(b, wp)]
+def _corner_arcs(raw_pts: np.ndarray, arcs: list) -> list:
+    """Arc lengths of route waypoints where the route turns >= CORNER_DEG (the spline passes through them)."""
+    out = []
+    for i in range(1, len(raw_pts) - 1):
+        a, b = raw_pts[i] - raw_pts[i - 1], raw_pts[i + 1] - raw_pts[i]
+        if np.linalg.norm(a) > 1e-9 and np.linalg.norm(b) > 1e-9:
+            turn = abs(_wrap(math.degrees(math.atan2(b[1], b[0]) - math.atan2(a[1], a[0]))))
+            if turn >= CORNER_DEG:
+                out.append(arcs[i])
     return out
 
 
-def _drafts_for_leg(leg: _Leg, seg: int, wps: list, needs_anchor, u: float) -> list:
+CORNER_MERGE_M = 2.5
+MIN_SPACING_M = 2.1   # reference keyframe spacing p10..p90
+MAX_SPACING_M = 4.0
+
+
+def _merge(kept: list, mark: tuple, u: float, ends: tuple) -> None:
+    """Add (arc, wp, kind, important) to kept, merging corners and unimportant anchors that crowd it."""
+    s, wp, kind, important = mark
+    if not kept:
+        kept.append(mark)
+        return
+    ps, pwp, pkind, pimp = kept[-1]
+    gap = (s - ps) * u
+    if kind == "corner" and gap < CORNER_MERGE_M:
+        return
+    if pkind == "corner" and gap < CORNER_MERGE_M:
+        kept[-1] = mark
+        return
+    if gap >= MERGE_M or (important and pimp):
+        kept.append(mark)
+    elif important:                            # takes over a crowding plain anchor, keeping a leg end in place
+        kept[-1] = (ps if ps in ends else s, wp, kind, True)
+    elif s in ends and not pimp:
+        kept[-1] = (s, wp, kind, False)
+
+
+def _stations(leg: _Leg, anchors: dict, corners: list, important: set, u: float, spacing_m: float) -> list:
+    """Sorted (arc, waypoint|None, kind): anchors and corners merged, gaps filled every spacing_m."""
+    marks = sorted([(s, wp, "anchor", wp in important) for wp, s in anchors.items()]
+                   + [(s, None, "corner", False) for s in corners],
+                   key=lambda m: (m[0], m[2] == "corner"))
+    ends, kept = (0.0, float(leg.arc[-1])), []
+    for m in marks:
+        _merge(kept, m, u, ends)
+    if kept[-1][0] < leg.arc[-1]:
+        kept[-1] = (float(leg.arc[-1]),) + kept[-1][1:]
+    out = [kept[0][:3]]
+    for (a, *_), (b, wp, kind, _) in zip(kept, kept[1:]):
+        n = max(1, round((b - a) * u / spacing_m))
+        out += [(a + (b - a) * k / n, None, "fill") for k in range(1, n)] + [(b, wp, kind)]
+    return out
+
+
+def _drafts_for_leg(leg: _Leg, seg: int, wps: list, important: set, u: float, spacing_m: float) -> list:
     """Draft keyframes along one leg (or a short hold for a single-point segment)."""
     if len(leg.pts) < 2 or leg.arc[-1] <= 0:
         x, y = leg.pts[0]
-        return [_Draft(float(x), float(y), leg.s0_m, 0.0, seg, wps[0]),
-                _Draft(float(x), float(y), leg.s0_m, 0.0, seg, None)]
-    arcs = _waypoint_arcs(leg, np.array([[w[0], w[1]] for w in leg.wps], dtype=float))
-    anchors = {wps[0]: 0.0} | {i: s for i, s in zip(wps, arcs) if needs_anchor(i)} | {wps[-1]: float(leg.arc[-1])}
+        return [_Draft(float(x), float(y), leg.s0_m, 0.0, seg, wps[0], kind="anchor"),
+                _Draft(float(x), float(y), leg.s0_m, 0.0, seg, None, kind="anchor")]
+    raw = np.array([[w[0], w[1]] for w in leg.wps], dtype=float)
+    arcs = _waypoint_arcs(leg, raw)
+    anchors = {wps[0]: 0.0} | {i: s for i, s in zip(wps, arcs) if i in important} | {wps[-1]: float(leg.arc[-1])}
     drafts = []
-    for s, wp in _stations(leg, anchors, u):
+    for s, wp, kind in _stations(leg, anchors, _corner_arcs(raw, arcs), important, u, spacing_m):
         x, y, h = _at(leg, s)
-        drafts.append(_Draft(x, y, leg.s0_m + s * u, h, seg, wp))
+        drafts.append(_Draft(x, y, leg.s0_m + s * u, h, seg, wp, kind=kind))
     return drafts
 
 
-def _route(waypoints: list, smoothing: float, uturn_radius_m: float, cuts, u: float) -> tuple:
+def _route(waypoints: list, smoothing: float, uturn_radius_m: float, cuts, u: float, duration: float) -> tuple:
     """Legs and draft keyframes for the whole route, plus per-waypoint stops and yaw offsets."""
     stops = _clean_stops([p[4] if len(p) > 4 else None for p in waypoints])
     offsets = [float(p[2]) if len(p) > 2 else 0.0 for p in waypoints]
     hours = [_parse_hour(p[3]) if len(p) > 3 else None for p in waypoints]
+    important = {i for i in range(len(waypoints)) if stops[i] or offsets[i] != 0.0 or hours[i] is not None}
 
-    def needs_anchor(i):
-        return stops[i] is not None or offsets[i] != 0.0 or hours[i] is not None
-
-    legs, drafts, s0 = [], [], 0.0
-    for seg, (a, b) in enumerate(_bounds(len(waypoints), cuts)):
+    legs, s0 = [], 0.0
+    for a, b in _bounds(len(waypoints), cuts):
         pts = np.array([[float(p[0]), float(p[1])] for p in waypoints[a:b + 1]])
-        leg = _leg(pts, waypoints[a:b + 1], smoothing, uturn_radius_m / u, s0)
+        legs.append(_leg(pts, waypoints[a:b + 1], smoothing, uturn_radius_m / u, s0))
+        s0 += float(legs[-1].arc[-1]) * u
+    spacing = min(max(KF_FILL_S * s0 / max(duration, 1e-9), MIN_SPACING_M), MAX_SPACING_M)
+    drafts = []
+    for seg, ((a, b), leg) in enumerate(zip(_bounds(len(waypoints), cuts), legs)):
         if drafts:
             drafts[-1].cut_after = True
-        drafts += _drafts_for_leg(leg, seg, list(range(a, b + 1)), needs_anchor, u)
-        legs.append(leg)
-        s0 += float(leg.arc[-1]) * u
+        drafts += _drafts_for_leg(leg, seg, list(range(a, b + 1)), important, u, spacing)
     for d in drafts:
         d.hour = hours[d.wp] if d.wp is not None else None
-    return legs, drafts, stops, offsets
+    return legs, drafts, stops, offsets, spacing
 
 
 def _speed_warning(v: float, length_m: float, pans: int) -> list:
@@ -346,7 +366,7 @@ def _assign_times(drafts: list, duration: float) -> tuple:
 # ── gaze ──────────────────────────────────────────────────────────────────────
 
 _LOOK_EASE_S = 1.5
-_EDGE_DEDUP_M = 0.2
+_EDGE_DEDUP_M = MERGE_M
 
 
 def _wrap(a: float) -> float:
@@ -358,8 +378,8 @@ def _smoothstep(x: float) -> float:
     return x * x * (3 - 2 * x)
 
 
-def _with_look_edges(drafts: list, legs: list, stops: list, v: float, u: float) -> list:
-    """Drafts plus keyframes at each room look's window edges (anchor +- half its look time)."""
+def _with_look_edges(drafts: list, legs: list, stops: list, v: float, u: float, spacing_m: float) -> list:
+    """Drafts plus keyframes at each room look's window edges; fill keyframes crowding an edge are dropped."""
     extra = []
     for a in drafts:
         if a.wp is None or not (stop := stops[a.wp]) or stop["dwell_s"] <= 0:
@@ -369,20 +389,94 @@ def _with_look_edges(drafts: list, legs: list, stops: list, v: float, u: float) 
             s_m = a.s_m + sign * v * stop["dwell_s"] / 2
             local = min(max((s_m - leg.s0_m) / u, 0.0), float(leg.arc[-1]))
             s_m = leg.s0_m + local * u
-            if all(abs(d.s_m - s_m) >= _EDGE_DEDUP_M for d in drafts + extra if d.seg == a.seg):
+            if all(abs(d.s_m - s_m) >= _EDGE_DEDUP_M for d in drafts + extra if d.seg == a.seg and d is not a):
                 x, y, h = _at(leg, local)
-                extra.append(_Draft(x, y, s_m, h, a.seg))
-    merged = sorted(drafts + extra, key=lambda d: (d.seg, d.s_m, d.pan))
+                extra.append(_Draft(x, y, s_m, h, a.seg, kind="edge"))
+    keep = [d for d in drafts if d.kind != "fill" or all(
+        e.seg != d.seg or abs(e.s_m - d.s_m) >= spacing_m / 2 for e in extra)]
+    merged = sorted(keep + extra, key=lambda d: (d.seg, d.s_m, d.pan))
     for a, b in zip(merged, merged[1:]):
         a.cut_after = a.seg != b.seg
     merged[-1].cut_after = False
     return merged
 
 
+_STRAIGHT_RATIO = 0.8
+
+
+def _straight(a: _Draft, b: _Draft, u: float) -> bool:
+    """True when the walk from a to b is nearly a straight line (not into a dead end and back)."""
+    return math.hypot(b.x - a.x, b.y - a.y) * u >= _STRAIGHT_RATIO * (b.s_m - a.s_m)
+
+
+def _drop_look_anchors(drafts: list, stops: list, offsets: list, u: float) -> list:
+    """Drop a plain room-look anchor sitting between its two look edges (the edges hold the look)."""
+    def redundant(i):
+        d = drafts[i]
+        return (d.kind == "anchor" and d.wp is not None and stops[d.wp] and not stops[d.wp]["pan"]
+                and d.hour is None and offsets[d.wp] == 0.0 and 0 < i < len(drafts) - 1
+                and drafts[i - 1].kind == "edge" and drafts[i + 1].kind == "edge"
+                and drafts[i - 1].seg == d.seg == drafts[i + 1].seg and _straight(drafts[i - 1], drafts[i + 1], u))
+    return [d for i, d in enumerate(drafts) if not redundant(i)]
+
+
 def _lead_yaw(drafts: list, legs: list, v: float, u: float) -> list:
     """Travel direction TURN_LEAD_S ahead (the head turns before the body), continuous."""
     out = [_at(legs[d.seg], (d.s_m - legs[d.seg].s0_m + TURN_LEAD_S * v) / u)[2] for d in drafts]
     return list(np.degrees(np.unwrap(np.radians(out))))
+
+
+INTEREST_MAX_DEG = 25.0
+INTEREST_RADIUS_M = 6.0
+_INTEREST_FULL_M = 4.0
+_INTEREST_FOV_DEG = 100.0
+
+
+def _interest_offsets(drafts: list, base: list, interests, u: float) -> list:
+    """Gentle gaze drift toward the nearest room ahead within INTEREST_RADIUS_M (<= INTEREST_MAX_DEG)."""
+    if not interests:
+        return [0.0] * len(drafts)
+    pts = np.asarray(interests, dtype=float)
+    out = []
+    for d, b in zip(drafts, base):
+        dist = np.hypot(pts[:, 0] - d.x, pts[:, 1] - d.y) * u
+        rel = (np.degrees(np.arctan2(pts[:, 1] - d.y, pts[:, 0] - d.x)) - b + 180) % 360 - 180
+        near = np.where((dist <= INTEREST_RADIUS_M) & (np.abs(rel) <= _INTEREST_FOV_DEG), dist, np.inf)
+        if not np.isfinite(j := int(np.argmin(near))) or not np.isfinite(near[j]):
+            out.append(0.0)
+            continue
+        weight = min(1.0, (INTEREST_RADIUS_M - dist[j]) / (INTEREST_RADIUS_M - _INTEREST_FULL_M))
+        out.append(float(np.clip(rel[j], -INTEREST_MAX_DEG, INTEREST_MAX_DEG)) * weight)
+    return out
+
+
+_UTURN_WINDOW_M = 3.0
+_UTURN_DEG = 120.0
+
+
+def _turn_through_rooms(drafts: list, base: list, stops: list) -> list:
+    """At a U-turn inside a room look, rotate the head through the room's side, like a person at a door."""
+    b = list(base)
+    for a, d in enumerate(drafts):
+        if d.wp is None or not stops[d.wp]:
+            continue
+        idx = [i for i, e in enumerate(drafts) if e.seg == d.seg and abs(e.s_m - d.s_m) <= _UTURN_WINDOW_M]
+        i0, i1 = max(idx[0] - 1, 0), min(idx[-1] + 1, len(drafts) - 1)   # the lead starts the turn early
+        while drafts[i0].seg != d.seg:
+            i0 += 1
+        while drafts[i1].seg != d.seg:
+            i1 -= 1
+        if abs(delta := b[i1] - b[i0]) < _UTURN_DEG:
+            continue
+        look = stops[d.wp]["look_at"]
+        bearing = math.degrees(math.atan2(look[1] - d.y, look[0] - d.x))
+        alt = delta - math.copysign(360.0, delta)
+        if abs(_wrap(bearing - b[i0] - alt / 2)) < abs(_wrap(bearing - b[i0] - delta / 2)):   # face the door mid-turn
+            for k in range(i0 + 1, i1 + 1):
+                b[k] = b[i0] + (b[k] - b[i0]) * alt / delta
+            for k in range(i1 + 1, len(b)):
+                b[k] += alt - delta
+    return b
 
 
 def _room_look_offsets(drafts: list, base: list, stops: list, v: float) -> list:
@@ -432,7 +526,7 @@ def _insert_pans(drafts: list, chosen: list) -> list:
     for i, d in enumerate(drafts):
         out.append(d)
         if i in chosen or (i == 0 and None in chosen):
-            out.append(_Draft(d.x, d.y, d.s_m, d.travel, d.seg, None, cut_after=d.cut_after, pan=True))
+            out.append(_Draft(d.x, d.y, d.s_m, d.travel, d.seg, None, cut_after=d.cut_after, pan=True, kind="pan"))
             d.cut_after = False
     return out
 
@@ -455,7 +549,6 @@ def _apply_pan_yaws(drafts: list, base: list, stops: list) -> None:
 
 
 _REVERSAL_STEP_DEG = 3.0
-_LIMIT_PASSES = 50
 
 
 def _significant_steps(yaws: list) -> list:
@@ -505,29 +598,34 @@ def _borrow_time(drafts: list, i: int, grow: float) -> float:
     return take
 
 
-def _limit_turn_rate(drafts: list, base: list) -> list:
-    """Kevin's rule: slow the walk (to MIN_LOOK_SPEED_MPS) first, then turn less; never faster."""
+def _slow_for_turns(drafts: list) -> set:
+    """Give each too-fast head turn more time by walking slower there (down to MIN_LOOK_SPEED_MPS)."""
     warnings = set()
-    for _ in range(_LIMIT_PASSES):
-        violated = False
-        for i, (a, b) in enumerate(zip(drafts, drafts[1:])):
-            dt = b.t_s - a.t_s
-            need = abs(b.yaw - a.yaw) / MAX_YAW_RATE_DPS
-            if a.cut_after or need <= dt + 1e-9:
-                continue
-            violated = True
-            if (ds := b.s_m - a.s_m) > 0 and (grow := min(need, ds / MIN_LOOK_SPEED_MPS) - dt) > 1e-9:
-                got = _borrow_time(drafts, i, grow)
-                if got < grow - 1e-6:
-                    warnings.add("Video too short for smooth head turns — some looks are shortened")
-                dt += got
-            if need > dt + 1e-9:
-                k, other = (i + 1, i) if abs(b.yaw - base[i + 1]) >= abs(a.yaw - base[i]) else (i, i + 1)
-                diff = drafts[k].yaw - drafts[other].yaw
-                drafts[k].yaw = drafts[other].yaw + math.copysign(MAX_YAW_RATE_DPS * dt, diff)
-        if not violated:
-            return sorted(warnings)
-    log.warning("head-turn limiter did not converge in %d passes", _LIMIT_PASSES)
+    for i, (a, b) in enumerate(zip(drafts, drafts[1:])):
+        dt, need = b.t_s - a.t_s, abs(b.yaw - a.yaw) / MAX_YAW_RATE_DPS
+        if a.cut_after or need <= dt + 1e-9 or (ds := b.s_m - a.s_m) <= 0:
+            continue
+        if (grow := min(need, ds / MIN_LOOK_SPEED_MPS) - dt) > 1e-9 and _borrow_time(drafts, i, grow) < grow - 1e-6:
+            warnings.add("Video too short for smooth head turns — some looks are shortened")
+    return warnings
+
+
+def _slew(drafts: list, order: range, ahead: int) -> None:
+    """Clamp each yaw to within MAX_YAW_RATE_DPS of its already-processed neighbour (ahead = -1 or +1)."""
+    for i in order:
+        a, b = drafts[i], drafts[i + ahead]
+        if (a if ahead > 0 else b).cut_after:
+            continue
+        limit = MAX_YAW_RATE_DPS * abs(b.t_s - a.t_s)
+        a.yaw = min(max(a.yaw, b.yaw - limit), b.yaw + limit)
+
+
+def _limit_turn_rate(drafts: list) -> list:
+    """Kevin's rule: slow the walk (to MIN_LOOK_SPEED_MPS) first, then turn less; never faster."""
+    warnings = _slow_for_turns(drafts)
+    n = len(drafts)
+    _slew(drafts, range(1, n), -1)          # forward: each keyframe within reach of the previous one
+    _slew(drafts, range(n - 2, -1, -1), 1)  # backward: guarantees every pair, turning early into U-turns
     return sorted(warnings)
 
 
@@ -537,22 +635,28 @@ def _to_keyframes(drafts: list) -> list:
 
 
 def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: float, smoothing: float = 1.0,
-                   uturn_radius_m: float = 0.0, cuts=None, start_pan: bool = False) -> KeyframePlan:
+                   uturn_radius_m: float = 0.0, cuts=None, start_pan: bool = False,
+                   interests=None) -> KeyframePlan:
     """House-style keyframe plan for a route of (x, y[, yaw_offset, time_of_day, stop]) waypoints."""
     if len(waypoints) < 2:
         raise ValueError("Need at least 2 waypoints")
     u = units_to_metres
-    legs, drafts, stops, offsets = _route(waypoints, smoothing, uturn_radius_m, cuts, u)
+    legs, drafts, stops, offsets, spacing = _route(waypoints, smoothing, uturn_radius_m, cuts, u, total_duration)
     chosen, warnings = _choose_pans(drafts, stops, start_pan)
     drafts = _insert_pans(drafts, chosen)
     v, _ = _assign_times(drafts, total_duration)
-    drafts = _with_look_edges(drafts, legs, stops, v, u)
+    drafts = _with_look_edges(drafts, legs, stops, v, u, spacing)
     v, length_m = _assign_times(drafts, total_duration)
-    base = _lead_yaw(drafts, legs, v, u)
-    gaze = np.add(_room_look_offsets(drafts, base, stops, v), _user_offsets(drafts, offsets))
+    base = _turn_through_rooms(drafts, _lead_yaw(drafts, legs, v, u), stops)
+    room = _room_look_offsets(drafts, base, stops, v)
+    drift = _interest_offsets(drafts, base, interests, u)
+    gaze = np.add([r if r else i for r, i in zip(room, drift)], _user_offsets(drafts, offsets))
     for d, b, g in zip(drafts, base, gaze):
         d.yaw = b + g
     _apply_pan_yaws(drafts, base, stops)
+    keep = _drop_look_anchors(drafts, stops, offsets, u)
+    base = [b for d, b in zip(drafts, base) if d in keep]
+    drafts = keep
     _limit_reversals(drafts)
-    warnings = _speed_warning(v, length_m, len(chosen)) + warnings + _limit_turn_rate(drafts, base)
+    warnings = _speed_warning(v, length_m, len(chosen)) + warnings + _limit_turn_rate(drafts)
     return KeyframePlan(_to_keyframes(drafts), u, warnings, len(chosen))

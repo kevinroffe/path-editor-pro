@@ -6,14 +6,12 @@ import math
 
 import networkx as nx
 
+from camera_style import suggest_duration_s
 from corridor_graph import _snap_to_nearest_edge
 from plan_model import BACK_OF_HOUSE
 from plan_routing import route_on_plan, stop_meta
 
 log = logging.getLogger(__name__)
-
-WALK_SPEED_MPS = 1.0
-MIN_TOUR_S = 10
 
 
 def _path_len(seq: list, dist: list) -> float:
@@ -98,9 +96,7 @@ def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: fl
     metas = [None] + [stop_meta(r) for r in visit]
     routed = route_on_plan(plan, [start] + [r.stop.point for r in visit], get_graph,
                            clearance_m=clearance_m, smoothing=smoothing, metas=metas)
-    seconds = (_route_length_m(routed["waypoints"], plan.units_to_metres) / WALK_SPEED_MPS
-               + sum(s["dwell_s"] for s in routed["stops"]))
     if unreachable:
         log.warning("auto tour: %d room(s) unreachable from the entrance: %s", len(unreachable), unreachable)
-    return {**routed, "suggested_duration_s": max(MIN_TOUR_S, 5 * math.ceil(seconds / 5)),
-            "unreachable": unreachable}
+    duration = suggest_duration_s(_route_length_m(routed["waypoints"], plan.units_to_metres))
+    return {**routed, "suggested_duration_s": duration, "unreachable": unreachable}

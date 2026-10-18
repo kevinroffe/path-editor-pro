@@ -38,7 +38,7 @@ sys.path.insert(0, str(BASE_DIR))
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
-from plan_model import GLANCE_RADIUS_M, flipped, plan_to_json
+from plan_model import flipped, plan_to_json
 from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
 from plan_tour import build_tour
 
@@ -48,8 +48,9 @@ try:
 except ImportError:
     _DXF_AVAILABLE = False
     log.warning("ezdxf not installed — DXF upload disabled. Run: py -m pip install ezdxf")
-from route_processor import process_route, smooth_preview
+from route_processor import smooth_preview
 from export_layer    import to_json, to_enscape_xml
+from camera_style    import interpolate, plan_keyframes
 from autopath        import find_multi_path
 from corridor_graph   import (build_walkable_polygon, build_corridor_graph,
                                route_multi, compute_bounds)
@@ -218,11 +219,19 @@ CORS(app)
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _camera_hints() -> dict:
-    """Glance targets of the loaded plan for process_route (empty without a plan)."""
-    if (plan := _LAST_PLAN) is None:
-        return {}
-    return {"glances": list(plan.glance_targets), "glance_radius": GLANCE_RADIUS_M / plan.units_to_metres}
+def _units(data: dict) -> float:
+    """Plan units -> metres: the request's value, else the loaded plan's, else the last upload's."""
+    if (u := data.get("units_to_metres")) is not None:
+        return float(u)
+    return _LAST_PLAN.units_to_metres if _LAST_PLAN is not None else _LAST_UNITS_TO_METRES
+
+
+def _camera_plan(wpts: list, cuts: list, s: dict):
+    """House-style keyframe plan for a route from request settings."""
+    return plan_keyframes(wpts, units_to_metres=_units(s), total_duration=float(s.get("duration", 30.0)),
+                          smoothing=float(s.get("smoothing", 1.0)), uturn_radius_m=float(s.get("uturn_radius", 0.0)),
+                          cuts=cuts, start_pan=bool(s.get("start_pan", False)),
+                          interests=[r.label_point for r in _LAST_PLAN.rooms] if _LAST_PLAN is not None else None)
 
 
 def _err(msg: str, code: int = 400):
@@ -565,94 +574,49 @@ def smooth_preview_route():
 
 @app.route("/api/process-route", methods=["POST"])
 def process():
+    """Preview frames (house-style keyframes interpolated at fps) plus speed/head-turn warnings."""
     data = request.get_json(force=True)
-    wpts = data.get("waypoints", [])
-    cuts = data.get("cuts", [])
+    wpts, cuts = data.get("waypoints", []), data.get("cuts", [])
     if len(wpts) < 2:
         return _err("Need at least 2 waypoints")
-
-    settings = {
-        "camera_height": float(data.get("camera_height", 1.7)),
-        "smoothing":     float(data.get("smoothing", 1.0)),
-        "duration":      float(data.get("duration", 30.0)),
-        "fps":           float(data.get("fps", 30.0)),
-        "fov":           float(data.get("fov", 90.0)),
-        "level":         data.get("level", "L-0"),
-    }
-
+    settings = {"smoothing": float(data.get("smoothing", 1.0)), "duration": float(data.get("duration", 30.0)),
+                "fps": float(data.get("fps", 30.0)), "fov": float(data.get("fov", 90.0)),
+                "level": data.get("level", "L-0")}
     try:
-        frames = process_route(
-            waypoints=wpts,
-            camera_height=settings["camera_height"],
-            smoothing=settings["smoothing"],
-            total_duration=settings["duration"],
-            fps=settings["fps"],
-            fov=settings["fov"],
-            cuts=cuts,
-            uturn_radius=float(data.get("uturn_radius", 0.0)),
-            **_camera_hints(),
-        )
+        plan = _camera_plan(wpts, cuts, data)
+        frames = interpolate(plan, settings["fps"], settings["fov"])
     except Exception as e:
+        log.exception("process-route failed")
         return _err(str(e))
-
     return jsonify({
         "frame_count": len(frames),
         "settings": settings,
-        "frames": [
-            {"t": f.t, "x": f.x, "y": f.y, "z": f.z,
-             "yaw": f.yaw, "pitch": f.pitch, "fov": f.fov, "cut": bool(f.cut)}
-            for f in frames
-        ],
+        "warnings": plan.warnings,
+        "frames": [{"t": f.t, "x": f.x, "y": f.y, "z": f.z, "yaw": f.yaw, "pitch": f.pitch, "fov": f.fov,
+                    "cut": bool(f.cut)} for f in frames],
     })
 
 
 @app.route("/api/export/json", methods=["POST"])
 def export_json():
+    """Route JSON with interpolated frames (round-trips through re-import)."""
     data = request.get_json(force=True)
-    wpts     = data.get("waypoints", [])
-    cuts     = data.get("cuts", [])
-    settings = data.get("settings", {})
-
-    frames = process_route(
-        waypoints=wpts,   # pass full triples [x, y, yaw_offset]
-        camera_height=1.75,
-        smoothing=float(settings.get("smoothing", 1.0)),
-        total_duration=float(settings.get("duration", 30.0)),
-        fps=float(settings.get("fps", 30.0)),
-        fov=float(settings.get("fov", 90.0)),
-        uturn_radius=float(settings.get("uturn_radius", 0.0)),
-        cuts=cuts,
-        **_camera_hints(),
-    )
-    settings = {**settings, "cuts": cuts}  # round-trips through JSON re-import
-    out = to_json(frames, wpts, settings)
+    wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    frames = interpolate(_camera_plan(wpts, cuts, settings), float(settings.get("fps", 30.0)),
+                         float(settings.get("fov", 90.0)))
+    out = to_json(frames, wpts, {**settings, "cuts": cuts})
     return app.response_class(out, mimetype="application/json",
-                               headers={"Content-Disposition":
-                                        'attachment; filename="route.json"'})
+                              headers={"Content-Disposition": 'attachment; filename="route.json"'})
 
 
 @app.route("/api/export/xml", methods=["POST"])
 def export_xml():
+    """Enscape VideoPath XML with the house-style keyframes."""
     data = request.get_json(force=True)
-    wpts     = data.get("waypoints", [])
-    cuts     = data.get("cuts", [])
-    settings = data.get("settings", {})
-
-    frames = process_route(
-        waypoints=wpts,   # pass full triples [x, y, yaw_offset]
-        camera_height=1.75,
-        smoothing=float(settings.get("smoothing", 1.0)),
-        total_duration=float(settings.get("duration", 30.0)),
-        fps=float(settings.get("fps", 30.0)),
-        fov=float(settings.get("fov", 90.0)),
-        uturn_radius=float(settings.get("uturn_radius", 0.0)),
-        cuts=cuts,
-        **_camera_hints(),
-    )
-    out = to_enscape_xml(frames, wpts, settings)
+    wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    out = to_enscape_xml(_camera_plan(wpts, cuts, settings), settings)
     return app.response_class(out, mimetype="application/xml",
-                               headers={"Content-Disposition":
-                                        'attachment; filename="enscape_walkpath.xml"'})
+                              headers={"Content-Disposition": 'attachment; filename="enscape_walkpath.xml"'})
 
 
 # ── run ───────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Semantic model of a qbiq design JSON: corridor, rooms, stops, entrance, glances."""
+"""Semantic model of a qbiq design JSON: corridor, rooms, stops, entrance."""
 from __future__ import annotations
 
 import logging
@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 
 from shapely.affinity import scale
-from shapely.geometry import LineString, MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import nearest_points, polylabel, unary_union
 
 import qbiq_extractor as qe
@@ -14,8 +14,6 @@ import qbiq_extractor as qe
 log = logging.getLogger(__name__)
 
 STOP_OFFSET_M = 0.6
-GLANCE_RADIUS_M = 1.2
-GLANCE_SPACING_M = 2.0
 FRONT_TOL_M = 0.5
 DEFAULT_DWELL_S = 1.5
 BACK_OF_HOUSE = frozenset({"Storage Room", "IT Room", "Print Hub", "Other"})
@@ -52,7 +50,6 @@ class PlanModel:
     columns: list
     rooms: tuple
     entrance: tuple | None
-    glance_targets: tuple
     units_to_metres: float
 
 
@@ -120,15 +117,6 @@ def _open_stop(poly, corridor, inner, label, dwell, tol: float) -> Stop:
     return Stop((p.x, p.y), label, dwell)
 
 
-def _front_samples(poly, corridor, spacing: float, tol: float) -> list:
-    """Points every `spacing` along a room's edges that face the corridor."""
-    near = corridor.buffer(tol)
-    ring = LineString(poly.exterior.coords)
-    steps = max(int(ring.length // spacing), 1)
-    return [(p.x, p.y) for i in range(steps + 1)
-            if near.covers(p := ring.interpolate(i * spacing))]
-
-
 def _plan_room(raw: dict, parsed, corridor, inner, u: float) -> PlanRoom | None:
     """One PlanRoom from the raw room dict and its parsed qbiq_extractor _Room."""
     poly = qe._wkt(raw.get("geometry"))
@@ -149,13 +137,6 @@ def _plan_room(raw: dict, parsed, corridor, inner, u: float) -> PlanRoom | None:
     return PlanRoom(str(raw.get("id")), raw.get("space_type"), raw.get("subtype"),
                     poly.area * u * u, raw.get("head_count"), raw.get("assigned_hc"),
                     raw.get("department_id"), poly, is_open, label, stop)
-
-
-def _glances(rooms: list, corridor, u: float) -> tuple:
-    """(point, look_at) targets along enclosed rooms' corridor-facing fronts."""
-    spacing, tol = GLANCE_SPACING_M / u, FRONT_TOL_M / u
-    return tuple((pt, r.label_point) for r in rooms if not r.is_open
-                 for pt in _front_samples(r.polygon, corridor, spacing, tol))
 
 
 def _unique_ids(rooms: list) -> list:
@@ -181,7 +162,7 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     me = qe._wkt(nfp.get("main_entrance"))
     entrance = _into(inner, corridor, (me.x, me.y)) if me is not None and me.geom_type == "Point" else None
     columns = [pl for g in qe._wkt_many(nfp.get("columns")) for pl in qe._polylines(g)]
-    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, _glances(rooms, corridor, u), u)
+    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u)
 
 
 def _fy(pt) -> tuple:
@@ -196,8 +177,7 @@ def flipped(plan: PlanModel) -> PlanModel:
                   for r in plan.rooms)
     return replace(plan, corridor=flip(plan.corridor),
                    columns=[[_fy(p) for p in pl] for pl in plan.columns], rooms=rooms,
-                   entrance=_fy(plan.entrance) if plan.entrance else None,
-                   glance_targets=tuple((_fy(a), _fy(b)) for a, b in plan.glance_targets))
+                   entrance=_fy(plan.entrance) if plan.entrance else None)
 
 
 def room_at(plan: PlanModel, pt) -> PlanRoom | None:

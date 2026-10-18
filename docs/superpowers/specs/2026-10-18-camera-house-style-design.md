@@ -53,8 +53,9 @@ frames to ~1/s. New: route → **sparse keyframe list** (the house style) → bo
   Enscape does, so the preview is what Enscape renders.
 
 New module `backend/camera_style.py` owns the style constants (from the data), the keyframe planner, the gaze
-model and the interpolator. `route_processor.process_route` keeps its signature and `CameraFrame` output
-(frontend and export callers unchanged) but becomes: plan keyframes → interpolate at fps. The old dwell,
+model and the interpolator. `route_processor.process_route` keeps its `CameraFrame` output (frontend
+callers unchanged) and becomes: plan keyframes → interpolate at fps; its `camera_height` and glance
+parameters are removed (height is always `EYE_HEIGHT_M`) and it gains `units_to_metres` and `start_pan`. The old dwell,
 glance and 180°/s machinery (`_insert_dwells`, `_dwell_frames`, `_scaled_dwells`, `_apply_glances`,
 `_build_frames` look-ahead yaw, `_MAX_YAW_RATE_DEG_PER_SEC`, GLANCE_*, MAX_DWELL_FRACTION) is deleted.
 
@@ -124,7 +125,7 @@ hard-codes 1.75 m).
 
 ### Enscape XML
 
-`<VideoPath version="1" easingInOut="1" shakyCam="0">`, one `<Keyframe>` per planned keyframe with
+`<VideoPath version="1" easingInOut="1" shakyCam="0" walkMode="1">` (walkMode kept as today), one `<Keyframe>` per planned keyframe with
 `timestampSeconds` on every keyframe, `Position` (x, 1.57, z — same axis mapping as today), `LookAt` unit
 vector from yaw, `hour` where a time of day is set. No 200-cap thinning (a 10-minute path is ~180 keyframes).
 
@@ -142,7 +143,8 @@ Invalid stops are already dropped by `_clean_stops`. Speed warnings never block 
 - **Room looks:** for each stop, some keyframe within its look window has gaze within 15° of the room
   direction or exactly `ROOM_LOOK_MAX_DEG` off travel.
 - **Preview = export:** interpolated frames at keyframe timestamps match the keyframes (position ≤ 1 cm, yaw
-  ≤ 0.5°); frame-to-frame yaw change ≤ 25°/s ÷ fps + ε.
+  ≤ 0.5°); keyframe-to-keyframe yaw change ≤ 25°/s, frame-to-frame ≤ 1.5 × 25°/s ÷ fps + ε (the
+  non-overshooting cubic used for gaze peaks at 1.5× the keyframe secant).
 - **Pans:** requested pan → two same-position keyframes ~5 s apart, ≤ 90°; more than 2 → only 2.
 - **Compatibility:** 4- and 5-element waypoints, cuts, time of day, `uturn_radius`, export JSON shape.
 - Existing tests that assert dwell/glance mechanics are replaced by the above.

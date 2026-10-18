@@ -185,14 +185,16 @@ def _process_segment(
 # ── room stops (dwells) ───────────────────────────────────────────────────────
 
 def _clean_stop(raw):
-    """Normalised {look_at, dwell_s} for a well-formed stop dict, else None."""
+    """Normalised {look_at, dwell_s, pan} for a well-formed stop dict, else None."""
     if not isinstance(raw, dict) or not isinstance(look := raw.get("look_at"), (list, tuple)) or len(look) < 2:
         return None
     try:
         xy, dwell = (float(look[0]), float(look[1])), float(raw.get("dwell_s", 0.0))
     except (TypeError, ValueError):
         return None
-    return {"look_at": xy, "dwell_s": dwell} if all(map(math.isfinite, (*xy, dwell))) and dwell >= 0 else None
+    if not (all(map(math.isfinite, (*xy, dwell))) and dwell >= 0):
+        return None
+    return {"look_at": xy, "dwell_s": dwell, "pan": raw.get("pan") is True}
 
 
 def _clean_stops(raws: list) -> list:

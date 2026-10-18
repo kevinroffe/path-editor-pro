@@ -172,6 +172,7 @@ class _Draft:
     yaw: float = 0.0
     hour: float | None = None
     cut_after: bool = False
+    pan: bool = False
 
 
 @dataclass
@@ -318,17 +319,23 @@ def _speed_warning(v: float, length_m: float, pans: int) -> list:
     return []
 
 
-def _assign_times(drafts: list, duration: float, pan_s: float = 0.0) -> tuple:
-    """Constant-speed timestamps (holds and cut gaps reserved), scaled to end at duration."""
+def _still_s(a: _Draft, b: _Draft) -> float:
+    """Seconds spent between two drafts without walking: cut gap, pan or hold (0 if walking)."""
+    if a.cut_after:
+        return CUT_GAP_S
+    if b.s_m - a.s_m > 0:
+        return 0.0
+    return PAN_DURATION_S if b.pan else HOLD_S
+
+
+def _assign_times(drafts: list, duration: float) -> tuple:
+    """Constant-speed timestamps (holds, pans and cut gaps reserved), scaled to end at duration."""
     length_m = drafts[-1].s_m - drafts[0].s_m
-    holds = sum(1 for a, b in zip(drafts, drafts[1:]) if not a.cut_after and b.s_m == a.s_m)
-    cuts = sum(1 for d in drafts if d.cut_after)
-    fixed = holds * HOLD_S + cuts * CUT_GAP_S + pan_s
+    fixed = sum(_still_s(a, b) for a, b in zip(drafts, drafts[1:]))
     v = length_m / max(duration - fixed, 0.1 * duration) if length_m > 0 else 0.0
     t = 0.0
     for a, b in zip(drafts, drafts[1:]):
-        ds = b.s_m - a.s_m
-        t += CUT_GAP_S if a.cut_after else (ds / v if ds > 0 and v > 0 else HOLD_S)
+        t += _still_s(a, b) or ((b.s_m - a.s_m) / v if v > 0 else HOLD_S)
         b.t_s = t
     scale = duration / t if t > 0 else 1.0
     for d in drafts:
@@ -365,7 +372,7 @@ def _with_look_edges(drafts: list, legs: list, stops: list, v: float, u: float) 
             if all(abs(d.s_m - s_m) >= _EDGE_DEDUP_M for d in drafts + extra if d.seg == a.seg):
                 x, y, h = _at(leg, local)
                 extra.append(_Draft(x, y, s_m, h, a.seg))
-    merged = sorted(drafts + extra, key=lambda d: (d.seg, d.s_m))
+    merged = sorted(drafts + extra, key=lambda d: (d.seg, d.s_m, d.pan))
     for a, b in zip(merged, merged[1:]):
         a.cut_after = a.seg != b.seg
     merged[-1].cut_after = False
@@ -378,14 +385,14 @@ def _lead_yaw(drafts: list, legs: list, v: float, u: float) -> list:
     return list(np.degrees(np.unwrap(np.radians(out))))
 
 
-def _room_look_offsets(drafts: list, base: list, stops: list) -> list:
-    """Per-draft gaze offset toward the nearest active room look (clamped, eased)."""
-    anchors = [(d.t_s, d.seg, stops[d.wp]) for d in drafts if d.wp is not None and stops[d.wp]]
+def _room_look_offsets(drafts: list, base: list, stops: list, v: float) -> list:
+    """Per-draft gaze offset toward the nearest active room look (clamped, eased by walking time)."""
+    anchors = [(d.s_m, d.seg, stops[d.wp]) for d in drafts if d.wp is not None and stops[d.wp]]
     out = []
     for d, b in zip(drafts, base):
         best = None
-        for t_a, seg, stop in anchors:
-            dist, half = abs(d.t_s - t_a), stop["dwell_s"] / 2
+        for s_a, seg, stop in anchors:
+            dist, half = abs(d.s_m - s_a) / max(v, 1e-9), stop["dwell_s"] / 2
             w = 1.0 if dist <= half + 1e-6 else _smoothstep(1 - (dist - half) / _LOOK_EASE_S)
             if seg == d.seg and w > 0 and (best is None or dist < best[0]):
                 bearing = math.degrees(math.atan2(stop["look_at"][1] - d.y, stop["look_at"][0] - d.x))
@@ -405,6 +412,46 @@ def _user_offsets(drafts: list, offsets: list) -> list:
             if 0 <= j < len(drafts) and drafts[j].seg == d.seg:
                 out[j] += o / 2
     return out
+
+
+_START_PAN_FROM_DEG = -60.0
+_MIN_PAN_SWEEP_DEG = 30.0
+
+
+def _choose_pans(drafts: list, stops: list, start_pan: bool) -> tuple:
+    """Draft indices that get a standing pan (None = start), at most MAX_PANS, plus warnings."""
+    wanted = ([None] if start_pan else []) + [
+        i for i, d in enumerate(drafts) if d.wp is not None and stops[d.wp] and stops[d.wp]["pan"]]
+    extra = ["Only 2 standing pans per video — extra ones are ignored"] if len(wanted) > MAX_PANS else []
+    return wanted[:MAX_PANS], extra
+
+
+def _insert_pans(drafts: list, chosen: list) -> list:
+    """Drafts with a pan-end duplicate after each chosen anchor (start pan = after the first draft)."""
+    out = []
+    for i, d in enumerate(drafts):
+        out.append(d)
+        if i in chosen or (i == 0 and None in chosen):
+            out.append(_Draft(d.x, d.y, d.s_m, d.travel, d.seg, None, cut_after=d.cut_after, pan=True))
+            d.cut_after = False
+    return out
+
+
+def _apply_pan_yaws(drafts: list, base: list, stops: list) -> None:
+    """Start pan sweeps from travel-60 to travel; a stop pan sweeps on toward its room (<= PAN_MAX_DEG)."""
+    for i, d in enumerate(drafts):
+        if not d.pan:
+            continue
+        a = drafts[i - 1]
+        if a.wp is None or not stops[a.wp]:
+            a.yaw, d.yaw = base[i - 1] + _START_PAN_FROM_DEG, base[i]
+            continue
+        look = stops[a.wp]["look_at"]
+        rel = _wrap(math.degrees(math.atan2(look[1] - d.y, look[0] - d.x)) - base[i])
+        target = max(-PAN_MAX_DEG, min(PAN_MAX_DEG, rel))
+        if abs(base[i] + target - a.yaw) < _MIN_PAN_SWEEP_DEG:
+            target = max(-PAN_MAX_DEG, min(PAN_MAX_DEG, a.yaw - base[i] + math.copysign(_MIN_PAN_SWEEP_DEG, rel)))
+        d.yaw = base[i] + target
 
 
 _REVERSAL_STEP_DEG = 3.0
@@ -496,13 +543,16 @@ def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: f
         raise ValueError("Need at least 2 waypoints")
     u = units_to_metres
     legs, drafts, stops, offsets = _route(waypoints, smoothing, uturn_radius_m, cuts, u)
+    chosen, warnings = _choose_pans(drafts, stops, start_pan)
+    drafts = _insert_pans(drafts, chosen)
     v, _ = _assign_times(drafts, total_duration)
     drafts = _with_look_edges(drafts, legs, stops, v, u)
     v, length_m = _assign_times(drafts, total_duration)
     base = _lead_yaw(drafts, legs, v, u)
-    gaze = np.add(_room_look_offsets(drafts, base, stops), _user_offsets(drafts, offsets))
+    gaze = np.add(_room_look_offsets(drafts, base, stops, v), _user_offsets(drafts, offsets))
     for d, b, g in zip(drafts, base, gaze):
         d.yaw = b + g
+    _apply_pan_yaws(drafts, base, stops)
     _limit_reversals(drafts)
-    warnings = _speed_warning(v, length_m, 0) + _limit_turn_rate(drafts, base)
-    return KeyframePlan(_to_keyframes(drafts), u, warnings)
+    warnings = _speed_warning(v, length_m, len(chosen)) + warnings + _limit_turn_rate(drafts, base)
+    return KeyframePlan(_to_keyframes(drafts), u, warnings, len(chosen))

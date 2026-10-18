@@ -113,13 +113,22 @@ def test_user_yaw_offset_eased():
     assert k.yaw == pytest.approx(-10, abs=1)
 
 
-def test_reversal_limit():
+def test_reversal_limit_flattens_background_wobble():
+    rooms = [(400 + 500 * i, 350 if i % 2 else -350) for i in range(12)]   # drift targets alternate sides
+    plan = _plan([(0, 0), (6500, 0)], 30, interests=rooms)
+    assert style_metrics(plan.keyframes, U)["reversals_per_min"] <= cs.MAX_REVERSALS_PER_MIN + 1e-9
+    assert np.all(np.isfinite([k.yaw for k in plan.keyframes]))
+
+
+def test_deliberate_looks_are_exempt_from_the_reversal_limit():
     wps = [(0, 0, 0, "", None)] + [
         (800 + 400 * i, 0, 0, "", _stop(800 + 400 * i, 300 if i % 2 else -300, dwell=0.5)) for i in range(6)
     ] + [(3300, 0, 0, "", None)]
     plan = _plan(wps, 30)
-    assert style_metrics(plan.keyframes, U)["reversals_per_min"] <= cs.MAX_REVERSALS_PER_MIN + 1e-9
-    assert np.all(np.isfinite([k.yaw for k in plan.keyframes]))
+    for i in range(6):
+        x, side = 800 + 400 * i, (1 if i % 2 else -1)
+        near = [k for k in plan.keyframes if abs(k.x - x) <= 150]
+        assert max(side * k.yaw for k in near) >= 15, f"look {i} flattened"
 
 
 def test_uturn_at_a_room_turns_through_the_room():
@@ -150,3 +159,34 @@ def test_dead_end_door_is_reached_not_stood_short_of():
     plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", stop), (0, 0, 0, "", None)], cs.suggest_duration_s(60))
     assert max(k.x for k in plan.keyframes) >= 2950
     assert style_metrics(plan.keyframes, U)["n_pans"] == 0
+
+
+@pytest.mark.parametrize("gap", [800, 1400])
+def test_every_room_on_one_wall_gets_a_look(gap):
+    stops = [(gap * (i + 1), {"room_id": f"r{i}", "room_name": "Office", "look_at": [gap * (i + 1), 400], "dwell_s": 2.0})
+             for i in range(8)]
+    wps = [(0, 0, 0, "", None)] + [(x, 0, 0, "", s) for x, s in stops] + [(gap * 9, 0, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(gap * 9 * U))
+    for x, _ in stops:
+        near = [k for k in plan.keyframes if abs(k.x - x) <= 250]
+        assert max(k.yaw for k in near) >= 30, f"room at x={x} got no look"
+
+
+def test_pan_among_dense_looks_keeps_its_sweep():
+    stops = [{"room_id": f"r{i}", "room_name": "Office", "look_at": [1000 * (i + 1), 400], "dwell_s": 2.0} for i in range(7)]
+    stops[3]["pan"] = True
+    wps = [(0, 0, 0, "", None)] + [(1000 * (i + 1), 0, 0, "", s) for i, s in enumerate(stops)] + [(8000, 0, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(80) + 5)
+    pairs = [(a, b) for a, b in zip(plan.keyframes, plan.keyframes[1:]) if abs(b.x - a.x) <= 1 and b.t_s - a.t_s > 1]
+    assert len(pairs) == 1 and abs(pairs[0][1].yaw - pairs[0][0].yaw) >= 20
+
+
+def test_reversal_limit_never_reaches_across_a_cut():
+    a = {"room_id": "a", "room_name": "A", "look_at": [2000, 400], "dwell_s": 2.0}
+    b = {"room_id": "b", "room_name": "B", "look_at": [9200, -400], "dwell_s": 2.0}
+    wps = [(0, 0, 0, "", None), (2000, 0, 0, "", a), (9000, 0, 0, "", None), (9200, 0, 0, "", b), (12000, 0, 0, "", None)]
+    plan = _plan(wps, 50, cuts=[1])
+    i = next(i for i, k in enumerate(plan.keyframes) if k.cut_after)
+    assert plan.keyframes[i].yaw >= 30          # segment A still ends looking into room A
+    after = [k for k in plan.keyframes[i + 1:] if abs(k.x - 9200) <= 250]
+    assert min(k.yaw for k in after) <= -30     # segment B still looks into room B

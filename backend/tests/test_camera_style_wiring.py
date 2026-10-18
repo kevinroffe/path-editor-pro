@@ -78,3 +78,24 @@ def test_smooth_preview_uturn_radius_is_metres(client):
     body = {"waypoints": [[0, 0], [3000, 0], [0, 100]], "smoothing": 1.0, "uturn_radius": 3, "units_to_metres": U}
     spline = client.post("/api/smooth-preview", json=body).get_json()["spline"]
     assert max(p[0] for p in spline) <= 2750
+
+
+@pytest.mark.parametrize("route,settings", [
+    ([[0, 0]], {"duration": 30}),
+    (ROUTE, {"duration": 0}),
+    (ROUTE, {"duration": -5}),
+    (ROUTE, {"duration": "abc"}),
+    (ROUTE, {"duration": 30, "units_to_metres": 0}),
+    ([["a", 0], [3000, 0]], {"duration": 30}),
+])
+def test_bad_camera_input_is_a_400(client, route, settings):
+    for url, body in (("/api/export/xml", {"waypoints": route, "settings": settings}),
+                      ("/api/export/json", {"waypoints": route, "settings": settings}),
+                      ("/api/process-route", {"waypoints": route, **settings})):
+        r = client.post(url, json=body)
+        assert r.status_code == 400 and "error" in r.get_json(), (url, settings, r.status_code)
+
+
+def test_smooth_preview_zero_units_is_a_400(client):
+    r = client.post("/api/smooth-preview", json={"waypoints": ROUTE, "uturn_radius": 3, "units_to_metres": 0})
+    assert r.status_code == 400

@@ -75,3 +75,10 @@ def test_clean_stop_keeps_pan():
     assert _clean_stop(base | {"pan": True})["pan"] is True
     assert _clean_stop(base | {"pan": "yes"})["pan"] is False
     assert _clean_stop(base)["pan"] is False
+
+
+def test_start_pan_and_stop_pan_at_the_start_are_one_pan():
+    wps = [(0, 0, 0, "", _stop(0, 400, pan=True)), (3000, 0, 0, "", _stop(3000, 400, pan=True)), (6000, 0, 0, "", None)]
+    plan = _plan(wps, 75, start_pan=True)
+    assert plan.pans == 2 and len(_pan_pairs(plan)) == 2
+    assert not any("Only 2" in w for w in plan.warnings)

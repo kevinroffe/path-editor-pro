@@ -14,6 +14,7 @@ GET  /                    — serve frontend
 """
 
 from __future__ import annotations
+import math
 import os
 import sys
 import json
@@ -222,7 +223,9 @@ CORS(app)
 def _units(data: dict) -> float:
     """Plan units -> metres: the request's value, else the loaded plan's, else the last upload's."""
     if (u := data.get("units_to_metres")) is not None:
-        return float(u)
+        if not (math.isfinite(u := float(u)) and u > 0):
+            raise ValueError("units_to_metres must be positive")
+        return u
     return _LAST_PLAN.units_to_metres if _LAST_PLAN is not None else _LAST_UNITS_TO_METRES
 
 
@@ -565,7 +568,10 @@ def smooth_preview_route():
     data = request.get_json(force=True)
     wpts         = data.get("waypoints", [])
     smoothing    = float(data.get("smoothing", 1.0))
-    uturn_radius = float(data.get("uturn_radius", 0.0)) / _units(data)   # UI radius is metres
+    try:
+        uturn_radius = float(data.get("uturn_radius", 0.0)) / _units(data)   # UI radius is metres
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
     if len(wpts) < 2:
         return jsonify({"spline": wpts})
     spline = smooth_preview(wpts, smoothing=smoothing, uturn_radius=uturn_radius)
@@ -579,10 +585,10 @@ def process():
     wpts, cuts = data.get("waypoints", []), data.get("cuts", [])
     if len(wpts) < 2:
         return _err("Need at least 2 waypoints")
-    settings = {"smoothing": float(data.get("smoothing", 1.0)), "duration": float(data.get("duration", 30.0)),
-                "fps": float(data.get("fps", 30.0)), "fov": float(data.get("fov", 90.0)),
-                "level": data.get("level", "L-0")}
     try:
+        settings = {"smoothing": float(data.get("smoothing", 1.0)), "duration": float(data.get("duration", 30.0)),
+                    "fps": float(data.get("fps", 30.0)), "fov": float(data.get("fov", 90.0)),
+                    "level": data.get("level", "L-0")}
         plan = _camera_plan(wpts, cuts, data)
         frames = interpolate(plan, settings["fps"], settings["fov"])
     except Exception as e:
@@ -602,8 +608,11 @@ def export_json():
     """Route JSON with interpolated frames (round-trips through re-import)."""
     data = request.get_json(force=True)
     wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
-    frames = interpolate(_camera_plan(wpts, cuts, settings), float(settings.get("fps", 30.0)),
-                         float(settings.get("fov", 90.0)))
+    try:
+        frames = interpolate(_camera_plan(wpts, cuts, settings), float(settings.get("fps", 30.0)),
+                             float(settings.get("fov", 90.0)))
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
     out = to_json(frames, wpts, {**settings, "cuts": cuts})
     return app.response_class(out, mimetype="application/json",
                               headers={"Content-Disposition": 'attachment; filename="route.json"'})
@@ -614,7 +623,10 @@ def export_xml():
     """Enscape VideoPath XML with the house-style keyframes."""
     data = request.get_json(force=True)
     wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
-    out = to_enscape_xml(_camera_plan(wpts, cuts, settings), settings)
+    try:
+        out = to_enscape_xml(_camera_plan(wpts, cuts, settings), settings)
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
     return app.response_class(out, mimetype="application/xml",
                               headers={"Content-Disposition": 'attachment; filename="enscape_walkpath.xml"'})
 

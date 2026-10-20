@@ -679,6 +679,22 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
 .hand-edit-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .start-marker rect { fill: var(--dark); }
 .start-marker text { fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
+.canvas-area { display: flex; flex-direction: column; }
+#svg-wrap { flex: 1; min-height: 0; height: auto; }
+.camera-strip { flex: none; padding: 10px 16px 88px; background: linear-gradient(to bottom, rgba(246,247,249,0), var(--bg) 24px); }
+.camera-strip[hidden], body:not([data-step="2"]) .camera-strip { display: none; }
+.strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.strip-head b { font-size: 14px; }
+.strip-head span { font-size: 12px; color: var(--text2); }
+.strip-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.strip-row figure {
+  flex: 0 0 calc((100% - 36px) / 4); min-width: 170px; margin: 0; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-sm);
+}
+.strip-row img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface2); }
+.strip-row figcaption { display: flex; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 12px; }
+.strip-row figcaption b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip-row figcaption span { color: var(--text2); font-variant-numeric: tabular-nums; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -898,6 +914,11 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
       <div class="tb-sep"></div>
       <span class="tb-tip">scroll = zoom · middle click = pan</span>
     </div>
+
+    <section class="camera-strip" id="camera-strip" aria-label="What the camera will see" hidden>
+      <div class="strip-head"><b>What the camera will see</b><span>Rendered from the 3D model at each room</span></div>
+      <div class="strip-row" id="strip-row"></div>
+    </section>
 
     <div class="loading" id="loading">
       <div class="spinner"></div>
@@ -1176,7 +1197,7 @@ async function rebuildTour() {
     toast('Couldn\'t plan the tour: ' + e.message, 'err');
   }
   state.rebuildPending = false;
-  renderTourSelection(); renderPickList(); renderTourStats();
+  renderTourSelection(); renderPickList(); renderTourStats(); scheduleCameraStrip();
 }
 
 /* Stand & look for the stop in room `id` (max MAX_PANS per video). */
@@ -2132,6 +2153,7 @@ function applyFloorPlan(data) {
   toast(`Plan loaded — ${data.level}`, 'ok');
   if (document.getElementById('preview-3d').classList.contains('visible')) {
     build3DGeometry();
+    state.sceneGeometry = state.geometry;
   } else {
     build3DLabels();
   }
@@ -2318,6 +2340,59 @@ const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab', 'ceiling']);
 const P3D_CEILING_TYPES = new Set(['ceiling', 'light']);
 const P3D_CEILING_HEIGHT = 3.0;   // metres; ceiling and light panels hide when the camera is above it
 
+/* Build the 3D scene, or rebuild it if a different plan was loaded since. */
+function ensureScene() {
+  if (!threeScene) init3DScene();
+  else if (state.sceneGeometry !== state.geometry) build3DGeometry();
+  state.sceneGeometry = state.geometry;
+}
+
+const STRIP_EYE_M = 1.57, STRIP_LOOK_Y_M = 1.2, STRIP_W = 480, STRIP_H = 270;
+let _stripTimer = null;
+function scheduleCameraStrip() { clearTimeout(_stripTimer); _stripTimer = setTimeout(renderCameraStrip, 600); }
+
+/* Walkthrough time at a waypoint, from the last preview frames if they belong to this route. */
+function stopTimeS(w) {
+  if (!p3.frames.length || p3.framesKey !== routeKey()) return null;
+  const best = p3.frames.reduce((b, f) => { const d = Math.hypot(f.x - w.x, f.y - w.y); return d < b.d ? { d, t: f.t } : b; }, { d: Infinity, t: 0 });
+  return best.t * p3.duration;
+}
+const routeKey = () => state.waypoints.map(w => `${Math.round(w.x)},${Math.round(w.y)}`).join(';');
+
+/* One eye-level snapshot per picked room, rendered from its stop towards the room. */
+function renderCameraStrip() {
+  const strip = document.getElementById('camera-strip');
+  const stopOf = new Map(state.waypoints.filter(w => w.stop).map(w => [w.stop.room_id, w]));
+  const shots = state.tourRooms.map((id, i) => ({ n: i + 1, id, w: stopOf.get(id) })).filter(s => s.w);
+  const wasHidden = strip.hidden;
+  strip.hidden = !shots.length || !window.THREE;
+  if (wasHidden !== strip.hidden) requestAnimationFrame(fitView);
+  if (strip.hidden) return;
+  ensureScene();
+  if (!threeRenderer) { strip.hidden = true; return; }
+  const size = threeRenderer.getSize(new THREE.Vector2()), aspect = threeCam.aspect;
+  const pos = threeCam.position.clone(), quat = threeCam.quaternion.clone();
+  threeRenderer.setSize(STRIP_W, STRIP_H, false);
+  threeCam.aspect = STRIP_W / STRIP_H; threeCam.updateProjectionMatrix();
+  threeLabels.forEach(s => { s.visible = false; });
+  const u = state.unitsToMetres || 1, names = new Map(state.plan.rooms.map(r => [r.id, r.name]));
+  const items = shots.map(s => {
+    const la = s.w.stop.look_at;
+    threeCam.position.set(s.w.x * u, STRIP_EYE_M, s.w.y * u);
+    threeCam.lookAt(la[0] * u, STRIP_LOOK_Y_M, la[1] * u);
+    syncCeiling();
+    threeRenderer.render(threeScene, threeCam);
+    return { ...s, name: names.get(s.id) || s.w.stop.room_name, src: threeRenderer.domElement.toDataURL('image/jpeg', 0.8), t: stopTimeS(s.w) };
+  });
+  threeRenderer.setSize(size.x, size.y, false);
+  threeCam.aspect = aspect; threeCam.position.copy(pos); threeCam.quaternion.copy(quat); threeCam.updateProjectionMatrix();
+  threeLabels.forEach(s => { s.visible = !p3.playing; });
+  document.getElementById('strip-row').innerHTML = items.map(it => `<figure>
+      <img src="${it.src}" alt="Camera view of ${esc(it.name)}"/>
+      <figcaption><b>${it.n} · ${esc(it.name)}</b>${it.t == null ? '' : `<span>${fmtTime(it.t)}</span>`}</figcaption>
+    </figure>`).join('');
+}
+
 function syncCeiling() {
   if (!threeScene || !threeCam) return;
   const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
@@ -2347,8 +2422,8 @@ function toggle3DPanel() {
   if (nowVisible) {
     // Defer init until panel has layout dimensions
     requestAnimationFrame(() => {
-      if (!threeScene) init3DScene();
-      else { resize3D(); }
+      ensureScene();
+      resize3D();
       if (!threeAnimId) render3DLoop();
     });
   } else {
@@ -2706,6 +2781,7 @@ async function loadPreviewFrames() {
 
     (data.warnings || []).forEach(w => toast(w, 'inf'));
     p3.frames   = data.frames;
+    p3.framesKey = routeKey();
     p3.duration = cam.dur;
     p3.t        = 0;
     p3.playing  = true;

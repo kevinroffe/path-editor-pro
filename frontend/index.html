@@ -724,6 +724,61 @@ body[data-step="4"] .vtl { padding-bottom: 92px; }
 #vtl-music svg { width: 100%; height: 100%; display: block; }
 .vtl-playhead { position: absolute; width: 2px; background: var(--blue); pointer-events: none; border-radius: 1px; }
 body:not([data-step="4"]) .vtl-lane, body:not([data-step="4"]) .vtl-note, body:not([data-step="4"]) .vtl-playhead { display: none; }
+body[data-step="4"].picking-fade .canvas-area { display: flex; }
+body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
+.vp-sec { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.vp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vp-head b { font-size: 14px; }
+.vp-head span { font-size: 12px; color: var(--text2); }
+.vp-brand { display: flex; gap: 12px; }
+.card-preview {
+  flex: none; width: 150px; aspect-ratio: 16 / 9; border-radius: var(--r); color: #fff; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; text-align: center;
+  box-shadow: 0 1px 2px rgba(16,24,40,.2);
+}
+.card-preview img { max-height: 16px; max-width: 70%; }
+.card-preview img.invert { filter: invert(1); }
+#cp-name { font-size: 10px; font-weight: 700; }
+#cp-line { font-size: 8px; opacity: .75; }
+#cp-name:empty, #cp-line:empty { display: none; }
+.vp-brand-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.logo-drop {
+  display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer;
+  border: 1px dashed var(--blue-md); border-radius: var(--r); background: #f7faff; font-size: 12px; color: var(--text2);
+}
+.logo-drop:hover { border-color: var(--blue); }
+.logo-drop input { display: none; }
+.logo-drop img { height: 16px; max-width: 48px; object-fit: contain; }
+.logo-drop img[hidden] { display: none; }
+#logo-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 26px; height: 26px; border-radius: 999px; border: none; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(16,24,40,.12); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--blue); }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld label { font-size: 12px; font-weight: 600; color: var(--text2); }
+.fld input { height: 34px; padding: 0 10px; border: 1px solid var(--border2); border-radius: var(--r-sm); font: inherit; font-size: 13px; color: var(--text); }
+.fld input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.themes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.theme-card {
+  display: flex; align-items: center; gap: 8px; padding: 8px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font: inherit;
+}
+.theme-card[aria-checked="true"] { border-color: var(--blue); background: #f7faff; }
+.theme-play {
+  flex: none; width: 28px; height: 28px; border: none; border-radius: 999px; cursor: pointer;
+  background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.theme-card[aria-checked="true"] .theme-play { background: var(--blue); }
+.theme-txt { min-width: 0; }
+.theme-txt b { display: block; font-size: 12px; }
+.theme-txt span { display: block; font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fade-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.fade-list li { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r); }
+.fade-pts { flex: none; display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; }
+.fade-pts i { font-style: normal; width: 22px; height: 22px; border-radius: 999px; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.fade-txt { flex: 1; min-width: 0; }
+.fade-txt b { display: block; font-size: 12px; font-weight: 600; }
+.fade-txt span { display: block; font-size: 11px; color: var(--text2); }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -961,6 +1016,33 @@ body:not([data-step="4"]) .vtl-lane, body:not([data-step="4"]) .vtl-note, body:n
 
   <!-- STEP 4 · PREVIEW & EXPORT -->
   <aside class="step-panel step-panel-right" id="step-4" aria-label="Preview and export">
+    <section class="vp-sec" aria-label="Brand">
+      <div class="vp-head"><b>Brand</b><span>Intro &amp; outro cards · 3 s</span></div>
+      <div class="vp-brand">
+        <div class="card-preview" id="card-preview" aria-label="Intro card preview"><img id="cp-logo" alt=""/><span id="cp-name"></span><span id="cp-line"></span></div>
+        <div class="vp-brand-side">
+          <label class="logo-drop" title="Logo for the intro and outro cards">
+            <img id="logo-thumb" alt="" hidden/><span id="logo-name">Add logo (PNG or SVG)</span><span class="link-btn" id="logo-action">Upload</span>
+            <input type="file" id="logo-input" accept="image/png,image/svg+xml" onchange="onLogoPicked(this)"/>
+          </label>
+          <div class="swatches" role="radiogroup" aria-label="Card colour" id="swatches"></div>
+        </div>
+      </div>
+      <div class="fld"><label for="v-name">Property name</label><input id="v-name" maxlength="120" oninput="setVideoText('name', this.value)"/></div>
+      <div class="fld"><label for="v-tagline">Address or tagline</label><input id="v-tagline" maxlength="120" oninput="setVideoText('tagline', this.value)"/></div>
+      <div class="fld"><label for="v-outro">Outro line</label><input id="v-outro" maxlength="120" oninput="setVideoText('outro', this.value)"/></div>
+    </section>
+    <section class="vp-sec" aria-label="Music">
+      <div class="vp-head"><b>Music</b><span id="vol-label">Volume 70%</span></div>
+      <div class="themes" role="radiogroup" aria-label="Music theme" id="themes"></div>
+      <input type="range" id="v-volume" min="0" max="100" value="70" oninput="setMusicVolume(this.value)" aria-label="Music volume"/>
+    </section>
+    <section class="vp-sec" aria-label="Fades">
+      <div class="vp-head"><b>Fades</b><button type="button" class="pill" id="add-fade" onclick="startFadePick()">+ Add fade</button></div>
+      <div class="warn-box" id="fade-notice" hidden>Route changed — check your fades</div>
+      <ul class="fade-list" id="fade-list"></ul>
+      <p class="sp-help" id="fade-help"></p>
+    </section>
     <div class="sp-sub">Save</div>
     <p class="sp-help">The dock's <strong>Export Enscape XML</strong> button makes the camera path. Save the path as .json to continue it later, with its title, music and fades.</p>
     <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the path as JSON to continue later">Save path JSON</button>
@@ -1021,8 +1103,11 @@ const state = {
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
 
 function safeStorage() { try { return window.localStorage; } catch { return null; } }
-state.video = defaultVideo();
 state.brand = loadBrandPrefs(safeStorage());
+state.video = { ...defaultVideo(), theme: state.brand.theme };
+state.fadePick = null;
+state.fadesRouteKey = null;
+state.fadeNotice = false;
 
 let svgEl = null, gRoot = null, zoom = null;
 
@@ -1365,7 +1450,8 @@ let _pendingClicks = [];
 
 /* Plan clicks act after a short wait, so the two clicks of a double-click never pick or draw. */
 function handleClick(e) {
-  if (!state.loaded || e.button !== 0 || state.step !== 2 || e.detail > 1) return;
+  if (!state.loaded || e.button !== 0 || e.detail > 1) return;
+  if (state.step !== 2 && !(state.step === 4 && state.fadePick)) return;
   if (e.target?.classList.contains('wp-dot')) return;
   const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
   const id = setTimeout(() => { _pendingClicks = _pendingClicks.filter(p => p !== id); actOnClick(ev); }, CLICK_DELAY_MS);
@@ -1380,6 +1466,7 @@ function onCanvasDblClick(e) {
 }
 
 function actOnClick(e) {
+  if (state.fadePick) { fadePickClick(e); return; }
   if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
   if (state.mode !== 'waypoint') return;
@@ -1894,6 +1981,10 @@ function importFromJSON(text, filename) {
     const kept = rows.filter(Boolean);
     if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
     state.waypoints = kept;
+    state.video = cleanVideo(data.meta?.video);
+    state.fadesRouteKey = null;
+    state.fadeNotice = false;
+    renderVideoPanel();
     adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const skipped = rows.length - kept.length;
@@ -1934,6 +2025,10 @@ function importFromXML(text, filename) {
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
+    state.video = { ...defaultVideo(), theme: state.brand.theme };
+    state.fadesRouteKey = null;
+    state.fadeNotice = false;
+    renderVideoPanel();
     adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const hint = !state.loaded ? ' — load a floor plan to see them on the canvas' : '';
@@ -2231,6 +2326,7 @@ function goStep(n) {
     else rebuildTimeline();
   } else {
     _music?.stop();
+    if (state.fadePick) endFadePick();
     if (n === 3 && p3.frames.length) rebuildTimeline();
   }
   if (n >= 3) requestAnimationFrame(resize3D);
@@ -2353,7 +2449,7 @@ function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/
 
 /* ── Keyboard ── */
 document.addEventListener('keydown', e => {
-  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); }
+  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); if (state.fadePick) endFadePick(); }
   if (!e.target.matches('input, textarea, select') && !e.ctrlKey && !e.metaKey && !e.altKey) {
     if (e.key === 'ArrowRight') goStep(state.step + 1);
     if (e.key === 'ArrowLeft')  goStep(state.step - 1);
@@ -2812,6 +2908,7 @@ const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w
 function rebuildTimeline() {
   if (!p3.frames.length) return;
   p3.dists = routeDistances(p3.frames, state.unitsToMetres || 1);
+  if (state.step === 4) checkFadesForRoute();
   p3.timeline = state.step === 4
     ? buildTimeline({ dists: p3.dists, walkSeconds: p3.duration, fades: state.video.fades })
     : walkOnlyTimeline(p3.duration);
@@ -2839,6 +2936,164 @@ function applyTimeline() {
   showTitleCard(state.step === 4 ? s.card : null);
   updatePlaybackDisplay();
   placePlayhead();
+}
+
+/* ── Video panel (step 4) ── */
+const cardColour = () => CARD_COLOURS.find(c => c.id === state.brand.colour) || CARD_COLOURS[0];
+const saveBrand = () => saveBrandPrefs(safeStorage(), state.brand);
+
+function renderVideoPanel() {
+  const v = state.video, b = state.brand, c = cardColour();
+  for (const [id, key] of [['v-name', 'name'], ['v-tagline', 'tagline'], ['v-outro', 'outro']]) {
+    const el = document.getElementById(id);
+    if (el.value !== v[key]) el.value = v[key];
+  }
+  renderCardPreview();
+  document.getElementById('logo-thumb').hidden = !b.logo;
+  if (b.logo) document.getElementById('logo-thumb').src = b.logo;
+  document.getElementById('logo-name').textContent = b.logo ? (b.logoName || 'Logo') : 'Add logo (PNG or SVG)';
+  document.getElementById('logo-action').textContent = b.logo ? 'Replace' : 'Upload';
+  document.getElementById('swatches').innerHTML = CARD_COLOURS.map(s =>
+    `<button type="button" class="swatch" role="radio" aria-checked="${s.id === c.id}" aria-label="${esc(s.name)}"
+      style="background:${s.hex}" onclick="setCardColour('${s.id}')"></button>`).join('');
+  document.getElementById('themes').innerHTML = THEMES.map(t =>
+    `<div class="theme-card" role="radio" tabindex="0" aria-checked="${t.id === v.theme}" data-theme="${t.id}" onclick="selectTheme('${t.id}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectTheme('${t.id}')}">
+      <button type="button" class="theme-play" aria-label="Play a sample of ${esc(t.name)}" onclick="event.stopPropagation();sampleTheme('${t.id}')">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg></button>
+      <span class="theme-txt"><b>${esc(t.name)}</b><span>${esc(t.sub)}</span></span></div>`).join('');
+  document.getElementById('v-volume').value = Math.round(v.volume * 100);
+  document.getElementById('vol-label').textContent = `Volume ${Math.round(v.volume * 100)}%`;
+  renderFadeList();
+}
+
+function renderCardPreview() {
+  const v = state.video, b = state.brand, c = cardColour();
+  const card = document.getElementById('card-preview');
+  card.style.background = c.hex;
+  card.style.color = c.id === 'sand' ? '#1f2733' : '#ffffff';
+  const img = document.getElementById('cp-logo');
+  img.src = b.logo || 'frontend/img/qbiq-logo.svg';
+  img.classList.toggle('invert', !b.logo && c.id !== 'sand');
+  document.getElementById('cp-name').textContent = v.name;
+  document.getElementById('cp-line').textContent = v.tagline;
+}
+
+function setVideoText(key, value) { state.video[key] = value.slice(0, 120); renderCardPreview(); }
+function setCardColour(id) { state.brand.colour = id; saveBrand(); renderVideoPanel(); }
+
+function selectTheme(id) {
+  state.video.theme = id;
+  state.brand.theme = id;
+  saveBrand();
+  renderVideoPanel(); renderTimelineLanes(); updatePlaybackDisplay(); syncMusic();
+}
+
+function sampleTheme(id) { if (window.AudioContext) { p3.playing = false; updatePlayBtn(); musicPlayer().sample(id); } }
+
+function setMusicVolume(pct) {
+  state.video.volume = Math.min(1, Math.max(0, pct / 100));
+  document.getElementById('vol-label').textContent = `Volume ${Math.round(pct)}%`;
+  _music?.setVolume(state.video.volume);
+}
+
+function onLogoPicked(input) {
+  const f = input.files[0]; input.value = '';
+  if (!f) return;
+  const err = acceptLogo(f);
+  if (err) { toast(err, 'err'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.brand.logo = reader.result;
+    state.brand.logoName = f.name;
+    saveBrand();
+    document.getElementById('title-card').dataset.sig = '';
+    renderVideoPanel();
+  };
+  reader.readAsDataURL(f);
+}
+
+/* Route point at d metres along the preview frames. */
+function routePointAt(d) {
+  const i = Math.max(1, p3.dists.findIndex(x => x >= d));
+  const a = p3.frames[i - 1], b = p3.frames[i] || a, span = p3.dists[i] - p3.dists[i - 1];
+  const s = span > 0 ? Math.min(1, Math.max(0, (d - p3.dists[i - 1]) / span)) : 0;
+  return { x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s };
+}
+
+function placeName(p) {
+  const room = state.plan?.rooms.filter(r => pointInPolygon(p.x, p.y, r.polygon))
+    .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
+  return room?.name || 'Corridor';
+}
+
+const nearestWaypoint = p => state.waypoints.reduce((b, w, i) => {
+  const d = Math.hypot(w.x - p.x, w.y - p.y); return d < b.d ? { d, i } : b;
+}, { d: Infinity, i: 0 }).i + 1;
+
+function renderFadeList() {
+  const fades = state.video.fades, ready = p3.frames.length > 1 && p3.dists.length;
+  document.getElementById('fade-notice').hidden = !state.fadeNotice;
+  document.getElementById('fade-list').innerHTML = fades.map((f, i) => {
+    const a = ready ? routePointAt(f.outM) : null, b = ready ? routePointAt(f.inM) : null;
+    return `<li>
+      <span class="fade-pts"><i>${a ? nearestWaypoint(a) : '·'}</i>→<i>${b ? nearestWaypoint(b) : '·'}</i></span>
+      <span class="fade-txt"><b>${a ? `${esc(placeName(a))} → ${esc(placeName(b))}` : 'Fade'}</b>
+        <span>Skips ${Math.round(f.inM - f.outM)} m · 0.8 s fade to black</span></span>
+      <button type="button" class="pick-x" aria-label="Remove this fade" onclick="removeFade(${i})">&times;</button>
+    </li>`;
+  }).join('');
+  document.getElementById('fade-help').textContent = !state.fadePick
+    ? 'Click + Add fade, then click where the camera fades out and where it fades back in on the plan.'
+    : state.fadePick.outM == null ? 'Click the plan where the camera should fade out. Esc cancels.'
+    : 'Now click where it fades back in, further along the path.';
+}
+
+function removeFade(i) {
+  state.video.fades = state.video.fades.filter((_, j) => j !== i);
+  state.fadeNotice = false;
+  rebuildTimeline(); renderVideoPanel();
+}
+
+function startFadePick() {
+  if (p3.frames.length < 2) { toast('Wait for the preview to load first', 'inf'); return; }
+  p3.playing = false; updatePlayBtn(); syncMusic();
+  state.fadePick = {};
+  document.body.classList.add('picking-fade');
+  renderFadeList();
+  requestAnimationFrame(fitView);
+}
+
+function endFadePick() {
+  state.fadePick = null;
+  document.body.classList.remove('picking-fade');
+  renderFadeList();
+  requestAnimationFrame(resize3D);
+}
+
+function fadePickClick(e) {
+  const m = s2m(e), d = projectToRoute(p3.frames, p3.dists, state.unitsToMetres || 1, m.x, m.y);
+  if (state.fadePick.outM == null) { state.fadePick.outM = d; renderFadeList(); return; }
+  const r = makeFade(state.fadePick.outM, d, state.video.fades, p3.dists.at(-1));
+  if (r.error) { toast(r.error, 'inf'); state.fadePick = {}; renderFadeList(); return; }
+  state.video.fades = [...state.video.fades, r.fade].sort((a, b) => a.outM - b.outM);
+  state.fadesRouteKey = p3.framesKey;
+  state.fadeNotice = false;
+  endFadePick();
+  rebuildTimeline();
+  renderVideoPanel();
+}
+
+/* Keep fades on the current route: drop any past its end, and flag a route change. */
+function checkFadesForRoute() {
+  const fades = state.video.fades;
+  if (fades.length) {
+    const kept = pruneFades(fades, p3.dists.at(-1) || 0);
+    if (kept.length !== fades.length || (state.fadesRouteKey != null && state.fadesRouteKey !== p3.framesKey)) state.fadeNotice = true;
+    state.video.fades = kept;
+  }
+  state.fadesRouteKey = p3.framesKey;
+  renderFadeList();
 }
 
 function showTitleCard(kind) {
@@ -2898,6 +3153,7 @@ function placePlayhead() {
 
 let _music = null;
 const musicPlayer = () => (_music ||= createMusicPlayer());
+renderVideoPanel();
 
 /* Music plays in step 4 at normal speed, in time with the preview. */
 function syncMusic() {

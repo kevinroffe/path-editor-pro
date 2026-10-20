@@ -570,7 +570,7 @@ body {
 .step-panel { display: none; }
 body[data-step="1"] #step-1,
 body[data-step="2"] #step-2,
-body[data-step="3"] #step-2,
+body[data-step="3"] #step-3,
 body[data-step="4"] #step-4 { display: flex; }
 body[data-step="4"] .canvas-area,
 body[data-step="4"] .resize-handle { display: none; }
@@ -695,6 +695,13 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
 .strip-row figcaption { display: flex; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 12px; }
 .strip-row figcaption b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strip-row figcaption span { color: var(--text2); font-variant-numeric: tabular-nums; }
+.cam-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--r); }
+.dur-suggest { font-size: 12px; color: var(--text2); }
+.dur-suggest[hidden] { display: none; }
+.link-btn { border: none; background: none; padding: 0; color: var(--blue-dk); font: 600 12px/1 inherit; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.cam-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--r); background: var(--amber-lt); color: #6b4600; font-size: 13px; line-height: 1.45; }
+.cam-warnings[hidden] { display: none; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -814,82 +821,57 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
 
     </div>
     </details>
-    <div class="panel-inner">
-      <!-- VIDEO SETTINGS -->
-      <div class="section">
-        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
-          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 5.5L6.5 2L12 5.5V9.5L6.5 13L1 9.5V5.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>
-          Video Settings
-          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="card-body">
+  </aside>
 
-          <div class="preset-row">
-            <button class="preset-btn" data-preset="quick" onclick="applyPreset('quick')">Quick Tour</button>
-            <button class="preset-btn active" data-preset="standard" onclick="applyPreset('standard')">Standard</button>
-            <button class="preset-btn" data-preset="cinematic" onclick="applyPreset('cinematic')">Cinematic</button>
-          </div>
-
-          <!-- Duration strip -->
-          <div class="dur-card">
-            <div class="dur-time" id="dur-display">0:30</div>
-            <div class="dur-detail">
-              <span class="dur-label">Video Length</span>
-              <span class="dur-sub" id="dur-sub">30 seconds</span>
-            </div>
-          </div>
-
-          <div class="slider-block">
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M6.5 3.5V6.5L8.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                Video length
-              </span>
-              <span class="slider-value" id="v-dur">30s</span>
-              <input type="range" id="s-dur" min="5" max="300" value="30" step="1"
-                     oninput="syncSlider('dur',this.value)"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 8C2.5 4 4.5 4 6.5 8S10.5 12 12 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
-                Path smoothness
-              </span>
-              <span class="slider-value" id="v-smo">1.0</span>
-              <input type="range" id="s-smo" min="0" max="1" value="1.0" step="0.05"
-                     oninput="syncSlider('smo',this.value);debounceSpline()"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 6.5C1 6.5 3.5 2 6.5 2S12 6.5 12 6.5S9.5 11 6.5 11S1 6.5 1 6.5Z" stroke="currentColor" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.2"/></svg>
-                Camera view width
-              </span>
-              <span class="slider-value" id="v-fov">90°</span>
-              <input type="range" id="s-fov" min="40" max="120" value="90" step="1"
-                     oninput="syncSlider('fov',this.value)"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5H8C9.66 3.5 11 4.84 11 6.5C11 8.16 9.66 9.5 8 9.5H2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4.5 7L2 9.5L4.5 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Turn smoothness
-              </span>
-              <span class="slider-value" id="v-utr">3m</span>
-              <input type="range" id="s-utr" min="0" max="20" value="3" step="0.5"
-                     oninput="syncSlider('utr',this.value);debounceSpline()"/>
-            </div>
-
-            <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
-              <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
-            </label>
-
-          </div>
+  <!-- STEP 3 · CAMERA STYLE -->
+  <aside class="step-panel step-panel-left" id="step-3" aria-label="Camera style">
+    <div>
+      <div class="sp-eyebrow">Step 3 of 4</div>
+      <h1 class="sp-title">How should the camera move?</h1>
+      <p class="sp-help">The camera walks at eye height and turns its head slowly, in the qbiq house style. Adjust the feel, then preview it in 3D.</p>
+    </div>
+    <div class="preset-row" role="group" aria-label="Presets">
+      <button class="preset-btn" data-preset="quick" onclick="applyPreset('quick')">Quick</button>
+      <button class="preset-btn active" data-preset="standard" onclick="applyPreset('standard')">Standard</button>
+      <button class="preset-btn" data-preset="cinematic" onclick="applyPreset('cinematic')">Cinematic</button>
+    </div>
+    <div class="cam-card">
+      <div class="dur-card">
+        <div class="dur-time" id="dur-display">0:30</div>
+        <div class="dur-detail">
+          <span class="dur-label">Video length</span>
+          <span class="dur-sub" id="dur-sub">30 seconds</span>
         </div>
       </div>
-
+      <div class="dur-suggest" id="dur-suggest" hidden>Suggested for this tour: <b id="dur-suggest-val"></b> · <button type="button" class="link-btn" id="use-suggested" onclick="useSuggested()">Use suggested</button></div>
+      <div class="slider-block">
+        <div class="slider-item">
+          <label class="slider-label" for="s-dur">Video length</label>
+          <span class="slider-value" id="v-dur">30s</span>
+          <input type="range" id="s-dur" min="5" max="300" value="30" step="1" oninput="onDurationInput(this.value)"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-smo">Smoothness</label>
+          <span class="slider-value" id="v-smo">1.0</span>
+          <input type="range" id="s-smo" min="0" max="1" value="1.0" step="0.05" oninput="syncSlider('smo',this.value);debounceSpline()"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-fov">Field of view</label>
+          <span class="slider-value" id="v-fov">90°</span>
+          <input type="range" id="s-fov" min="40" max="120" value="90" step="1" oninput="syncSlider('fov',this.value)"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-utr">U-turn radius</label>
+          <span class="slider-value" id="v-utr">3m</span>
+          <input type="range" id="s-utr" min="0" max="20" value="3" step="0.5" oninput="syncSlider('utr',this.value);debounceSpline()"/>
+        </div>
+        <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
+          <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
+        </label>
+      </div>
     </div>
+    <button type="button" class="pill" id="cam-preview" onclick="previewInStep3()">▶ Preview in 3D</button>
+    <ul class="cam-warnings" id="cam-warnings" aria-live="polite" hidden></ul>
   </aside>
 
   <!-- CANVAS -->
@@ -1012,6 +994,7 @@ const state = {
   suggestedS:    null,
   rebuildSeq:    0,
   rebuildPending: false,
+  step3Preview:  false,
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
@@ -1190,6 +1173,7 @@ async function rebuildTour() {
     state.routeHandEdited = false;
     state.suggestedS = data.suggested_duration_s;
     if (!state.durationTouched) setVideoLength(data.suggested_duration_s);
+    renderDurSuggest();
     msg.textContent = data.unreachable.length ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
   } catch (e) {
     if (seq !== state.rebuildSeq) return;
@@ -1257,6 +1241,30 @@ function renderTourStats() {
   document.getElementById('st-walk').textContent = has ? `${Math.round(len)} m` : '–';
   document.getElementById('st-len').textContent = has ? fmtTime(cam.dur) : '–';
   document.getElementById('st-pace').textContent = has ? `${(len / cam.dur).toFixed(1)} m/s` : '–';
+}
+
+function onDurationInput(v) { syncSlider('dur', v); state.durationTouched = true; renderDurSuggest(); }
+
+function useSuggested() {
+  if (state.suggestedS) setVideoLength(state.suggestedS);
+  state.durationTouched = false;
+  renderDurSuggest();
+}
+
+/* Offer the tour's suggested length once the user has picked their own. */
+function renderDurSuggest() {
+  const show = state.durationTouched && state.suggestedS && Math.abs(cam.dur - state.suggestedS) >= 1;
+  document.getElementById('dur-suggest').hidden = !show;
+  if (show) document.getElementById('dur-suggest-val').textContent = fmtTime(state.suggestedS);
+  renderTourStats();
+}
+
+function previewInStep3() { state.step3Preview = true; loadPreviewFrames(); }
+
+function renderCamWarnings(warnings) {
+  const list = document.getElementById('cam-warnings');
+  list.hidden = !warnings.length;
+  list.innerHTML = warnings.map(w => `<li>${esc(w)}</li>`).join('');
 }
 
 function onHandEditToggle() {
@@ -1336,7 +1344,7 @@ function fitView() {
 }
 
 function handleClick(e) {
-  if (!state.loaded || e.button !== 0) return;
+  if (!state.loaded || e.button !== 0 || state.step !== 2) return;
   if (e.target?.classList.contains('wp-dot')) return;
   if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
@@ -1345,7 +1353,7 @@ function handleClick(e) {
 }
 
 /* ── Freehand ── */
-function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhStart(e) { if (state.step!==2||state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
 function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
 function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
 function drawFHPreview() {
@@ -1621,6 +1629,7 @@ function debounceSpline() { clearTimeout(_st); _st = setTimeout(refreshSpline, 2
 
 /* ── Drag waypoint / click to select ── */
 function wpDragStart(e) {
+  if (state.step !== 2) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.index, 10);
   const startX = e.clientX, startY = e.clientY;
@@ -1654,6 +1663,7 @@ function wpDragStart(e) {
 
 /* ── Drag heading handle ── */
 function yawHandleDragStart(e) {
+  if (state.step !== 2) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.wpindex, 10);
   const wp = state.waypoints[idx];
@@ -2177,7 +2187,9 @@ function goStep(n) {
   if (n < 1 || n > STEPS.length || !canEnterStep(n, stepState())) return;
   state.step = n;
   document.body.dataset.step = n;
-  if ((n === 4) !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
+  if (n < 3) state.step3Preview = false;
+  const want3D = n === 4 || (n === 3 && state.step3Preview);
+  if (want3D !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
   renderDock();
   renderTourSelection();
   if (n !== 4 && state.loaded) requestAnimationFrame(fitView);
@@ -2274,6 +2286,8 @@ function applyPreset(name) {
     syncSlider(key, p[key]);
   }
   _applyingPreset = false;
+  state.durationTouched = true;
+  renderDurSuggest();
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === name));
   debounceSpline();
 }
@@ -2780,6 +2794,7 @@ async function loadPreviewFrames() {
     if (!res.ok) throw new Error(data.error || 'Failed');
 
     (data.warnings || []).forEach(w => toast(w, 'inf'));
+    renderCamWarnings(data.warnings || []);
     p3.frames   = data.frames;
     p3.framesKey = routeKey();
     p3.duration = cam.dur;

@@ -7,36 +7,41 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #f6f7f9;
+  /* qbiq's own tokens (matched to the classify app's real, hand-written values) */
+  --bg:        #f8fafc;
+  --canvas:    #f1f5f9;
   --surface:   #ffffff;
-  --surface2:  #f6f7f9;
-  --border:    #e6e8ec;
-  --border2:   #d7dae0;
-  --text:      #1f2733;
-  --text2:     #7b828e;
-  --text3:     #a7adb6;
-  --blue:      #2f6bff;
-  --blue-lt:   #eaf1ff;
-  --blue-md:   #d9e6ff;
-  --blue-dk:   #1f52d6;
-  --green:     #31a354;
-  --green-lt:  #e8f5ec;
-  --red:       #d64545;
-  --red-lt:    #fbeaea;
-  --amber:     #d99000;
+  --surface2:  #f1f5f9;
+  --border:    #e2e8f0;
+  --border2:   #cbd5e1;
+  --text:      #1e293b;
+  --text2:     #64748b;
+  --text3:     #94a3b8;
+  --blue:      #2563eb;
+  --blue-lt:   #eff6ff;
+  --blue-md:   #bfdbfe;
+  --blue-dk:   #1d4ed8;
+  --indigo:    #4338ca;
+  --indigo-lt: #e0e7ff;
+  --indigo-md: #c7d2fe;
+  --green:     #16a34a;
+  --green-lt:  #dcfce7;
+  --red:       #dc2626;
+  --red-lt:    #fef2f2;
+  --amber:     #ca8a04;
   --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
-  --shadow:    0 8px 24px rgba(16,24,40,.08);
-  --r:         12px;
-  --r-sm:      8px;
+  --shadow:    0 4px 24px rgba(16,24,40,.1);
+  --r:         14px;
+  --r-sm:      7px;
 }
 
 html, body { height: 100%; overflow: hidden; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
   background: var(--bg); color: var(--text);
   display: flex; flex-direction: column; font-size: 13px; line-height: 1.55;
 }
@@ -134,6 +139,7 @@ body {
 /* ── Waypoints ───────────────────────────────────────────────── */
 .wp-scroll { max-height: 220px; overflow-y: auto; margin-top: 8px; }
 .wp-row {
+  flex-wrap: wrap;
   display: flex; align-items: center; gap: 6px;
   padding: 6px 5px; border-radius: var(--r-sm); transition: background .1s;
 }
@@ -276,7 +282,7 @@ body {
 /* ── Canvas ───────────────────────────────────────────────────── */
 .canvas-area {
   flex: 1; position: relative; overflow: hidden;
-  background: var(--bg);
+  background: var(--canvas);
   background-image: radial-gradient(circle, var(--border2) 1px, transparent 1px);
   background-size: 24px 24px;
   cursor: default;
@@ -309,12 +315,12 @@ body {
   display: flex; align-items: center; gap: 4px;
   background: rgba(255,255,255,.9);
   border: 1px solid var(--border);
-  border-radius: 30px; padding: 6px 12px;
+  border-radius: var(--r); padding: 5px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
 }
 .tb-btn {
-  width: 34px; height: 34px; border-radius: 50%; border: none;
+  width: 34px; height: 34px; border-radius: 9px; border: none;
   background: transparent; color: var(--text2); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   font-size: 15px; transition: all .14s;
@@ -322,13 +328,54 @@ body {
 .tb-btn:hover { background: var(--blue-lt); color: var(--blue); }
 .tb-btn-auto {
   display: flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 14px; border-radius: 20px; border: none;
+  height: 34px; padding: 0 14px; border-radius: 9px; border: none;
   background: var(--blue-lt); color: var(--blue-dk); font-size: 12px; font-weight: 600;
-  cursor: pointer; transition: all .15s; font-family: inherit;
+  cursor: pointer; transition: all .15s; font-family: inherit; white-space: nowrap; flex-shrink: 0;
 }
 .tb-btn-auto:hover { background: var(--blue-md); }
 .tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
 .tb-btn-auto:disabled { opacity: .5; cursor: not-allowed; }
+.tb-btn-auto[hidden], .tour-panel[hidden], .room-tip[hidden] { display: none; }
+.corridor { fill: rgba(47,107,255,.07); stroke: rgba(47,107,255,.25); stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.room-hit { fill: transparent; pointer-events: all; }
+.room-hit:hover { fill: rgba(47,107,255,.06); }
+.room-label { fill: var(--text2); text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: 600; font-family: inherit; }
+#plan-layer.labels-off .room-label { display: none; }
+.room-tip {
+  position: fixed; z-index: 120; pointer-events: none; min-width: 140px; max-width: 240px; padding: 8px 10px;
+  background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.14); font-size: 11px; color: var(--text2); line-height: 1.5;
+}
+.room-tip b { display: block; font-size: 12px; color: var(--text); }
+.room-tip .rt-open { color: var(--blue-dk); font-weight: 600; }
+.tour-wrap { position: relative; display: flex; }
+.tour-panel {
+  position: absolute; bottom: 42px; left: 0; z-index: 50; min-width: 220px; padding: 10px 12px;
+  max-height: min(60vh, 480px); overflow-y: auto;
+  background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.14); display: flex; flex-direction: column; gap: 6px;
+}
+.tour-title { font-size: 11px; font-weight: 700; color: var(--text2); }
+.tour-hint { font-size: 11px; color: var(--text3); max-width: 240px; }
+.tour-pick { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); padding: 2px 0; }
+.tour-pick-n { font-weight: 700; color: var(--blue-dk); min-width: 16px; }
+.tour-pick-x { margin-left: auto; border: 0; background: none; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; }
+.tour-pick-x:hover { color: var(--text); }
+.tour-sel-room { fill: rgba(47,107,255,.18); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
+.tour-badge circle { fill: var(--blue); }
+.tour-badge text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
+.tour-badge { pointer-events: none; }
+.tour-msg { font-size: 11px; color: var(--text3); max-width: 260px; }
+.tour-msg:empty { display: none; }
+.wp-stop {
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; max-width: 90px;
+  background: var(--blue-lt); color: var(--blue-dk); border: 1px solid var(--blue-md);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wp-stop-row { flex-basis: 100%; display: flex; align-items: center; gap: 6px; padding: 2px 0 0 26px; min-width: 0; }
+.wp-pan-label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); cursor: pointer; }
+.wp-dwell { width: 44px; font-size: 10px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 5px; }
 .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
 
@@ -341,6 +388,26 @@ body {
 .empty-icon { color: var(--text3); opacity: .5; }
 .empty-text { font-size: 14px; color: var(--text3); text-align: center; line-height: 1.8; }
 .empty-text strong { color: var(--text2); font-weight: 600; }
+
+/* ── Drag & drop overlay ──────────────────────────────────────── */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(234,241,255,.72);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.drop-overlay.show { display: flex; }
+.drop-card {
+  pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 28px 36px; max-width: 460px; text-align: center;
+  background: var(--surface); color: var(--blue-dk);
+  border: 2px dashed var(--blue); border-radius: var(--r);
+  box-shadow: var(--shadow);
+  font-size: 14px; font-weight: 600; line-height: 1.6;
+}
+.drop-card svg { color: var(--blue); }
 
 /* ── Loading ──────────────────────────────────────────────────── */
 .loading {
@@ -409,17 +476,17 @@ body {
   flex-shrink: 0; height: 42px;
 }
 .p3d-title { font-size: 12.5px; font-weight: 600; color: var(--text); flex: 1; }
-.p3d-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #1a1e2e; }
+.p3d-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #eef1f4; }
 #preview-canvas { width: 100%; height: 100%; display: block; }
 .p3d-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 2; }
 .p3d-empty {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 8px;
-  pointer-events: none; color: #4a5580;
+  pointer-events: none; color: var(--text2);
   font-size: 12px; text-align: center; line-height: 1.6;
 }
-.p3d-empty strong { color: #6b7db3; }
+.p3d-empty strong { color: var(--text); }
 .p3d-controls {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px;
@@ -501,14 +568,14 @@ body {
   <span class="level-tag" id="h-level">No plan loaded</span>
   <div class="header-sep"></div>
 
-  <!-- Folder upload (DXF and/or IFC) -->
-  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a project folder containing a .dxf and/or .ifc file">
+  <!-- Design JSON upload -->
+  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
       <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <span id="load-folder-btn-text">Load Project</span>
-    <input type="file" id="file-folder-input" webkitdirectory multiple onchange="onFolderSelected(this)"/>
+    <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
   </label>
 
   <button class="btn-3d-toggle" id="btn-3d-toggle" onclick="toggle3DPanel()" title="Toggle 3D walkthrough preview">
@@ -662,6 +729,10 @@ body {
                      oninput="syncSlider('utr',this.value);debounceSpline()"/>
             </div>
 
+            <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
+              <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
+            </label>
+
           </div>
         </div>
       </div>
@@ -674,12 +745,13 @@ body {
     <div class="empty-state" id="empty-state">
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
-        Click <strong>Load Project</strong> in the top bar to select a folder<br/>
-        containing a .dxf and/or .ifc file
+        Click <strong>Load Project</strong> in the top bar to select a qbiq design .json<br/>
+        — or <strong>drag &amp; drop</strong> the file here
       </div>
     </div>
 
     <div id="svg-wrap"></div>
+    <div id="room-tip" class="room-tip" hidden></div>
 
     <div class="toolbar">
       <button class="tb-btn" title="Zoom in" onclick="zoomBy(1.3)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 4.3V8.7M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
@@ -693,6 +765,19 @@ body {
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11.5" cy="3" r="1.6" fill="currentColor"/><path d="M2.5 11C5 11 4 5 7 5S9 3 11.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
         Smart Path
       </button>
+      <span class="tour-wrap">
+        <button class="tb-btn-auto" id="btn-autotour" hidden title="Plan a tour through the rooms along the corridor" onclick="toggleTourPanel()">Auto Tour</button>
+        <div id="tour-panel" class="tour-panel" hidden>
+          <div class="tour-title">Rooms to visit</div>
+          <div class="tour-hint">Click rooms on the plan in the order you want to visit them</div>
+          <div id="tour-list"></div>
+          <button class="tb-btn-auto" onclick="clearTourRooms()">Clear</button>
+          <div id="tour-warn" class="tour-msg"></div>
+          <div id="tour-msg" class="tour-msg"></div>
+          <button class="tb-btn-auto" id="btn-gen-tour" onclick="generateTour()">Generate tour</button>
+        </div>
+      </span>
+      <button class="tb-btn-auto active" id="btn-labels" hidden title="Show or hide room names" onclick="toggleLabels()">Labels</button>
       <div class="tb-sep"></div>
       <span class="tb-tip">scroll = zoom · middle click = pan</span>
     </div>
@@ -735,6 +820,13 @@ body {
 
 <div class="toast-container" id="toasts"></div>
 
+<div class="drop-overlay" id="drop-overlay">
+  <div class="drop-card">
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><path d="M20 6v20M12 18l8 8 8-8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 27v4a3 3 0 0 0 3 3h20a3 3 0 0 0 3-3v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    Drop a qbiq design .json
+  </div>
+</div>
+
 <script>
 // Root-relative when served standalone (e.g. `python app.py` on its own
 // domain). When qbiq-os proxies this app under /r/:slug, it strips that
@@ -758,9 +850,11 @@ const state = {
   unitsToMetres: 1.0,
   source:        'demo',
   geometry:      null,
+  showLabels:    true,
+  tourRooms:     [],
 };
 
-const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3 };
+const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
 
 let svgEl = null, gRoot = null, zoom = null;
 
@@ -823,10 +917,102 @@ function initD3(svgString) {
   svgEl.addEventListener('mousemove',   updateInsertCursor);
   svgEl.addEventListener('contextmenu', e => e.preventDefault());
 
+  renderPlanLayer();
+
   document.getElementById('empty-state').style.display = 'none';
   state.loaded = true;
   setMode('waypoint');
   fitView();
+}
+
+/* Design-JSON room layer: corridor tint, room hit-areas and labels, inside the zoomed group, under the route */
+function renderPlanLayer() {
+  hideRoomTip();
+  d3.select('#plan-layer').remove();
+  if (!state.plan || !gRoot) return;
+  const g = d3.select(gRoot).insert('g', '#route-overlay').attr('id', 'plan-layer');
+  const line = pts => 'M' + pts.map(p => p.join(',')).join('L') + 'Z';
+  const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9);
+  g.selectAll('path.corridor').data(state.plan.corridor).join('path')
+    .attr('class', 'corridor').attr('d', line);
+  const rooms = g.selectAll('g.room').data([...state.plan.rooms].sort((a, b) => b.area_m2 - a.area_m2)).join('g').attr('class', 'room');
+  rooms.append('path').attr('class', 'room-hit').attr('d', r => line(r.polygon))
+    .on('mousemove', (e, r) => showRoomTip(e, r)).on('mouseleave', hideRoomTip);
+  rooms.append('text').attr('class', 'room-label')
+    .attr('x', r => r.label_point[0]).attr('y', r => r.label_point[1])
+    .attr('font-size', r => Math.max(18, Math.min(60, Math.sqrt(r.area_m2) * 9)) * scale)
+    .text(r => r.name);
+  g.classed('labels-off', !state.showLabels);
+  renderTourSelection();
+}
+
+const tourPicking = () => !document.getElementById('tour-panel').hidden;
+
+/* Point-in-polygon (even-odd) in display space */
+function pointInPolygon(x, y, poly) {
+  return poly.reduce((inside, [xi, yi], i) => {
+    const [xj, yj] = poly[(i + poly.length - 1) % poly.length];
+    return (yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi ? !inside : inside;
+  }, false);
+}
+
+function toggleTourRoom(e) {
+  const m = s2m(e);
+  const room = state.plan?.rooms.filter(r => pointInPolygon(m.x, m.y, r.polygon))
+    .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
+  if (!room) return;
+  const i = state.tourRooms.indexOf(room.id);
+  if (i < 0) state.tourRooms.push(room.id); else state.tourRooms.splice(i, 1);
+  renderTourSelection(); renderTourPanel();
+}
+
+function removeTourRoom(id) {
+  state.tourRooms = state.tourRooms.filter(r => r !== id);
+  renderTourSelection(); renderTourPanel();
+}
+
+function clearTourRooms() {
+  state.tourRooms = [];
+  renderTourSelection(); renderTourPanel();
+}
+
+/* Selected rooms: tint + outline + numbered badge above the label, in the zoomed plan group */
+function renderTourSelection() {
+  d3.select('#tour-selection').remove();
+  const layer = d3.select('#plan-layer');
+  if (layer.empty() || !tourPicking()) return;
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  const sel = state.tourRooms.map((id, i) => ({ r: byId.get(id), n: i + 1 })).filter(d => d.r);
+  const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9), rad = 30 * scale;
+  const g = layer.append('g').attr('id', 'tour-selection');
+  g.selectAll('path').data(sel).join('path').attr('class', 'tour-sel-room')
+    .attr('d', d => 'M' + d.r.polygon.map(p => p.join(',')).join('L') + 'Z');
+  const badges = g.selectAll('g').data(sel).join('g').attr('class', 'tour-badge')
+    .attr('transform', d => `translate(${d.r.label_point[0]},${d.r.label_point[1] - 2.2 * rad})`);
+  badges.append('circle').attr('r', rad);
+  badges.append('text').attr('font-size', rad * 1.2).text(d => d.n);
+}
+
+function showRoomTip(e, r) {
+  const tip = document.getElementById('room-tip');
+  tip.innerHTML = `<b>${esc(r.name)}</b>${esc(r.type)}<br>${esc(r.area_m2)} m²<br>`
+    + `Headcount ${esc(r.assigned_hc ?? '–')} / ${esc(r.head_count ?? '–')}`
+    + (r.department_id != null && r.department_id !== '' ? `<br>Department ${esc(r.department_id)}` : '')
+    + (r.is_open ? '<br><span class="rt-open">Open area</span>' : '');
+  tip.hidden = false;
+  const x = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(e.clientY + 12, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = Math.max(x, 4) + 'px';
+  tip.style.top = Math.max(y, 4) + 'px';
+}
+
+function hideRoomTip() { document.getElementById('room-tip').hidden = true; }
+
+function toggleLabels() {
+  state.showLabels = !state.showLabels;
+  document.getElementById('btn-labels').classList.toggle('active', state.showLabels);
+  d3.select('#plan-layer').classed('labels-off', !state.showLabels);
+  build3DLabels();
 }
 
 function updateInsertCursor(e) {
@@ -857,13 +1043,14 @@ function fitView() {
 function handleClick(e) {
   if (!state.loaded || e.button !== 0) return;
   if (e.target?.classList.contains('wp-dot')) return;
+  if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
   if (state.mode !== 'waypoint') return;
   const m = s2m(e); addWaypoint(m.x, m.y);
 }
 
 /* ── Freehand ── */
-function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
 function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
 function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
 function drawFHPreview() {
@@ -878,7 +1065,7 @@ function finishFreehand() {
   const N = Math.max(1, Math.floor(state.freePts.length/25));
   const s = state.freePts.filter((_,i) => i%N===0);
   if (s[s.length-1] !== state.freePts[state.freePts.length-1]) s.push(state.freePts[state.freePts.length-1]);
-  state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false})));
+  state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null})));
   state.freePts = [];
   renderRoute(); updateWpList(); enableExport();
 }
@@ -905,7 +1092,7 @@ function findInsertIndex(x, y) {
 /* ── Waypoints ── */
 function addWaypoint(x, y) {
   const idx = findInsertIndex(x, y);
-  state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false});
+  state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null});
   renderRoute(); updateWpList(); enableExport();
 }
 function clearWaypoints()   { state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
@@ -913,6 +1100,18 @@ function undoLast()         { if (!state.waypoints.length) return; state.waypoin
 
 function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
 function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
+const wpWire = w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '', w.stop || null];
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function setWpPan(i, on) { const w = state.waypoints[i]; if (w && w.stop) w.stop.pan = !!on; }
+function setWpDwell(i, v) { const w = state.waypoints[i]; if (w && w.stop) w.stop.dwell_s = Math.min(10, Math.max(0.5, parseFloat(v) || 0.5)); }
+function cleanStop(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  const { look_at: la, dwell_s: d } = s;
+  if (!Array.isArray(la) || la.length < 2 || !la.slice(0, 2).every(Number.isFinite)) return null;
+  if (!Number.isFinite(d) || d < 0) return null;
+  return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d,
+           pan: s.pan === true };
+}
 function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
 function toggleCut(i) {
   const wp = state.waypoints[i]; if (!wp) return;
@@ -967,17 +1166,22 @@ function updateWpList() {
       <div class="wp-num">${i+1}</div>
       <div class="wp-xy">${wp.x.toFixed(1)}, ${(-wp.y).toFixed(1)}</div>
       <div class="wp-tod-box">
-        <input type="time" value="${wp.timeOfDay||''}"
+        <input type="time" value="${esc(wp.timeOfDay||'')}"
                title="Time of day at this point (leave blank to keep unchanged)"
                onchange="setWpTod(${i},this.value)" onclick="event.stopPropagation()"/>
       </div>
       <div class="wp-yaw-box">
-        <input type="number" min="-180" max="180" step="5" value="${wp.yawOffset||0}"
+        <input type="number" min="-180" max="180" step="5" value="${esc(wp.yawOffset||0)}"
                title="Camera head direction offset"
                onchange="setWpYaw(${i},this.value)" onclick="event.stopPropagation()"/>
         <span class="wp-yaw-unit">°</span>
       </div>
       <span class="wp-del" onclick="deleteWp(${i})" title="Remove point">×</span>
+      ${wp.stop ? `<div class="wp-stop-row"><span class="wp-stop" title="Camera stops and looks into this room">${esc(wp.stop.room_name)}</span>
+        <input type="number" class="wp-dwell" min="0.5" max="10" step="0.5" value="${esc(wp.stop.dwell_s)}"
+               onchange="setWpDwell(${i}, this.value)" onclick="event.stopPropagation()" title="Seconds spent looking into the room"/>
+        <label class="wp-pan-label" title="Stop here and pan toward the room (max 2 per video)" onclick="event.stopPropagation()">
+          <input type="checkbox" class="wp-pan" ${wp.stop.pan ? 'checked' : ''} onchange="setWpPan(${i}, this.checked)"/>Stand &amp; look</label></div>` : ''}
     </div>
     ${i < n-1 ? `
     <div class="wp-cut-row">
@@ -1004,7 +1208,8 @@ async function refreshSpline() {
       if (slice.length < 2) return slice;
       const r = await fetch(`${API}/api/smooth-preview`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ waypoints: slice, smoothing: cam.smo, uturn_radius: cam.utr }),
+        body: JSON.stringify({ waypoints: slice, smoothing: cam.smo, uturn_radius: cam.utr,
+                               units_to_metres: state.unitsToMetres }),
       });
       return (await r.json()).spline || slice;
     }));
@@ -1180,6 +1385,7 @@ function handleCanvasClick(e) {
 function setMode(m) {
   state.mode = m;
   state.autopathPoints = [];
+  if (m === 'autopath' && tourPicking()) toggleTourPanel();
   document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
   document.getElementById('mode-wp').classList.toggle('active', m==='waypoint');
   document.getElementById('mode-fh').classList.toggle('active', m==='freehand');
@@ -1215,16 +1421,78 @@ function insidePlanBounds(x, y) {
 // instead of trusting the pathfinder's own choice the whole way.
 const AUTOPATH_CLICKS_NEEDED = 5;
 
-function addAutopathMarker(x, y) {
+function addAutopathMarker(x, y, isVia) {
   const ov = document.getElementById('route-overlay');
   if (!ov) return;
   const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   c.setAttribute('class', 'autopath-marker');
   c.setAttribute('cx', x); c.setAttribute('cy', y);
   c.setAttribute('r', circleR() * 1.3);
-  c.setAttribute('fill', '#22c55e'); c.setAttribute('stroke', '#fff');
+  // Required via-stops get qbiq's indigo accent (same hue classify uses for
+  // its own "required" Q-Line badges); the start point stays the plain blue
+  // brand accent, since it isn't itself a required mid-route stop.
+  c.setAttribute('fill', isVia ? '#4338ca' : '#2563eb'); c.setAttribute('stroke', '#fff');
   c.setAttribute('stroke-width', 2); c.setAttribute('pointer-events', 'none');
   ov.appendChild(c);
+}
+
+function applyRouteResult(data) {
+  const stops = new Map((data.stops || []).map(s => [s.index, s]));
+  state.waypoints = data.waypoints.map((p, i) => {
+    const s = stops.get(i);
+    return { x: p[0], y: p[1], yawOffset: 0, timeOfDay: '', cutAfter: false,
+             stop: cleanStop(s) };
+  });
+  renderRoute(); updateWpList(); enableExport(); refreshSpline();
+  if (data.warning) toast(data.warning, 'inf', 6000);
+}
+
+function toggleTourPanel() {
+  const panel = document.getElementById('tour-panel');
+  if (panel.hidden) renderTourPanel();
+  panel.hidden = !panel.hidden;
+  renderTourSelection();
+}
+
+function renderTourPanel() {
+  document.getElementById('tour-msg').textContent = '';
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  document.getElementById('tour-list').innerHTML = state.tourRooms.map((id, i) =>
+    `<div class="tour-pick"><span class="tour-pick-n">${i + 1}.</span>${esc(byId.get(id)?.name)}
+     <button class="tour-pick-x" title="Remove" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button></div>`).join('');
+  document.getElementById('btn-gen-tour').disabled = !state.tourRooms.length;
+  const warned = new Map();
+  state.plan.rooms.filter(r => r.stop?.warning).forEach(r =>
+    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
+  document.getElementById('tour-warn').textContent =
+    [...warned].map(([w, names]) => `${w}: ${names.join(', ')}`).join(' · ');
+}
+
+function setVideoLength(s) {
+  const input = document.getElementById('s-dur');
+  if (s > parseFloat(input.max)) input.max = Math.ceil(s);
+  input.value = s;
+  updateSliderFill(input);
+  syncSlider('dur', s);
+}
+
+async function generateTour() {
+  if (!state.tourRooms.length) { toast('Click at least one room on the plan', 'inf'); return; }
+  showLoading('Planning the tour through the corridor…');
+  try {
+    const res = await fetch(`${API}/api/auto-tour`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_ids: state.tourRooms, smoothing: cam.smo }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    applyRouteResult(data);
+    setVideoLength(data.suggested_duration_s);
+    document.getElementById('tour-msg').textContent = data.unreachable.length
+      ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
+    toast(`Tour: ${data.stops.length} rooms, ${data.suggested_duration_s}s`, 'ok');
+  } catch (e) { toast('Auto tour error: ' + e.message, 'err'); }
+  finally { hideLoading(); }
 }
 
 async function autopathClick(e) {
@@ -1237,7 +1505,7 @@ async function autopathClick(e) {
 
   if (state.autopathPoints.length < AUTOPATH_CLICKS_NEEDED - 1) {
     state.autopathPoints.push({ x: m.x, y: m.y });
-    addAutopathMarker(m.x, m.y);
+    addAutopathMarker(m.x, m.y, state.autopathPoints.length > 1);
     const remaining = AUTOPATH_CLICKS_NEEDED - state.autopathPoints.length;
     let msg;
     if (state.autopathPoints.length === 1) {
@@ -1265,6 +1533,7 @@ async function autopathClick(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         points,
+        smoothing: cam.smo,
         // walls omitted — the server caches them from the last upload,
         // so this doesn't re-send tens of MB of JSON on every click
       }),
@@ -1273,8 +1542,7 @@ async function autopathClick(e) {
     if (!res.ok) throw new Error(data.error || 'Failed');
     const pts = data.waypoints;
     if (!pts || pts.length < 2) { toast('No path found through those points', 'inf'); return; }
-    state.waypoints = pts.map(p => ({ x: p[0], y: p[1], yawOffset: 0, timeOfDay: '', cutAfter: false }));
-    renderRoute(); updateWpList(); enableExport(); refreshSpline();
+    applyRouteResult(data);
     toast(`Smart Path: ${state.waypoints.length} waypoints`, 'ok');
   } catch (err) {
     toast('Smart Path error: ' + err.message, 'err');
@@ -1309,16 +1577,31 @@ function onImportPath(inp) {
 function importFromJSON(text, filename) {
   try {
     const data = JSON.parse(text);
-    const wpts = data.waypoints;
-    if (!wpts || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
-    state.waypoints = wpts.map(w => Array.isArray(w)
-      ? { x: w[0], y: w[1], yawOffset: w[2] || 0, timeOfDay: w[3] || '', cutAfter: false }
-      : { x: w.x, y: w.y, yawOffset: w.yawOffset || 0, timeOfDay: w.timeOfDay || '', cutAfter: false });
-    const cuts = data.meta?.cuts || [];
-    cuts.forEach(i => { if (state.waypoints[i]) state.waypoints[i].cutAfter = true; });
+    const wpts = data?.waypoints;
+    if (!Array.isArray(wpts) || !wpts.length) { toast('No waypoints found in JSON', 'err'); return; }
+    const rows = wpts.map(cleanImportedWp);
+    const cuts = Array.isArray(data.meta?.cuts) ? data.meta.cuts : [];
+    cuts.forEach(i => { if (rows[i]) rows[i].cutAfter = true; });
+    const kept = rows.filter(Boolean);
+    if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
+    state.waypoints = kept;
     renderRoute(); updateWpList(); enableExport();
-    toast(`Loaded ${state.waypoints.length} waypoints from ${filename}`, 'ok');
+    const skipped = rows.length - kept.length;
+    toast(`Loaded ${kept.length} waypoints from ${filename}${skipped ? ` (${skipped} invalid skipped)` : ''}`, 'ok');
   } catch(e) { toast('Invalid JSON file: ' + e.message, 'err'); }
+}
+
+const importNum = v => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? Number(v) : NaN;
+
+/* One imported waypoint ([x, y, yaw, tod, stop] or {x, y, ...}) with numeric fields and an HH:MM time, or null if x/y aren't finite. */
+function cleanImportedWp(w) {
+  const [x, y, yaw, tod, stop] = Array.isArray(w) ? w : [w?.x, w?.y, w?.yawOffset, w?.timeOfDay, w?.stop];
+  const wp = { x: importNum(x), y: importNum(y), yawOffset: importNum(yaw),
+               timeOfDay: typeof tod === 'string' && /^\d{2}:\d{2}$/.test(tod) ? tod : '',
+               cutAfter: false, stop: cleanStop(stop) };
+  if (!Number.isFinite(wp.x) || !Number.isFinite(wp.y)) return null;
+  if (!Number.isFinite(wp.yawOffset)) wp.yawOffset = 0;
+  return wp;
 }
 
 /* ── Import Enscape XML (reverse coordinate mapping) ── */
@@ -1335,9 +1618,9 @@ function importFromXML(text, filename) {
       const pos = kf.querySelector('Position');
       if (!pos) return;
       // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
-      wpts.push({ x: parseFloat(pos.getAttribute('x')) / u,
-                  y: parseFloat(pos.getAttribute('z')) / u,
-                  yawOffset: 0, timeOfDay: '', cutAfter: false });
+      const x = parseFloat(pos.getAttribute('x')) / u, y = parseFloat(pos.getAttribute('z')) / u;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      wpts.push({ x, y, yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
@@ -1362,20 +1645,45 @@ async function doUpload(f, { silent = false } = {}) {
   finally { if (!silent) hideLoading(); }
 }
 
-async function doUploadQbiq(jsonFile, svgFile, { silent = false } = {}) {
-  if (!silent) showLoading('Reading qbiq floor plan…');
+/* Upload multipart `fields` (name → File) to a standalone-2D-plan endpoint and apply the result.
+   expectPlan: the source should carry a design plan, so say so when the backend couldn't build one. */
+async function doUploadPlan(endpoint, fields, { silent = false, loadingText = 'Reading floor plan…', expectPlan = false } = {}) {
+  if (!silent) showLoading(loadingText);
   const fd = new FormData();
-  fd.append('json_file', jsonFile);
-  fd.append('svg_file', svgFile);
+  for (const [name, file] of Object.entries(fields)) fd.append(name, file);
   fd.append('level', 'L-0');
   try {
-    const res = await fetch(`${API}/api/upload-qbiq`, { method:'POST', body:fd });
+    const res = await fetch(`${API}${endpoint}`, { method:'POST', body:fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error||'Failed');
     applyFloorPlan(data);
     showHeaderHint('', '');
+    if (expectPlan && !data.plan) toast('No circulation in this design — corridor routing and Auto Tour are unavailable', 'inf', 6000);
   } catch(e) { showHeaderHint(e.message, 'red'); toast(e.message, 'err'); }
   finally { if (!silent) hideLoading(); }
+}
+
+const SNIFF_BYTES = 64 * 1024;
+const MAX_DESIGN_JSON_BYTES = 200 * 1024 * 1024;
+
+/* Cheap pre-check: a design key appears in the first or last 64 KB. Key order isn't fixed —
+   on real exports "nfp_data" comes after the ~1 MB rooms list, so the head alone isn't enough. */
+async function mightBeQbiqDesign(f) {
+  const head = await f.slice(0, SNIFF_BYTES).text();
+  const tail = f.size > SNIFF_BYTES ? await f.slice(-SNIFF_BYTES).text() : '';
+  return ['"rooms"', '"nfp_data"'].some(key => head.includes(key) || tail.includes(key));
+}
+
+/* First .json whose parsed content is a single-file qbiq design (has rooms + nfp_data), else null. */
+async function findQbiqDesign(files) {
+  for (const f of files.filter(f => f.name.toLowerCase().endsWith('.json') && f.size <= MAX_DESIGN_JSON_BYTES)) {
+    try {
+      if (!await mightBeQbiqDesign(f)) continue;
+      const data = JSON.parse(await f.text());
+      if (data && typeof data === 'object' && Array.isArray(data.rooms) && data.nfp_data && typeof data.nfp_data === 'object') return f;
+    } catch (e) { /* not JSON, or unreadable — not a design file */ }
+  }
+  return null;
 }
 
 /* Pick a qbiq .json + .svg pair: same basename stem, else the only one of each. Never guess. */
@@ -1390,28 +1698,53 @@ function findQbiqPair(files) {
   return jsons.length === 1 && svgs.length === 1 ? { json: jsons[0], svg: svgs[0] } : null;
 }
 
-/* ── Folder upload (DXF, qbiq JSON+SVG, or IFC) ── */
-async function onFolderSelected(inp) {
+/* ── Folder upload (DXF, qbiq design JSON, qbiq JSON+SVG, or IFC) ── */
+async function onDesignSelected(inp) {
   const files = Array.from(inp.files);
-  const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
-  const qbiq = dxf ? null : findQbiqPair(files);
-  const ifcFile = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
-  const ifc = qbiq ? null : ifcFile;
   inp.value = '';
+  await loadDesignJson(files);
+}
 
-  if (!dxf && !qbiq && !ifc) {
-    toast('No DXF, qbiq JSON+SVG pair, or IFC file found in that folder', 'err'); return;
+const DESIGN_ONLY_MSG = 'Only qbiq design JSON files are supported';
+
+/* Load a single qbiq design JSON; anything else is rejected. */
+async function loadDesignJson(files) {
+  const design = files.length === 1 ? await findQbiqDesign(files) : null;
+  if (!design) { toast(DESIGN_ONLY_MSG, 'inf'); return; }
+  const btn = document.getElementById('load-folder-btn-wrap');
+  const txt = document.getElementById('load-folder-btn-text');
+  txt.textContent = design.name.length > 18 ? design.name.slice(0, 16) + '…' : design.name;
+  btn.classList.add('loaded');
+  showLoading('Loading qbiq design…');
+  try {
+    await doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true, expectPlan: true });
+    toast(`Loaded qbiq design from "${design.name}"`, 'ok');
+  } finally {
+    hideLoading();
+  }
+}
+
+/* Detect the project's source files (DXF > qbiq design JSON > JSON+SVG pair > IFC) and upload them. */
+async function loadProjectFiles(files, sourceLabel, { emptyWhere = 'that folder' } = {}) {
+  const dxf = files.find(f => f.name.toLowerCase().endsWith('.dxf'));
+  const design = dxf ? null : await findQbiqDesign(files);
+  const qbiq = dxf || design ? null : findQbiqPair(files);
+  const ifcFile = files.find(f => f.name.toLowerCase().endsWith('.ifc'));
+  const ifc = qbiq || design ? null : ifcFile;
+
+  if (!dxf && !design && !qbiq && !ifc) {
+    toast(`No DXF, qbiq design JSON, qbiq JSON+SVG pair, or IFC file found in ${emptyWhere}`, 'err'); return;
   }
 
   const parts = [];
   if (dxf) parts.push('DXF');
+  if (design) parts.push('qbiq design');
   if (qbiq) parts.push('qbiq');
   if (ifc) parts.push('IFC');
 
-  const folderName = files[0]?.webkitRelativePath?.split('/')[0] || 'folder';
   const btn = document.getElementById('load-folder-btn-wrap');
   const txt = document.getElementById('load-folder-btn-text');
-  txt.textContent = folderName.length > 18 ? folderName.slice(0, 16) + '…' : folderName;
+  txt.textContent = sourceLabel.length > 18 ? sourceLabel.slice(0, 16) + '…' : sourceLabel;
   btn.classList.add('loaded');
 
   showLoading(`Loading ${parts.join(' + ')}…`);
@@ -1419,12 +1752,13 @@ async function onFolderSelected(inp) {
     // Upload in parallel — both use silent=true so they don't fight over the spinner
     await Promise.all([
       dxf ? doUpload(dxf,   { silent: true })                    : Promise.resolve(),
-      qbiq ? doUploadQbiq(qbiq.json, qbiq.svg, { silent: true }) : Promise.resolve(),
+      design ? doUploadPlan('/api/upload-qbiq-design', { json_file: design }, { silent: true, expectPlan: true }) : Promise.resolve(),
+      qbiq ? doUploadPlan('/api/upload-qbiq', { json_file: qbiq.json, svg_file: qbiq.svg }, { silent: true }) : Promise.resolve(),
       ifc ? doUpload3D(ifc, { silent: true, autoOpen: false })   : Promise.resolve(),
     ]);
-    const note = qbiq && ifcFile ? ' (IFC ignored — not supported with qbiq)'
+    const note = (qbiq || design) && ifcFile ? ' (IFC ignored — not supported with qbiq)'
       : dxf && findQbiqPair(files) ? ' (qbiq JSON+SVG ignored — DXF takes precedence)' : '';
-    toast(`Loaded ${parts.join(' + ')} from "${folderName}"${note}`, 'ok');
+    toast(`Loaded ${parts.join(' + ')} from "${sourceLabel}"${note}`, 'ok');
     // Open 3D panel after both are done if IFC was included
     if (ifc) {
       if (!document.getElementById('preview-3d').classList.contains('visible')) {
@@ -1437,6 +1771,41 @@ async function onFolderSelected(inp) {
     hideLoading();
   }
 }
+
+/* ── Drag & drop loading (single design JSON) ── */
+(function initDropLoading() {
+  const overlay = document.getElementById('drop-overlay');
+  const isFileDrag = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+  let depth = 0;
+  const show = on => overlay.classList.toggle('show', on);
+
+  window.addEventListener('dragenter', e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth++;
+    show(true);
+  });
+  window.addEventListener('dragover', e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', e => {
+    if (!isFileDrag(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) show(false);
+  });
+  window.addEventListener('drop', async e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth = 0;
+    show(false);
+    const files = Array.from(e.dataTransfer.files);
+    const hasDir = Array.from(e.dataTransfer.items || []).some(it => it.webkitGetAsEntry?.()?.isDirectory);
+    if (hasDir) { toast(DESIGN_ONLY_MSG, 'inf'); return; }
+    await loadDesignJson(files);
+  });
+})();
 
 async function doUpload3D(f, { silent = false, autoOpen = true } = {}) {
   if (!silent) showLoading('Extracting 3D model…');
@@ -1507,10 +1876,17 @@ function applyFloorPlan(data) {
     state.geometry.meshes = savedMeshes;
   }
   document.getElementById('h-level').textContent = data.level;
+  state.plan = data.plan || null;
+  state.tourRooms = [];
+  document.getElementById('btn-autotour').hidden = !state.plan;
+  document.getElementById('btn-labels').hidden = !state.plan;
+  document.getElementById('tour-panel').hidden = true;
   initD3(data.svg); clearWaypoints();
   toast(`Plan loaded — ${data.level}`, 'ok');
   if (document.getElementById('preview-3d').classList.contains('visible')) {
     build3DGeometry();
+  } else {
+    build3DLabels();
   }
 }
 
@@ -1527,7 +1903,7 @@ function disableExport() { document.getElementById('btn-json').disabled=true; do
 async function exportRoute(fmt) {
   if (state.waypoints.length < 2) return;
   const settings = {
-    level: state.level, duration: cam.dur, camera_height: 1.75,
+    level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
   };
@@ -1535,7 +1911,7 @@ async function exportRoute(fmt) {
   try {
     const res = await fetch(`${API}/api/export/${fmt}`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ waypoints: state.waypoints.map(w=>[w.x,w.y,w.yawOffset||0,w.timeOfDay||'']), cuts: cutIndices(), settings }),
+      body: JSON.stringify({ waypoints: state.waypoints.map(wpWire), cuts: cutIndices(), settings }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error||'Export failed'); }
     const blob = await res.blob();
@@ -1613,7 +1989,38 @@ setMode('waypoint');
 
 // ── 3D Preview (Three.js) ────────────────────────────────────────────────────
 
-let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null;
+let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null;
+let threeLabels = [];
+const P3D_BG = 0xeef1f4;
+const P3D_GROUND = 0xe4e2dd;
+// Per-type defaults for a bright viewport; mesh.color/opacity/roughness/metalness override these.
+const P3D_TYPE_STYLE = {
+  floor:     { color: 0xe9e7e2 },
+  slab:      { color: 0xd8d5cf },
+  wall:      { color: 0xf2f1ee },
+  column:    { color: 0xecebe8 },
+  beam:      { color: 0xcfcac2 },
+  stair:     { color: 0xc8b08a },
+  roof:      { color: 0x9aa0a6 },
+  door:      { color: 0xb88a5a, roughness: 0.7 },
+  window:    { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
+  glass:     { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
+  frame:     { color: 0x3a3f45, roughness: 0.45, metalness: 0.4 },
+  furniture: { color: 0xc9c6c0 },
+  ceiling:   { color: 0xf7f7f5, roughness: 0.95 },
+  light:     { color: 0xfff6e0 },
+  other:     { color: 0xc9c9c9 },
+};
+const P3D_TRANSPARENT_TYPES = new Set(['glass', 'window']);
+const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab', 'ceiling']);
+const P3D_CEILING_TYPES = new Set(['ceiling', 'light']);
+const P3D_CEILING_HEIGHT = 3.0;   // metres; ceiling and light panels hide when the camera is above it
+
+function syncCeiling() {
+  if (!threeScene || !threeCam) return;
+  const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
+  threeScene.traverse(o => { if (o.userData.ceiling) o.visible = inside; });
+}
 const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
@@ -1691,119 +2098,204 @@ function init3DScene() {
   if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
 
   threeScene = new THREE.Scene();
-  threeScene.background = new THREE.Color(0x1a1e2e);
-  threeScene.fog = new THREE.FogExp2(0x1a1e2e, 0.006);
+  // Background/fog are output-space colours in r128 (clear colour and fog are applied after encoding).
+  threeScene.background = new THREE.Color(P3D_BG);
+  threeScene.fog = new THREE.Fog(P3D_BG, 200, 1200);
 
   threeCam = new THREE.PerspectiveCamera(cam.fov, 1, 0.1, 5000);
   threeCam.position.set(0, 5, 0);
   threeCam.lookAt(0, 0, 0);
 
-  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  threeRenderer.outputEncoding = THREE.sRGBEncoding;
+  threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  threeRenderer.toneMappingExposure = 1.0;
+  threeRenderer.shadowMap.enabled = true;
+  threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // Lights
-  threeScene.add(new THREE.AmbientLight(0xc8d4f0, 0.85));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 0.6);
-  sun.position.set(100, 200, 100);
-  threeScene.add(sun);
+  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.6));
+  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9);
+  threeSun.castShadow = true;
+  threeSun.shadow.mapSize.set(2048, 2048);
+  threeSun.shadow.bias = -0.0005;
+  threeSun.shadow.normalBias = 0.02;
+  threeScene.add(threeSun, threeSun.target);
 
   build3DGeometry();
   resize3D();
   showP3dEmpty(!state.geometry && p3.frames.length === 0);
 }
 
-/* Build wall/floor meshes from state.geometry */
+/* sRGB hex/'#rrggbb' → linear THREE.Color (r128 treats material colours as linear when outputEncoding is sRGB) */
+const p3dColor = c => new THREE.Color(c).convertSRGBToLinear();
+
+/* Remove and dispose everything build3DGeometry added (geometry AND materials) */
+function clear3DGeometry() {
+  const old = threeScene.children.filter(c => c.userData.p3dBuilt);
+  const mats = new Set();
+  old.forEach(m => {
+    threeScene.remove(m);
+    m.geometry.dispose();
+    [].concat(m.material).forEach(mat => mats.add(mat));
+  });
+  mats.forEach(mat => mat.dispose());
+}
+
+function addBuilt(mesh) {
+  mesh.userData.p3dBuilt = true;
+  threeScene.add(mesh);
+  return mesh;
+}
+
+/* Plan centre + half-extents in Three.js metres (falls back to a 50 m square at the origin) */
+function planFrame() {
+  const u = state.unitsToMetres || 1.0;
+  const b = state.bounds;
+  if (!b) return { cx: 0, cz: 0, hw: 25, hd: 25 };
+  return {
+    cx:  (b.xmin + b.xmax) / 2 * u,
+    cz: -(b.ymin + b.ymax) / 2 * u,   // negate: model Y → Three.js -Z
+    hw:  Math.max((b.xmax - b.xmin) * u / 2, 1),
+    hd:  Math.max((b.ymax - b.ymin) * u / 2, 1),
+  };
+}
+
+/* Aim the sun at the plan centre and fit its shadow frustum and the fog to the plan's extent */
+function fitSunToPlan({ cx, cz, hw, hd }) {
+  const r = Math.hypot(hw, hd);                  // plan radius: covers any light-space orientation
+  const dir = new THREE.Vector3(-0.45, 1, 0.6).normalize();
+  const dist = r * 1.5 + 30;
+  threeSun.position.set(cx + dir.x * dist, dir.y * dist, cz + dir.z * dist);
+  threeSun.target.position.set(cx, 0, cz);
+  threeSun.target.updateMatrixWorld();
+  const half = r + 5;                            // margin for wall height / overhangs
+  const sc = threeSun.shadow.camera;
+  Object.assign(sc, { left: -half, right: half, top: half, bottom: -half, near: 0.5, far: dist + r + 40 });
+  sc.updateProjectionMatrix();
+  threeScene.fog.near = r * 2 + 60;
+  threeScene.fog.far = r * 6 + 400;
+}
+
+/* One IFC/qbiq mesh (metres, Z-up) → shaded, shadowed THREE.Mesh */
+function buildContractMesh(mesh) {
+  const geo = new THREE.BufferGeometry();
+  const rv = mesh.verts;
+  const n  = rv.length / 3;
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i*3]   =  rv[i*3];     // X (m) → Three X
+    pos[i*3+1] =  rv[i*3+2];   // Z/up (m) → Three Y
+    pos[i*3+2] = -rv[i*3+1];   // Y/north (m) → Three -Z
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(mesh.faces);
+  geo.computeVertexNormals();
+
+  const style = P3D_TYPE_STYLE[mesh.type] || P3D_TYPE_STYLE.other;
+  const opacity = mesh.opacity ?? style.opacity ?? 1.0;
+  const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
+  const mat = mesh.type === 'light'
+    ? new THREE.MeshBasicMaterial({ color: p3dColor(mesh.color || style.color), side: THREE.DoubleSide })
+    : new THREE.MeshStandardMaterial({
+    color: p3dColor(mesh.color || style.color),
+    roughness: mesh.roughness ?? style.roughness ?? 0.85,
+    metalness: mesh.metalness ?? style.metalness ?? 0.0,
+    side: THREE.DoubleSide,
+    transparent,
+    opacity,
+    depthWrite: !transparent,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.userData.meshType = mesh.type;
+  m.userData.ceiling = P3D_CEILING_TYPES.has(mesh.type);
+  if (mesh.type === 'light') {
+    m.castShadow = m.receiveShadow = false;
+  } else if (transparent) {
+    m.renderOrder = 1;
+  } else {
+    m.castShadow = !P3D_RECEIVE_ONLY_TYPES.has(mesh.type);
+    m.receiveShadow = true;
+  }
+  return m;
+}
+
+/* DXF fallback: extrude 2D wall/column polylines upward as boxes (capped at 4000 segments) */
+function buildExtrudedWalls(u) {
+  const wH = 3.2; // wall height metres
+  const wallMat = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.wall.color), roughness: 0.85 });
+  const colMat  = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.column.color), roughness: 0.85 });
+  const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
+  let segCount = 0;
+  pairs.forEach(([polys, mat]) => {
+    polys.forEach(poly => {
+      if (poly.length < 2) return;
+      for (let i = 0; i < poly.length - 1; i++) {
+        if (++segCount > 4000) return;
+        const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
+        const dx = (x2 - x1) * u, dz = -(y2 - y1) * u;  // negate Y → Three.js -Z
+        const len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 0.005) continue;
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(len, wH, 0.18), mat);
+        seg.position.set((x1 + x2) / 2 * u, wH / 2, -(y1 + y2) / 2 * u);
+        seg.rotation.y = -Math.atan2(dz, dx);
+        seg.castShadow = seg.receiveShadow = true;
+        addBuilt(seg);
+      }
+    });
+  });
+  // Shared materials are only disposed by clear3DGeometry if some segment used them.
+  [wallMat, colMat].forEach(mat => { if (!threeScene.children.some(c => c.material === mat)) mat.dispose(); });
+}
+
+/* Build ground, plan meshes and sun from state.geometry */
 function build3DGeometry() {
   if (!threeScene) return;
+  clear3DGeometry();
 
-  // Remove old meshes
-  const toRemove = threeScene.children.filter(c => c.isMesh);
-  toRemove.forEach(m => { threeScene.remove(m); m.geometry.dispose(); });
+  const u = state.unitsToMetres || 1.0;  // DXF/canvas units → metres
+  const frame = planFrame();
+  if (threeSun) fitSunToPlan(frame);
 
-  const u     = state.unitsToMetres || 1.0;  // DXF/canvas units → metres
-  const uMesh = 1.0;                          // IFC verts are always in metres already
-  const wH = 3.2; // wall height metres (used for DXF extrusion only)
+  // Large light ground just under the floor, catching shadows
+  const size = Math.max(Math.hypot(frame.hw, frame.hd) * 8, 400);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({ color: p3dColor(P3D_GROUND), roughness: 1.0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(frame.cx, -0.01, frame.cz);
+  ground.receiveShadow = true;
+  addBuilt(ground);
 
-  // Floor plane
-  if (state.bounds) {
-    const b = state.bounds;
-    const W  = (b.xmax - b.xmin) * u * 1.15;
-    const H  = (b.ymax - b.ymin) * u * 1.15;
-    const cx =  (b.xmin + b.xmax) / 2 * u;
-    const cz = -(b.ymin + b.ymax) / 2 * u;  // negate: model Y → Three.js -Z
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, H),
-      new THREE.MeshLambertMaterial({ color: 0x1e2235 })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, 0, cz);
-    threeScene.add(floor);
-  }
-
+  build3DLabels();
   if (!state.geometry) return;
 
   const meshes = state.geometry.meshes;
-  if (meshes && meshes.length > 0) {
-    // ── IFC real 3D meshes ─────────────────────────────────────────────────
-    // IFC verts are in metres. Transform: X=East, Y=North(→-Z), Z=Up(→Y)
-    const typeColor = {
-      wall:      0x8fa0b8,   // mid grey-blue
-      slab:      0x5a6070,   // dark grey (floors/ceilings)
-      column:    0x9aabb8,   // light grey
-      beam:      0x7a8898,
-      stair:     0xb0905a,   // warm tan
-      roof:      0x4a5060,
-      door:      0xc8884a,   // amber-orange — clearly distinct
-      window:    0x88ccee,   // sky blue, semi-transparent
-      furniture: 0x70a878,   // green — clearly distinct
-      other:     0x8090a0,
-    };
-    const typeOpacity = { window: 0.45, slab: 0.85 };
-    meshes.forEach(mesh => {
-      const geo = new THREE.BufferGeometry();
-      const rv = mesh.verts;
-      const n  = rv.length / 3;
-      const pos = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        pos[i*3]   =  rv[i*3]   * uMesh;   // IFC X (m) → Three X (m)
-        pos[i*3+1] =  rv[i*3+2] * uMesh;   // IFC Z/up (m) → Three Y (m)
-        pos[i*3+2] = -rv[i*3+1] * uMesh;   // IFC Y/north (m) → Three -Z (m)
-      }
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      geo.setIndex(mesh.faces);
-      geo.computeVertexNormals();
-      const opacity = typeOpacity[mesh.type] ?? 1.0;
-      const mat = new THREE.MeshLambertMaterial({
-        color: typeColor[mesh.type] || typeColor.other,
-        side: THREE.DoubleSide,
-        transparent: opacity < 1.0,
-        opacity,
-      });
-      threeScene.add(new THREE.Mesh(geo, mat));
-    });
-  } else {
-    // ── DXF fallback: extrude 2D polylines upward ─────────────────────────
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x4a5a80 });
-    const colMat  = new THREE.MeshLambertMaterial({ color: 0x384870 });
-    const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
-    let segCount = 0;
-    pairs.forEach(([polys, mat]) => {
-      polys.forEach(poly => {
-        if (poly.length < 2) return;
-        for (let i = 0; i < poly.length - 1; i++) {
-          if (++segCount > 4000) return;
-          const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
-          const dx = (x2 - x1) * u, dz = -(y2 - y1) * u;  // negate Y → Three.js -Z
-          const len = Math.sqrt(dx * dx + dz * dz);
-          if (len < 0.005) continue;
-          const seg = new THREE.Mesh(new THREE.BoxGeometry(len, wH, 0.18), mat);
-          seg.position.set((x1 + x2) / 2 * u, wH / 2, -(y1 + y2) / 2 * u);
-          seg.rotation.y = -Math.atan2(dz, dx);
-          threeScene.add(seg);
-        }
-      });
-    });
-  }
+  if (meshes && meshes.length > 0) meshes.forEach(mesh => addBuilt(buildContractMesh(mesh)));
+  else buildExtrudedWalls(u);
+}
+
+/* Floating room-name sprites (owned here, not tagged p3dBuilt, so clear3DGeometry never touches them) */
+function build3DLabels() {
+  threeLabels.forEach(s => { threeScene?.remove(s); s.material.map.dispose(); s.material.dispose(); });
+  threeLabels = [];
+  if (!threeScene || !state.plan || !state.showLabels) return;
+  const u = state.unitsToMetres || 1;
+  state.plan.rooms.forEach(r => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+    const x = c.getContext('2d');
+    x.font = '600 56px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(0, 0, 512, 128);
+    x.fillStyle = '#1d2939'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(r.name, 256, 64, 496);
+    const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    sp.scale.set(2.4, 0.6, 1);
+    sp.position.set(r.label_point[0] * u, 3.3, r.label_point[1] * u);
+    sp.renderOrder = 10; sp.visible = !p3.playing;
+    threeScene.add(sp); threeLabels.push(sp);
+  });
 }
 
 /* Fit renderer to canvas element size */
@@ -1833,10 +2325,13 @@ function render3DLoop(now) {
     p3.lastTime = null;
   }
 
+  threeLabels.forEach(s => { s.visible = !p3.playing; });
+
   const fadeEl = document.getElementById('p3d-fade');
   if (fadeEl) fadeEl.style.opacity = fadeOpacityAt(p3.t);
 
   if (threeRenderer && threeScene && threeCam) {
+    syncCeiling();
     threeRenderer.render(threeScene, threeCam);
   }
 }
@@ -1855,8 +2350,9 @@ function updateCameraFromT(t) {
   const fy   = f0.y   + (f1.y   - f0.y)   * blend;
   const yaw  = f0.yaw + (f1.yaw - f0.yaw) * blend;
   const pit  = f0.pitch + (f1.pitch - f0.pitch) * blend;
+  const fz   = f0.z + (f1.z - f0.z) * blend;   // eye height in metres (house style)
 
-  threeCam.position.set(fx * u, 1.75, fy * u);
+  threeCam.position.set(fx * u, fz, fy * u);
 
   const yr = THREE.Math.degToRad(yaw);
   const pr = THREE.Math.degToRad(pit);
@@ -1894,18 +2390,21 @@ async function loadPreviewFrames() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        waypoints:    state.waypoints.map(w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '']),
+        waypoints:    state.waypoints.map(wpWire),
         cuts:         cutIndices(),
         smoothing:    cam.smo,
         duration:     cam.dur,
         fps:          30,
         fov:          cam.fov,
         uturn_radius: cam.utr,
+        units_to_metres: state.unitsToMetres,
+        start_pan:    cam.startPan,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
 
+    (data.warnings || []).forEach(w => toast(w, 'inf'));
     p3.frames   = data.frames;
     p3.duration = cam.dur;
     p3.t        = 0;

@@ -14,10 +14,13 @@ GET  /                    — serve frontend
 """
 
 from __future__ import annotations
+import math
 import os
 import sys
 import json
 import logging
+from contextlib import contextmanager
+from functools import partial
 import uuid
 from pathlib import Path
 
@@ -35,7 +38,10 @@ sys.path.insert(0, str(BASE_DIR))
 
 from revit_extractor import extract_level
 from svg_generator   import generate_svg
-from qbiq_extractor  import extract_qbiq
+from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
+from plan_model import flipped, plan_to_json
+from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
+from plan_tour import build_tour
 
 try:
     from dxf_extractor import extract_dxf
@@ -43,8 +49,9 @@ try:
 except ImportError:
     _DXF_AVAILABLE = False
     log.warning("ezdxf not installed — DXF upload disabled. Run: py -m pip install ezdxf")
-from route_processor import process_route, smooth_preview
+from route_processor import smooth_preview
 from export_layer    import to_json, to_enscape_xml
+from camera_style    import interpolate, plan_keyframes
 from autopath        import find_multi_path
 from corridor_graph   import (build_walkable_polygon, build_corridor_graph,
                                route_multi, compute_bounds)
@@ -62,6 +69,7 @@ MAX_UPLOAD_MB = 500
 _LAST_OBSTACLES = {"dxf": [], "ifc": []}
 _LAST_FOOTPRINT = {"dxf": [], "ifc": []}  # FLOOD-layer / room polygons — see _footprint_polylines
 _LAST_DOORS = {"dxf": [], "ifc": []}  # door locations, forced passable — see _door_polylines
+_LAST_PLAN = None  # display-space PlanModel of the last design-JSON upload, else None
 _LAST_UNITS_TO_METRES = 1.0  # from the DXF/demo canvas source, for Auto Path's clearance_m conversion
 
 # Corridor-graph routing needs walls kept SEPARATE from other obstacle
@@ -80,6 +88,11 @@ _UPLOAD_GENERATION = 0
 # keeps upload latency unaffected even for a real file with tens of
 # thousands of furniture entities.
 _LAST_CIRC_GRAPH: dict = {}
+# (id(plan), round(clearance_m, 3)) -> (plan, walkable_polygon | None, graph | None).
+# Keyed on the plan itself, not the upload generation: an IFC drop bumps the
+# generation but never changes the plan's corridor. Each entry holds its plan,
+# so the id can't be recycled for a newer plan while the entry exists.
+_LAST_PLAN_GRAPH: dict = {}
 
 
 def _flip(poly):
@@ -184,6 +197,18 @@ def _get_circ_graph_and_polygon(clearance_m: float):
         _LAST_CIRC_GRAPH[key] = (polygon, graph)
     return _LAST_CIRC_GRAPH[key]
 
+
+def _plan_graph(plan, clearance_m: float):
+    """Cached (walkable polygon, corridor graph) of a plan at a clearance."""
+    key = (id(plan), round(clearance_m, 3))
+    if key not in _LAST_PLAN_GRAPH:
+        try:
+            _LAST_PLAN_GRAPH[key] = (plan, *corridor_graph_for(plan, clearance_m))
+        except Exception:
+            log.exception("Plan corridor graph build failed")
+            _LAST_PLAN_GRAPH[key] = (plan, None, None)
+    return _LAST_PLAN_GRAPH[key][1:]
+
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -195,6 +220,23 @@ CORS(app)
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+def _units(data: dict) -> float:
+    """Plan units -> metres: the request's value, else the loaded plan's, else the last upload's."""
+    if (u := data.get("units_to_metres")) is not None:
+        if not (math.isfinite(u := float(u)) and u > 0):
+            raise ValueError("units_to_metres must be positive")
+        return u
+    return _LAST_PLAN.units_to_metres if _LAST_PLAN is not None else _LAST_UNITS_TO_METRES
+
+
+def _camera_plan(wpts: list, cuts: list, s: dict):
+    """House-style keyframe plan for a route from request settings."""
+    return plan_keyframes(wpts, units_to_metres=_units(s), total_duration=float(s.get("duration", 30.0)),
+                          smoothing=float(s.get("smoothing", 1.0)), uturn_radius_m=float(s.get("uturn_radius", 0.0)),
+                          cuts=cuts, start_pan=bool(s.get("start_pan", False)),
+                          interests=[r.label_point for r in _LAST_PLAN.rooms] if _LAST_PLAN is not None else None)
+
+
 def _err(msg: str, code: int = 400):
     return jsonify({"error": msg}), code
 
@@ -202,14 +244,15 @@ def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
-def _load_2d_geometry(geo, clear_ifc: bool):
+def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
     """Cache a freshly extracted 2D floor plan for routing and return the
     upload-shaped JSON response. clear_ifc drops any previously loaded IFC
     so a standalone source (demo, qbiq) never inherits a stale project."""
-    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION
+    global _LAST_UNITS_TO_METRES, _UPLOAD_GENERATION, _LAST_PLAN
     svg = generate_svg(geo)
     xmin, ymin, xmax, ymax = geo.bounds()
 
+    _LAST_PLAN = plan  # first, so no request after the cache clear below can pair the old plan with new caches
     _LAST_OBSTACLES["dxf"] = _obstacle_polylines(geo)
     _LAST_FOOTPRINT["dxf"] = _footprint_polylines(geo)
     _LAST_DOORS["dxf"] = _door_polylines(geo)
@@ -224,6 +267,7 @@ def _load_2d_geometry(geo, clear_ifc: bool):
     # key includes the generation), so drop them instead of leaking a whole
     # walkable polygon + graph per uploaded file for the process's lifetime.
     _LAST_CIRC_GRAPH.clear()
+    _LAST_PLAN_GRAPH.clear()
 
     return jsonify({
         "svg": svg,
@@ -232,6 +276,7 @@ def _load_2d_geometry(geo, clear_ifc: bool):
         "elevation": geo.elevation,
         "units_to_metres": geo.units_to_metres,
         "source": geo.source,
+        "plan": plan_to_json(plan) if plan else None,
         "geometry": {
             "walls":     geo.walls,
             "spaces":    geo.spaces,
@@ -290,40 +335,54 @@ def upload():
     return _load_2d_geometry(geo, clear_ifc=False)
 
 
+@contextmanager
+def _saved_uploads(*files):
+    """Save uploads under per-request uuid-prefixed names (so concurrent uploads
+    of same-named files can't collide), yield their paths, delete them on exit.
+    Raises ValueError for a filename that is empty or sanitises to empty."""
+    if not all(names := [secure_filename(f.filename or "") for f in files]):
+        raise ValueError("Invalid filename")
+    prefix = uuid.uuid4().hex
+    paths = [UPLOAD_DIR / f"{prefix}_{name}" for name in names]
+    try:
+        for f, path in zip(files, paths):
+            f.save(str(path))
+        yield paths
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)
+
+
 @app.route("/api/upload-qbiq", methods=["POST"])
 def upload_qbiq():
     """Accept a qbiq JSON + SVG pair and load it as a standalone 2D floor plan."""
     if "json_file" not in request.files or "svg_file" not in request.files:
         return _err("Both json_file and svg_file are required")
-    json_f = request.files["json_file"]
-    svg_f = request.files["svg_file"]
-    if not json_f.filename or not svg_f.filename:
-        return _err("Empty filename")
-
     level_name = request.form.get("level", "L-0")
-
-    json_name = secure_filename(json_f.filename)
-    svg_name = secure_filename(svg_f.filename)
-    if not json_name or not svg_name:
-        return _err("Invalid filename")
-
-    # Per-request names so concurrent uploads of same-named files can't collide.
-    prefix = uuid.uuid4().hex
-    json_fpath = UPLOAD_DIR / f"{prefix}_{json_name}"
-    svg_fpath = UPLOAD_DIR / f"{prefix}_{svg_name}"
     try:
-        json_f.save(str(json_fpath))
-        svg_f.save(str(svg_fpath))
-        log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
-        geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
+        with _saved_uploads(request.files["json_file"], request.files["svg_file"]) as (json_fpath, svg_fpath):
+            log.info("Uploaded qbiq pair: %s + %s", json_fpath, svg_fpath)
+            geo = extract_qbiq(str(json_fpath), str(svg_fpath), level_name)
     except Exception as e:
         log.exception("qbiq extraction failed")
         return _err(str(e))
-    finally:
-        json_fpath.unlink(missing_ok=True)
-        svg_fpath.unlink(missing_ok=True)
-
     return _load_2d_geometry(geo, clear_ifc=True)
+
+
+@app.route("/api/upload-qbiq-design", methods=["POST"])
+def upload_qbiq_design():
+    """Accept a single-file qbiq design JSON and load it as a standalone 2D floor plan."""
+    if "json_file" not in request.files:
+        return _err("json_file is required")
+    level_name = request.form.get("level", "L-0")
+    try:
+        with _saved_uploads(request.files["json_file"]) as (json_fpath,):
+            log.info("Uploaded qbiq design: %s", json_fpath)
+            geo, plan = extract_qbiq_design_with_plan(str(json_fpath), level_name)
+    except Exception as e:
+        log.exception("qbiq design extraction failed")
+        return _err(str(e))
+    return _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None)
 
 
 @app.route("/api/upload-3d", methods=["POST"])
@@ -365,9 +424,11 @@ def upload_3d():
     other = _other_obstacle_polylines(geo)
     if other:
         _LAST_OTHER_OBSTACLES["ifc"] = other
+    # A loaded design plan is kept: plan routing reads only its own corridor and
+    # columns, never these IFC caches, so an IFC changes nothing it routes on.
     global _UPLOAD_GENERATION
     _UPLOAD_GENERATION += 1
-    _LAST_CIRC_GRAPH.clear()  # see upload(): old-generation entries are unreachable
+    _LAST_CIRC_GRAPH.clear()  # see _load_2d_geometry: old-generation entries are unreachable
 
     return jsonify({
         "geometry": {
@@ -393,6 +454,31 @@ def demo():
     return _load_2d_geometry(geo, clear_ifc=True)
 
 
+@app.route("/api/auto-tour", methods=["POST"])
+def auto_tour():
+    """Auto walkthrough of the loaded design plan."""
+    if (plan := _LAST_PLAN) is None:
+        return _err("Auto tour needs a qbiq design JSON to be loaded")
+    data = request.get_json(force=True) or {}
+    get_graph = partial(_plan_graph, plan)
+    try:
+        clearance_m, smoothing = float(data.get("clearance_m", 0.2)), float(data.get("smoothing", 1.0))
+        if (room_ids := data.get("room_ids")) is not None and not (
+                isinstance(room_ids, list) and all(isinstance(i, (str, int)) for i in room_ids)):
+            return _err("room_ids must be a list of room ids")
+        polygon, graph = first_graph(get_graph, clearance_m)
+        if graph is None:
+            return _err("The corridor is too narrow to route at this clearance")
+        return jsonify(build_tour(plan, graph, polygon, get_graph, room_types=data.get("room_types"),
+                                  room_ids=room_ids,
+                                  clearance_m=clearance_m, smoothing=smoothing))
+    except (CorridorBlocked, ValueError) as e:
+        return _err(str(e))
+    except Exception:
+        log.exception("Auto tour failed")
+        return _err("auto tour failed")
+
+
 @app.route("/api/autopath", methods=["POST"])
 def autopath():
     data  = request.get_json(force=True)
@@ -409,6 +495,25 @@ def autopath():
         points = [start, end]
     else:
         return _err("start and end points are required")
+    # A caller that supplies its own geometry in the request body is by
+    # definition NOT routing against the server's cached floor plan, and the
+    # corridor graph is built from (and cached against) that server-side
+    # cache alone — so honoring explicit geometry means skipping the plan
+    # router and the graph engine entirely and using grid A*, which takes the
+    # geometry as arguments. Without this, explicit geometry was silently
+    # ignored and the route came back computed against whatever file was
+    # uploaded last.
+    explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
+    if (plan := _LAST_PLAN) is not None and not explicit_geometry:
+        try:
+            return jsonify(route_on_plan(plan, points, partial(_plan_graph, plan),
+                                         clearance_m=float(data.get("clearance_m", 0.2)),
+                                         smoothing=float(data.get("smoothing", 1.0))))
+        except CorridorBlocked as e:
+            return _err(str(e))
+        except Exception:
+            log.exception("Plan routing failed")
+            return _err("plan routing failed")
     # Obstacles (walls + columns + furniture, from both the DXF and any IFC
     # loaded alongside it) are cached server-side from the last upload —
     # sending them again from the client would mean re-transferring tens of
@@ -427,15 +532,6 @@ def autopath():
     doors = data.get("doors") or (_LAST_DOORS["dxf"] + _LAST_DOORS["ifc"])
 
     clearance_m = float(data.get("clearance_m", 0.2))
-
-    # A caller that supplies its own geometry in the request body is by
-    # definition NOT routing against the server's cached floor plan, and the
-    # corridor graph is built from (and cached against) that server-side
-    # cache alone — so honoring explicit geometry means skipping the graph
-    # engine entirely and using grid A*, which takes the geometry as
-    # arguments. Without this, explicit geometry was silently ignored and the
-    # route came back computed against whatever file was uploaded last.
-    explicit_geometry = bool(data.get("walls") or data.get("footprint") or data.get("doors"))
 
     # Corridor-graph routing (primary): a real corridor-centerline graph
     # instead of grid A*'s hand-tuned distance-transform corridor bias — see
@@ -472,7 +568,10 @@ def smooth_preview_route():
     data = request.get_json(force=True)
     wpts         = data.get("waypoints", [])
     smoothing    = float(data.get("smoothing", 1.0))
-    uturn_radius = float(data.get("uturn_radius", 0.0))
+    try:
+        uturn_radius = float(data.get("uturn_radius", 0.0)) / _units(data)   # UI radius is metres
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
     if len(wpts) < 2:
         return jsonify({"spline": wpts})
     spline = smooth_preview(wpts, smoothing=smoothing, uturn_radius=uturn_radius)
@@ -481,90 +580,55 @@ def smooth_preview_route():
 
 @app.route("/api/process-route", methods=["POST"])
 def process():
+    """Preview frames (house-style keyframes interpolated at fps) plus speed/head-turn warnings."""
     data = request.get_json(force=True)
-    wpts = data.get("waypoints", [])
-    cuts = data.get("cuts", [])
+    wpts, cuts = data.get("waypoints", []), data.get("cuts", [])
     if len(wpts) < 2:
         return _err("Need at least 2 waypoints")
-
-    settings = {
-        "camera_height": float(data.get("camera_height", 1.7)),
-        "smoothing":     float(data.get("smoothing", 1.0)),
-        "duration":      float(data.get("duration", 30.0)),
-        "fps":           float(data.get("fps", 30.0)),
-        "fov":           float(data.get("fov", 90.0)),
-        "level":         data.get("level", "L-0"),
-    }
-
     try:
-        frames = process_route(
-            waypoints=[(p[0], p[1]) for p in wpts],
-            camera_height=settings["camera_height"],
-            smoothing=settings["smoothing"],
-            total_duration=settings["duration"],
-            fps=settings["fps"],
-            fov=settings["fov"],
-            cuts=cuts,
-        )
+        settings = {"smoothing": float(data.get("smoothing", 1.0)), "duration": float(data.get("duration", 30.0)),
+                    "fps": float(data.get("fps", 30.0)), "fov": float(data.get("fov", 90.0)),
+                    "level": data.get("level", "L-0")}
+        plan = _camera_plan(wpts, cuts, data)
+        frames = interpolate(plan, settings["fps"], settings["fov"])
     except Exception as e:
+        log.exception("process-route failed")
         return _err(str(e))
-
     return jsonify({
         "frame_count": len(frames),
         "settings": settings,
-        "frames": [
-            {"t": f.t, "x": f.x, "y": f.y, "z": f.z,
-             "yaw": f.yaw, "pitch": f.pitch, "fov": f.fov, "cut": bool(f.cut)}
-            for f in frames
-        ],
+        "warnings": plan.warnings,
+        "frames": [{"t": f.t, "x": f.x, "y": f.y, "z": f.z, "yaw": f.yaw, "pitch": f.pitch, "fov": f.fov,
+                    "cut": bool(f.cut)} for f in frames],
     })
 
 
 @app.route("/api/export/json", methods=["POST"])
 def export_json():
+    """Route JSON with interpolated frames (round-trips through re-import)."""
     data = request.get_json(force=True)
-    wpts     = data.get("waypoints", [])
-    cuts     = data.get("cuts", [])
-    settings = data.get("settings", {})
-
-    frames = process_route(
-        waypoints=wpts,   # pass full triples [x, y, yaw_offset]
-        camera_height=1.75,
-        smoothing=float(settings.get("smoothing", 1.0)),
-        total_duration=float(settings.get("duration", 30.0)),
-        fps=float(settings.get("fps", 30.0)),
-        fov=float(settings.get("fov", 90.0)),
-        uturn_radius=float(settings.get("uturn_radius", 0.0)),
-        cuts=cuts,
-    )
-    settings = {**settings, "cuts": cuts}  # round-trips through JSON re-import
-    out = to_json(frames, wpts, settings)
+    wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    try:
+        frames = interpolate(_camera_plan(wpts, cuts, settings), float(settings.get("fps", 30.0)),
+                             float(settings.get("fov", 90.0)))
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
+    out = to_json(frames, wpts, {**settings, "cuts": cuts})
     return app.response_class(out, mimetype="application/json",
-                               headers={"Content-Disposition":
-                                        'attachment; filename="route.json"'})
+                              headers={"Content-Disposition": 'attachment; filename="route.json"'})
 
 
 @app.route("/api/export/xml", methods=["POST"])
 def export_xml():
+    """Enscape VideoPath XML with the house-style keyframes."""
     data = request.get_json(force=True)
-    wpts     = data.get("waypoints", [])
-    cuts     = data.get("cuts", [])
-    settings = data.get("settings", {})
-
-    frames = process_route(
-        waypoints=wpts,   # pass full triples [x, y, yaw_offset]
-        camera_height=1.75,
-        smoothing=float(settings.get("smoothing", 1.0)),
-        total_duration=float(settings.get("duration", 30.0)),
-        fps=float(settings.get("fps", 30.0)),
-        fov=float(settings.get("fov", 90.0)),
-        uturn_radius=float(settings.get("uturn_radius", 0.0)),
-        cuts=cuts,
-    )
-    out = to_enscape_xml(frames, wpts, settings)
+    wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    try:
+        out = to_enscape_xml(_camera_plan(wpts, cuts, settings), settings)
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
     return app.response_class(out, mimetype="application/xml",
-                               headers={"Content-Disposition":
-                                        'attachment; filename="enscape_walkpath.xml"'})
+                              headers={"Content-Disposition": 'attachment; filename="enscape_walkpath.xml"'})
 
 
 # ── run ───────────────────────────────────────────────────────────────────────

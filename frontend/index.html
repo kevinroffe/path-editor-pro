@@ -689,6 +689,41 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
 .link-btn:hover { text-decoration: underline; }
 .cam-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--r); background: var(--amber-lt); color: #6b4600; font-size: 13px; line-height: 1.45; }
 .cam-warnings[hidden] { display: none; }
+body[data-step="4"] .p3d-bar { display: none; }
+.p3d-hud {
+  position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-radius: 8px; background: rgba(30,36,48,.82); color: #fff; font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+#p3d-hud-time { left: 12px; top: 12px; }
+#p3d-hud-theme { right: 12px; top: 12px; }
+body:not([data-step="4"]) .p3d-hud { display: none; }
+.p3d-hud .rec { width: 8px; height: 8px; border-radius: 999px; background: #e5484d; }
+.title-card {
+  position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; pointer-events: none;
+  visibility: hidden; opacity: 0; transition: opacity .35s, visibility 0s linear .35s;
+}
+.title-card.show { visibility: visible; opacity: 1; transition: opacity .35s, visibility 0s; }
+.title-card img { max-height: 72px; max-width: 50%; }
+.title-card img.invert { filter: invert(1); }
+.title-card img[hidden], .title-card div:empty { display: none; }
+.tc-name { font-size: clamp(22px, 3vw, 40px); font-weight: 700; line-height: 1.2; }
+.tc-line { font-size: clamp(14px, 1.5vw, 20px); opacity: .8; }
+.vtl { flex-shrink: 0; position: relative; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: var(--surface); border-top: 1px solid var(--border); }
+body[data-step="4"] .vtl { padding-bottom: 92px; }
+.vtl-top { display: flex; align-items: center; gap: 10px; }
+.vtl-note { margin-left: auto; font-size: 12px; color: var(--text2); }
+.vtl-lane { display: flex; align-items: center; gap: 8px; }
+.vtl-name { width: 52px; flex: none; font-size: 11px; font-weight: 600; color: var(--text2); }
+.vtl-track { flex: 1; min-width: 0; height: 30px; display: flex; gap: 2px; cursor: pointer; touch-action: none; }
+.vtl-block { min-width: 2px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; }
+.vtl-block.walk { background: var(--blue-lt); border: 1px solid var(--blue-md); }
+.vtl-block.intro, .vtl-block.outro { background: var(--dark); color: #fff; }
+.vtl-block.fade { background: linear-gradient(90deg, var(--blue-lt), var(--dark) 50%, var(--blue-lt)); color: #fff; font-size: 10px; }
+#vtl-music svg { width: 100%; height: 100%; display: block; }
+.vtl-playhead { position: absolute; width: 2px; background: var(--blue); pointer-events: none; border-radius: 1px; }
+body:not([data-step="4"]) .vtl-lane, body:not([data-step="4"]) .vtl-note, body:not([data-step="4"]) .vtl-playhead { display: none; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -899,27 +934,35 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
     <div class="p3d-canvas-wrap">
       <canvas id="preview-canvas"></canvas>
       <div class="p3d-fade" id="p3d-fade"></div>
+      <div class="p3d-hud" id="p3d-hud-time"><span class="rec"></span><span id="p3d-hud-time-text">Preview · 0:00 / 0:00</span></div>
+      <div class="p3d-hud" id="p3d-hud-theme"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span id="p3d-hud-theme-text"></span></div>
+      <div class="title-card" id="title-card" aria-live="polite"><img id="tc-logo" alt=""/><div class="tc-name" id="tc-name"></div><div class="tc-line" id="tc-line"></div></div>
       <div class="p3d-empty" id="p3d-empty">
         <div style="font-size:40px;opacity:.18">🎥</div>
         <div>Load a floor plan, draw a path,<br>then click <strong>Load Path</strong> above</div>
       </div>
     </div>
-    <div class="p3d-controls">
-      <button class="p3d-play-btn" id="p3d-play" onclick="togglePlay3D()" disabled>▶</button>
-      <span class="p3d-time" id="p3d-time">0:00 / 0:30</span>
-      <div class="p3d-speed-row">
-        <span>Speed</span>
-        <input type="range" id="p3d-speed-inp" min="0.25" max="4" step="0.25" value="1"
-               oninput="setPreviewSpeed(this.value)"/>
-        <span class="p3d-speed-val" id="p3d-speed-val">1×</span>
+    <section class="vtl" id="video-timeline" aria-label="Video timeline">
+      <div class="vtl-top">
+        <button class="p3d-play-btn" id="p3d-play" onclick="togglePlay3D()" disabled aria-label="Play or pause">▶</button>
+        <span class="p3d-time" id="p3d-time">0:00 / 0:00</span>
+        <div class="p3d-speed-row" style="margin-left:12px">
+          <span>Speed</span>
+          <input type="range" id="p3d-speed-inp" min="0.25" max="4" step="0.25" value="1" oninput="setPreviewSpeed(this.value)" aria-label="Playback speed"/>
+          <span class="p3d-speed-val" id="p3d-speed-val">1×</span>
+        </div>
+        <span class="vtl-note">Logo, music and fades are preview only, never in the Enscape XML</span>
       </div>
-    </div>
+      <div class="vtl-lane"><span class="vtl-name">Video</span><div class="vtl-track" id="vtl-video"></div></div>
+      <div class="vtl-lane"><span class="vtl-name">Music</span><div class="vtl-track" id="vtl-music"></div></div>
+      <div class="vtl-playhead" id="vtl-playhead" aria-hidden="true"></div>
+    </section>
   </div>
 
   <!-- STEP 4 · PREVIEW & EXPORT -->
   <aside class="step-panel step-panel-right" id="step-4" aria-label="Preview and export">
-    <div class="sp-sub">Export</div>
-    <button class="export-btn is-primary" id="btn-xml" onclick="exportRoute('xml')" disabled title="Export the walkthrough as an Enscape camera path">Export Enscape XML</button>
+    <div class="sp-sub">Save</div>
+    <p class="sp-help">The dock's <strong>Export Enscape XML</strong> button makes the camera path. Save the path as .json to continue it later, with its title, music and fades.</p>
     <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the path as JSON to continue later">Save path JSON</button>
   </aside>
 </div>
@@ -976,6 +1019,10 @@ const state = {
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
+
+function safeStorage() { try { return window.localStorage; } catch { return null; } }
+state.video = defaultVideo();
+state.brand = loadBrandPrefs(safeStorage());
 
 let svgEl = null, gRoot = null, zoom = null;
 
@@ -2162,8 +2209,8 @@ function showHeaderHint(msg, type) {
 }
 
 /* ── Export ── */
-function enableExport()  { const ok = state.waypoints.length>=2; document.getElementById('btn-json').disabled=!ok; document.getElementById('btn-xml').disabled=!ok; renderDock(); }
-function disableExport() { document.getElementById('btn-json').disabled=true; document.getElementById('btn-xml').disabled=true; renderDock(); }
+function enableExport()  { document.getElementById('btn-json').disabled = state.waypoints.length < 2; renderDock(); }
+function disableExport() { document.getElementById('btn-json').disabled = true; renderDock(); }
 
 /* ── Guided steps ── */
 const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoints.length });
@@ -2178,6 +2225,15 @@ function goStep(n) {
   if (want3D !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
   renderDock();
   renderTourSelection();
+  if (n === 4) {
+    if (window.AudioContext) musicPlayer().prime();
+    if (!p3.frames.length || p3.framesSig !== previewSig()) loadPreviewFrames();
+    else rebuildTimeline();
+  } else {
+    _music?.stop();
+    if (n === 3 && p3.frames.length) rebuildTimeline();
+  }
+  if (n >= 3) requestAnimationFrame(resize3D);
   if (n !== 4 && state.loaded) requestAnimationFrame(fitView);
 }
 
@@ -2222,6 +2278,7 @@ async function exportRoute(fmt) {
     level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
+    ...(fmt === 'json' ? { video: state.video } : {}),
   };
   showLoading('Building your path…');
   try {
@@ -2301,6 +2358,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') goStep(state.step + 1);
     if (e.key === 'ArrowLeft')  goStep(state.step - 1);
   }
+  if (e.key === ' ' && state.step === 4 && !e.target.matches('input, textarea, select, button')) { e.preventDefault(); togglePlay3D(); }
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
   if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
@@ -2398,7 +2456,7 @@ function syncCeiling() {
   const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
   threeScene.traverse(o => { if (o.userData.ceiling) o.visible = inside; });
 }
-const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
+const p3 = { playing: false, speed: 1.0, t: 0, tl: 0, frames: [], lastTime: null, duration: 30, cutTimes: [], timeline: null, dists: [] };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
 function fadeOpacityAt(t) {
@@ -2687,23 +2745,18 @@ function resize3D() {
 function render3DLoop(now) {
   threeAnimId = requestAnimationFrame(render3DLoop);
 
-  if (p3.playing && p3.frames.length >= 2) {
+  if (p3.playing && p3.timeline && p3.frames.length >= 2) {
     if (p3.lastTime != null) {
-      const dt = (now - p3.lastTime) / 1000;
-      p3.t += dt * p3.speed / p3.duration;
-      if (p3.t > 1) p3.t = 0;
+      p3.tl += (now - p3.lastTime) / 1000 * p3.speed;
+      if (p3.tl >= p3.timeline.total) { p3.tl = 0; syncMusic(); }
     }
     p3.lastTime = now;
-    updateCameraFromT(p3.t);
-    updatePlaybackDisplay();
   } else if (!p3.playing) {
     p3.lastTime = null;
   }
 
   threeLabels.forEach(s => { s.visible = !p3.playing; });
-
-  const fadeEl = document.getElementById('p3d-fade');
-  if (fadeEl) fadeEl.style.opacity = fadeOpacityAt(p3.t);
+  applyTimeline();
 
   if (threeRenderer && threeScene && threeCam) {
     syncCeiling();
@@ -2743,12 +2796,117 @@ function updateCameraFromT(t) {
 
 /* Update the time readout */
 function updatePlaybackDisplay() {
-  const el = document.getElementById('p3d-time');
-  if (!el) return;
-  const cur = p3.t * p3.duration;
-  const tot = p3.duration;
-  const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-  el.textContent = `${fmt(cur)} / ${fmt(tot)}`;
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const tot = p3.timeline?.total ?? p3.duration, text = `${fmt(p3.tl)} / ${fmt(tot)}`;
+  document.getElementById('p3d-time').textContent = text;
+  document.getElementById('p3d-hud-time-text').textContent = `Preview · ${text}`;
+  document.getElementById('p3d-hud-theme-text').textContent = THEMES.find(t => t.id === state.video.theme)?.name || '';
+}
+
+/* ── Video timeline (preview only) ── */
+const LANE_LABEL = { intro: 'Intro', outro: 'Outro', fade: 'Fade' };
+const walkOnlyTimeline = walk => ({ total: walk, walkSeconds: walk, blocks: [{ kind: 'walk', start: 0, end: walk, walkFrom: 0, walkTo: walk }] });
+const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w.cutAfter, w.stop?.pan, w.stop?.dwell_s, w.yawOffset, w.timeOfDay]), cam]);
+
+/* Step 4 plays title cards, fades and music around the walk; step 3 plays the walk alone. */
+function rebuildTimeline() {
+  if (!p3.frames.length) return;
+  p3.dists = routeDistances(p3.frames, state.unitsToMetres || 1);
+  p3.timeline = state.step === 4
+    ? buildTimeline({ dists: p3.dists, walkSeconds: p3.duration, fades: state.video.fades })
+    : walkOnlyTimeline(p3.duration);
+  p3.tl = Math.min(p3.tl, p3.timeline.total);
+  renderTimelineLanes();
+  applyTimeline();
+  syncMusic();
+}
+
+function seekTimeline(s) {
+  if (!p3.timeline) return;
+  p3.tl = Math.min(p3.timeline.total, Math.max(0, s));
+  p3.lastTime = null;
+  applyTimeline();
+  syncMusic();
+}
+
+/* Camera, black fades, title card and readouts for the current timeline second. */
+function applyTimeline() {
+  if (!p3.timeline || p3.frames.length < 2) return;
+  const s = sampleTimeline(p3.timeline, p3.tl);
+  p3.t = p3.timeline.walkSeconds ? s.walkS / p3.timeline.walkSeconds : 0;
+  updateCameraFromT(p3.t);
+  document.getElementById('p3d-fade').style.opacity = Math.max(s.black, fadeOpacityAt(p3.t));
+  showTitleCard(state.step === 4 ? s.card : null);
+  updatePlaybackDisplay();
+  placePlayhead();
+}
+
+function showTitleCard(kind) {
+  const el = document.getElementById('title-card');
+  el.classList.toggle('show', !!kind);
+  if (!kind) return;
+  const v = state.video, b = state.brand, colour = CARD_COLOURS.find(c => c.id === b.colour) || CARD_COLOURS[0];
+  const sig = JSON.stringify([kind, v.name, v.tagline, v.outro, b.logo, colour.id]);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.style.background = colour.hex;
+  el.style.color = colour.id === 'sand' ? '#1f2733' : '#ffffff';
+  const img = document.getElementById('tc-logo');
+  img.src = b.logo || 'frontend/img/qbiq-logo.svg';
+  img.classList.toggle('invert', !b.logo && colour.id !== 'sand');
+  document.getElementById('tc-name').textContent = v.name;
+  document.getElementById('tc-line').textContent = kind === 'outro' ? v.outro : v.tagline;
+}
+
+function renderTimelineLanes() {
+  const tl = p3.timeline; if (!tl) return;
+  document.getElementById('vtl-video').innerHTML = tl.blocks.map(b =>
+    `<div class="vtl-block ${b.kind}" data-kind="${b.kind}" style="flex:${(b.end - b.start).toFixed(3)} 0 0">${LANE_LABEL[b.kind] || ''}</div>`).join('');
+  const N = 120, amp = [...Array(N + 1)].map((_, i) => {
+    const t = (i / N) * tl.total;
+    const g = musicGain(t, tl.total) * intensityAt(state.video.theme, t, tl.total);
+    return g * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.37)));
+  });
+  const top = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 - a * 13).toFixed(2)}`);
+  const bottom = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 + a * 13).toFixed(2)}`).reverse();
+  document.getElementById('vtl-music').innerHTML = `<svg viewBox="0 0 1000 30" preserveAspectRatio="none" role="img" aria-label="Music level over the video">
+    <polygon points="${top.concat(bottom).join(' ')}" fill="var(--blue)" fill-opacity=".22" stroke="var(--blue)" stroke-opacity=".5" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function placePlayhead() {
+  const tl = p3.timeline, ph = document.getElementById('vtl-playhead');
+  if (!tl || state.step !== 4) return;
+  const sec = document.getElementById('video-timeline').getBoundingClientRect();
+  const track = document.getElementById('vtl-video').getBoundingClientRect();
+  const music = document.getElementById('vtl-music').getBoundingClientRect();
+  ph.style.left = `${track.left - sec.left + track.width * (p3.tl / tl.total)}px`;
+  ph.style.top = `${track.top - sec.top - 4}px`;
+  ph.style.height = `${music.bottom - track.top + 8}px`;
+}
+
+/* Click or drag on the lanes to scrub. */
+['vtl-video', 'vtl-music'].forEach(id => {
+  const el = document.getElementById(id);
+  const seekAt = e => {
+    if (!p3.timeline) return;
+    const r = el.getBoundingClientRect();
+    seekTimeline(((e.clientX - r.left) / r.width) * p3.timeline.total);
+  };
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); seekAt(e); });
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) seekAt(e); });
+});
+
+let _music = null;
+const musicPlayer = () => (_music ||= createMusicPlayer());
+
+/* Music plays in step 4 at normal speed, in time with the preview. */
+function syncMusic() {
+  const on = state.step === 4 && p3.playing && p3.timeline && p3.speed === 1 && !!window.AudioContext;
+  if (!on) { _music?.stop(); return; }
+  const m = musicPlayer();
+  m.setTheme(state.video.theme);
+  m.setVolume(state.video.volume);
+  m.start(p3.tl, p3.timeline.total);
 }
 
 /* Fetch camera frames from server and start animation */
@@ -2783,11 +2941,14 @@ async function loadPreviewFrames() {
     renderCamWarnings(data.warnings || []);
     p3.frames   = data.frames;
     p3.framesKey = routeKey();
+    p3.framesSig = previewSig();
     p3.duration = cam.dur;
     p3.t        = 0;
+    p3.tl       = 0;
     p3.playing  = true;
     p3.lastTime = null;
     p3.cutTimes = data.frames.filter(f => f.cut).map(f => f.t);
+    rebuildTimeline();
 
     document.getElementById('p3d-play').disabled = false;
     updatePlayBtn();
@@ -2805,6 +2966,7 @@ function togglePlay3D() {
   p3.playing = !p3.playing;
   p3.lastTime = null;
   updatePlayBtn();
+  syncMusic();
 }
 
 function updatePlayBtn() {
@@ -2820,6 +2982,7 @@ function setPreviewSpeed(v) {
   // Update slider fill
   const inp = document.getElementById('p3d-speed-inp');
   if (inp) updateSliderFill(inp);
+  syncMusic();
 }
 
 /* Show/hide empty-state overlay in 3D panel */

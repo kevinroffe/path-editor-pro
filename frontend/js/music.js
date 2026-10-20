@@ -143,6 +143,11 @@ function createMusicPlayer(makeContext = () => new AudioContext()) {
       if (run) begin(run.atS + (ctx.currentTime - run.ctxStart), run.totalS, run.envelope);
     },
     setVolume(v) { volume = Math.min(1, Math.max(0, v)); },
+    /* Create and resume the audio context inside a user gesture, so later playback is allowed. */
+    prime() {
+      ensure();
+      if (ctx.state === 'suspended') ctx.resume();
+    },
     start(atS, totalS) {
       const gainAt = typeof musicGain === 'function' ? musicGain : () => 1;
       begin(atS, totalS, t => gainAt(t, totalS));

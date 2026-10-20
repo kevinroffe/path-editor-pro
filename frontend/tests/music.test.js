@@ -63,3 +63,12 @@ test('starting mid-video picks up the right bar', () => {
   assert.ok(hz.includes(Math.round(M.midiToHz(57))));
   assert.ok(!hz.includes(Math.round(M.midiToHz(71))), 'no bar-1 chord tones');
 });
+
+test('prime unlocks audio once without playing anything', () => {
+  let made = 0;
+  const ctx = fakeContext(), player = M.createMusicPlayer(() => { made++; return ctx; });
+  player.prime(); player.prime();
+  assert.equal(made, 1);
+  assert.equal(ctx.starts.length, 0);
+  assert.equal(player.playing, false);
+});

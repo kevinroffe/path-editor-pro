@@ -316,16 +316,6 @@ body {
 .wp-yaw-line  { stroke: #d97706; stroke-linecap: round; pointer-events: none; }
 .fh-preview   { fill: none; stroke: #f97316; opacity: .75; stroke-linecap: round; pointer-events: none; }
 
-/* ── Bottom toolbar ───────────────────────────────────────────── */
-.toolbar {
-  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 4px;
-  background: rgba(255,255,255,.9);
-  border: 1px solid var(--border);
-  border-radius: var(--r); padding: 5px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
-}
 .tb-btn {
   width: 34px; height: 34px; border-radius: 9px; border: none;
   background: transparent; color: var(--text2); cursor: pointer;
@@ -347,7 +337,6 @@ body {
 .room-hit { fill: transparent; pointer-events: all; }
 .room-hit:hover { fill: rgba(47,107,255,.06); }
 .room-label { fill: var(--text2); text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: 600; font-family: inherit; }
-#plan-layer.labels-off .room-label { display: none; }
 .room-tip {
   position: fixed; z-index: 120; pointer-events: none; min-width: 140px; max-width: 240px; padding: 8px 10px;
   background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
@@ -384,7 +373,6 @@ body {
 .check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); cursor: pointer; }
 .wp-dwell { width: 44px; font-size: 10px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 5px; }
 .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-.tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
 
 /* ── Empty state ──────────────────────────────────────────────── */
 .empty-state {
@@ -564,7 +552,6 @@ body {
 .brand-sep { width: 1px; height: 22px; background: var(--border); }
 .brand-name { font-weight: 700; font-size: 15px; }
 .plan-name { font-size: 13px; color: var(--text2); }
-.toolbar { top: 14px; bottom: auto; }
 .toast-container { bottom: 96px; }
 
 .step-panel { display: none; }
@@ -880,22 +867,14 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
         Choose a <strong>qbiq design .json</strong> on the left<br/>
-        — or <strong>drag &amp; drop</strong> the file here
+        — or <strong>drag &amp; drop</strong> the file here<br/>
+        Scroll to zoom · middle-drag to pan · double-click to fit
       </div>
     </div>
 
     <div id="svg-wrap"></div>
     <div id="room-tip" class="room-tip" hidden></div>
 
-    <div class="toolbar">
-      <button class="tb-btn" title="Zoom in" onclick="zoomBy(1.3)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 4.3V8.7M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Zoom out" onclick="zoomBy(0.77)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Fit to screen" onclick="fitView()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 5V2C1 1.45 1.45 1 2 1H5M14 5V2C14 1.45 13.55 1 13 1H10M1 10V13C1 13.55 1.45 14 2 14H5M14 10V13C14 13.55 13.55 14 13 14H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn-auto active" id="btn-labels" hidden title="Show or hide room names" onclick="toggleLabels()">Labels</button>
-      <div class="tb-sep"></div>
-      <span class="tb-tip">scroll = zoom · middle click = pan</span>
-    </div>
 
     <section class="camera-strip" id="camera-strip" aria-label="What the camera will see" hidden>
       <div class="strip-head"><b>What the camera will see</b><span>Rendered from the 3D model at each room</span></div>
@@ -986,7 +965,6 @@ const state = {
   unitsToMetres: 1.0,
   source:        'demo',
   geometry:      null,
-  showLabels:    true,
   tourRooms:     [],
   step:          1,
   routeHandEdited: false,
@@ -1053,6 +1031,7 @@ function initD3(svgString) {
 
   d3.select(svgEl).call(zoom);
   svgEl.addEventListener('click',       handleClick);
+  svgEl.addEventListener('dblclick',    onCanvasDblClick);
   svgEl.addEventListener('click',       handleCanvasClick);
   svgEl.addEventListener('mousedown',   fhStart);
   svgEl.addEventListener('mousemove',   fhMove);
@@ -1085,7 +1064,6 @@ function renderPlanLayer() {
     .attr('x', r => r.label_point[0]).attr('y', r => r.label_point[1])
     .attr('font-size', r => Math.max(18, Math.min(60, Math.sqrt(r.area_m2) * 9)) * scale)
     .text(r => r.name);
-  g.classed('labels-off', !state.showLabels);
   renderTourSelection();
 }
 
@@ -1311,13 +1289,6 @@ function showRoomTip(e, r) {
 
 function hideRoomTip() { document.getElementById('room-tip').hidden = true; }
 
-function toggleLabels() {
-  state.showLabels = !state.showLabels;
-  document.getElementById('btn-labels').classList.toggle('active', state.showLabels);
-  d3.select('#plan-layer').classed('labels-off', !state.showLabels);
-  build3DLabels();
-}
-
 function updateInsertCursor(e) {
   if (state.mode !== 'waypoint' || !state.loaded || state.waypoints.length < 2) return;
   const m = s2m(e);
@@ -1330,7 +1301,6 @@ function s2m(ev) {
   return { x: (ev.clientX - r.left - t.x) / t.k, y: (ev.clientY - r.top - t.y) / t.k };
 }
 
-function zoomBy(f) { if (zoom) d3.select(svgEl).transition().duration(200).call(zoom.scaleBy, f); }
 
 function fitView() {
   if (!svgEl || !state.bounds) return;
@@ -1343,9 +1313,26 @@ function fitView() {
     .call(zoom.transform, d3.zoomIdentity.translate(r.width/2 - cx*k, r.height/2 - cy*k).scale(k));
 }
 
+const CLICK_DELAY_MS = 250;
+let _pendingClicks = [];
+
+/* Plan clicks act after a short wait, so the two clicks of a double-click never pick or draw. */
 function handleClick(e) {
-  if (!state.loaded || e.button !== 0 || state.step !== 2) return;
+  if (!state.loaded || e.button !== 0 || state.step !== 2 || e.detail > 1) return;
   if (e.target?.classList.contains('wp-dot')) return;
+  const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
+  const id = setTimeout(() => { _pendingClicks = _pendingClicks.filter(p => p !== id); actOnClick(ev); }, CLICK_DELAY_MS);
+  _pendingClicks.push(id);
+}
+
+function onCanvasDblClick(e) {
+  e.preventDefault();
+  _pendingClicks.forEach(clearTimeout);
+  _pendingClicks = [];
+  fitView();
+}
+
+function actOnClick(e) {
   if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
   if (state.mode !== 'waypoint') return;
@@ -2154,7 +2141,6 @@ function applyFloorPlan(data) {
   }
   state.plan = data.plan || null;
   state.tourRooms = [];
-  document.getElementById('btn-labels').hidden = !state.plan;
   initD3(data.svg); resetRoute();
   state.routeHandEdited = false;
   renderPickList();
@@ -2669,7 +2655,7 @@ function build3DGeometry() {
 function build3DLabels() {
   threeLabels.forEach(s => { threeScene?.remove(s); s.material.map.dispose(); s.material.dispose(); });
   threeLabels = [];
-  if (!threeScene || !state.plan || !state.showLabels) return;
+  if (!threeScene || !state.plan) return;
   const u = state.unitsToMetres || 1;
   state.plan.rooms.forEach(r => {
     const c = document.createElement('canvas'); c.width = 512; c.height = 128;

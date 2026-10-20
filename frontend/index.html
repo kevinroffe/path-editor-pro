@@ -630,6 +630,55 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
   display: flex; align-items: center; gap: 8px;
 }
 .dock-next:hover:not(:disabled) { background: var(--blue-dk); }
+.step-panel-left { padding-bottom: 96px; }
+.quick-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+  min-height: 34px; padding: 0 12px; border: 1px solid var(--border2); border-radius: 999px;
+  background: var(--surface); color: var(--text); font: 500 13px/1 inherit; cursor: pointer;
+}
+.pill:hover { border-color: var(--blue); color: var(--blue-dk); }
+.pick-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.pick-list li {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px;
+  border: 1px solid var(--border); border-radius: var(--r); background: var(--surface);
+}
+.pick-list li.dragging { opacity: .5; }
+.pick-list li.drop-target { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(47,107,255,.15); }
+.pick-grip { color: #b3b9c3; cursor: grab; display: flex; }
+.pick-n {
+  flex: none; width: 26px; height: 26px; border-radius: 999px; background: var(--blue); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+}
+.pick-body { flex: 1; min-width: 0; }
+.pick-name { display: block; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-meta { display: block; color: var(--text2); font-size: 12px; }
+.pick-tag {
+  flex: none; border: none; cursor: pointer; font: 600 11px/1 inherit; padding: 6px 9px;
+  border-radius: 999px; background: var(--blue-lt); color: var(--blue-dk);
+}
+.pick-tag.on { background: var(--amber-lt); color: #6b4600; }
+.pick-tag:disabled { opacity: .5; cursor: default; }
+.pick-x {
+  flex: none; width: 28px; height: 28px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text2); font-size: 16px; cursor: pointer;
+}
+.pick-x:hover { background: var(--surface2); color: var(--text); }
+.pick-empty { color: var(--text2); font-size: 13px; padding: 14px; border: 1px dashed var(--border2); border-radius: var(--r); text-align: center; }
+.tour-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tour-stats div { padding: 8px 10px; border-radius: var(--r); background: var(--bg); }
+.tour-stats dt { font-size: 11px; color: var(--text2); }
+.tour-stats dd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.warn-box { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--amber-lt); color: #6b4600; font-size: 13px; line-height: 1.5; }
+.warn-box[hidden] { display: none; }
+.tour-status { font-size: 12px; color: var(--text2); min-height: 16px; }
+.hand-edit { border: 1px solid var(--border); border-radius: var(--r); background: var(--bg); }
+.hand-edit summary { cursor: pointer; padding: 10px 12px; font-weight: 600; font-size: 13px; }
+.hand-edit[open] summary { border-bottom: 1px solid var(--border); }
+.hand-edit .panel-inner { padding: 8px; }
+#step-2 .panel-inner { flex: none; overflow: visible; }
+.hand-edit-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.start-marker rect { fill: var(--dark); }
+.start-marker text { fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -675,8 +724,33 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
   </aside>
 
   <!-- STEP 2 · ROOMS & ROUTE -->
-  <aside class="panel step-panel" id="step-2" aria-label="Rooms and route">
+  <aside class="step-panel step-panel-left" id="step-2" aria-label="Rooms and route">
+    <div>
+      <div class="sp-eyebrow">Step 2 of 4</div>
+      <h1 class="sp-title">Which rooms should the tour show?</h1>
+      <p class="sp-help">Click rooms on the plan in the order you want to visit them. The walk starts at the main entrance and follows the corridors.</p>
+    </div>
+    <div class="quick-add" role="group" aria-label="Quick add">
+      <button type="button" class="pill" data-quick="offices" onclick="quickAddGroup('offices')">+ All offices</button>
+      <button type="button" class="pill" data-quick="meeting" onclick="quickAddGroup('meeting')">+ Meeting rooms</button>
+      <button type="button" class="pill" data-quick="amenities" onclick="quickAddGroup('amenities')">+ Amenities</button>
+    </div>
+    <ol class="pick-list" id="pick-list" aria-label="Rooms in visiting order"></ol>
+    <div class="tour-status" id="tour-msg" aria-live="polite"></div>
+    <dl class="tour-stats" id="tour-stats">
+      <div><dt>Rooms</dt><dd id="st-rooms">0</dd></div>
+      <div><dt>Walk</dt><dd id="st-walk">–</dd></div>
+      <div><dt>Length</dt><dd id="st-len">–</dd></div>
+      <div><dt>Pace</dt><dd id="st-pace">–</dd></div>
+    </dl>
+    <div class="warn-box" id="tour-warn" hidden></div>
+    <details class="hand-edit" id="hand-edit" ontoggle="onHandEditToggle()">
+      <summary>Edit route by hand</summary>
     <div class="panel-inner">
+      <div class="hand-edit-tools">
+        <button class="tb-btn-auto" id="btn-autopath" title="Click a start point, three via points and an end point — a path around walls is drawn for you" onclick="generateAutoPath()">Smart Path</button>
+        <button class="tb-btn-auto" title="Undo (Ctrl+Z)" onclick="undoLast()">Undo</button>
+      </div>
 
       <!-- DRAW MODE -->
       <div class="section">
@@ -722,6 +796,9 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
         </div>
       </div>
 
+    </div>
+    </details>
+    <div class="panel-inner">
       <!-- VIDEO SETTINGS -->
       <div class="section">
         <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
@@ -817,25 +894,6 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
       <button class="tb-btn" title="Zoom out" onclick="zoomBy(0.77)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
       <button class="tb-btn" title="Fit to screen" onclick="fitView()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 5V2C1 1.45 1.45 1 2 1H5M14 5V2C14 1.45 13.55 1 13 1H10M1 10V13C1 13.55 1.45 14 2 14H5M14 10V13C14 13.55 13.55 14 13 14H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="tb-sep"></div>
-      <button class="tb-btn" title="Undo (Ctrl+Z)" onclick="undoLast()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4 4L1.5 6.5L4 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 6.5H9C11 6.5 12.5 8 12.5 9.5C12.5 11.2 11 12.5 9.5 12.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Clear all" onclick="clearWaypoints()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4H12M6 4V2.5C6 2 6.4 1.5 7 1.5H8C8.6 1.5 9 2 9 2.5V4M4.5 4V12C4.5 12.6 5 13 5.5 13H9.5C10 13 10.5 12.6 10.5 12V4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn-auto" id="btn-autopath" title="Click a start room and an end room — a path around walls is drawn for you" onclick="generateAutoPath()">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11.5" cy="3" r="1.6" fill="currentColor"/><path d="M2.5 11C5 11 4 5 7 5S9 3 11.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
-        Smart Path
-      </button>
-      <span class="tour-wrap">
-        <button class="tb-btn-auto" id="btn-autotour" hidden title="Plan a tour through the rooms along the corridor" onclick="toggleTourPanel()">Auto Tour</button>
-        <div id="tour-panel" class="tour-panel" hidden>
-          <div class="tour-title">Rooms to visit</div>
-          <div class="tour-hint">Click rooms on the plan in the order you want to visit them</div>
-          <div id="tour-list"></div>
-          <button class="tb-btn-auto" onclick="clearTourRooms()">Clear</button>
-          <div id="tour-warn" class="tour-msg"></div>
-          <div id="tour-msg" class="tour-msg"></div>
-          <button class="tb-btn-auto" id="btn-gen-tour" onclick="generateTour()">Generate tour</button>
-        </div>
-      </span>
       <button class="tb-btn-auto active" id="btn-labels" hidden title="Show or hide room names" onclick="toggleLabels()">Labels</button>
       <div class="tb-sep"></div>
       <span class="tb-tip">scroll = zoom · middle click = pan</span>
@@ -928,6 +986,11 @@ const state = {
   showLabels:    true,
   tourRooms:     [],
   step:          1,
+  routeHandEdited: false,
+  durationTouched: false,
+  suggestedS:    null,
+  rebuildSeq:    0,
+  rebuildPending: false,
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
@@ -1022,7 +1085,7 @@ function renderPlanLayer() {
   renderTourSelection();
 }
 
-const tourPicking = () => !document.getElementById('tour-panel').hidden;
+const tourPicking = () => state.step === 2 && !!state.plan && !document.getElementById('hand-edit').open;
 
 /* Point-in-polygon (even-odd) in display space */
 function pointInPolygon(x, y, poly) {
@@ -1032,41 +1095,176 @@ function pointInPolygon(x, y, poly) {
   }, false);
 }
 
+const REBUILD_QUESTION = 'Rebuild the route from your rooms? Your hand edits will be lost.';
+const REBUILD_DEBOUNCE_MS = 400;
+
+/* Change the picked rooms; once the route was edited by hand, ask before throwing those edits away. */
+function changePicks(ids) {
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) { renderPickList(); return; }
+  state.tourRooms = ids;
+  renderTourSelection(); renderPickList(); scheduleRebuild();
+}
+
 function toggleTourRoom(e) {
   const m = s2m(e);
   const room = state.plan?.rooms.filter(r => pointInPolygon(m.x, m.y, r.polygon))
     .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
   if (!room) return;
-  const i = state.tourRooms.indexOf(room.id);
-  if (i < 0) state.tourRooms.push(room.id); else state.tourRooms.splice(i, 1);
-  renderTourSelection(); renderTourPanel();
+  const has = state.tourRooms.includes(room.id);
+  changePicks(has ? state.tourRooms.filter(id => id !== room.id) : [...state.tourRooms, room.id]);
 }
 
-function removeTourRoom(id) {
-  state.tourRooms = state.tourRooms.filter(r => r !== id);
-  renderTourSelection(); renderTourPanel();
+function removeTourRoom(id) { changePicks(state.tourRooms.filter(r => r !== id)); }
+function quickAddGroup(group) { if (state.plan) changePicks(quickAdd(state.plan.rooms, state.tourRooms, group)); }
+
+/* Move picked room `id` to just before `beforeId` (or to the end). */
+function movePick(id, beforeId) {
+  const rest = state.tourRooms.filter(r => r !== id);
+  const at = beforeId ? rest.indexOf(beforeId) : rest.length;
+  rest.splice(at < 0 ? rest.length : at, 0, id);
+  if (rest.join() !== state.tourRooms.join()) changePicks(rest);
 }
 
-function clearTourRooms() {
-  state.tourRooms = [];
-  renderTourSelection(); renderTourPanel();
+function adoptLoadedRoute() {
+  state.routeHandEdited = true;
+  state.tourRooms = pickListFromWaypoints(state.waypoints);
+  renderTourSelection(); renderPickList();
 }
 
-/* Selected rooms: tint + outline + numbered badge above the label, in the zoomed plan group */
+function markHandEdited() { state.routeHandEdited = true; renderTourSelection(); }
+
+/* Route cleared without counting as a hand edit (no rooms picked, new plan). */
+function resetRoute() {
+  state.waypoints = []; state.splineSegments = []; state.selectedWp = null;
+  renderRoute(); updateWpList(); disableExport(); renderTourStats();
+}
+
+function scheduleRebuild() {
+  clearTimeout(state.rebuildTimer);
+  state.rebuildPending = true;
+  document.getElementById('tour-msg').textContent = 'Updating the route…';
+  state.rebuildTimer = setTimeout(rebuildTour, REBUILD_DEBOUNCE_MS);
+}
+
+/* Plan the tour for the current picks; only the newest request's answer is applied. */
+async function rebuildTour() {
+  const seq = ++state.rebuildSeq, ids = [...state.tourRooms];
+  const msg = document.getElementById('tour-msg');
+  if (!ids.length) {
+    resetRoute(); state.routeHandEdited = false; state.rebuildPending = false; msg.textContent = '';
+    renderTourSelection(); renderPickList(); return;
+  }
+  try {
+    const res = await fetch(`${API}/api/auto-tour`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_ids: ids, smoothing: cam.smo }),
+    });
+    const data = await res.json();
+    if (seq !== state.rebuildSeq) return;
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const prev = state.waypoints;
+    applyRouteResult(data);
+    state.waypoints = carryStopSettings(prev, state.waypoints);
+    updateWpList();
+    state.routeHandEdited = false;
+    state.suggestedS = data.suggested_duration_s;
+    if (!state.durationTouched) setVideoLength(data.suggested_duration_s);
+    msg.textContent = data.unreachable.length ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
+  } catch (e) {
+    if (seq !== state.rebuildSeq) return;
+    msg.textContent = '';
+    toast('Couldn\'t plan the tour: ' + e.message, 'err');
+  }
+  state.rebuildPending = false;
+  renderTourSelection(); renderPickList(); renderTourStats();
+}
+
+/* Stand & look for the stop in room `id` (max MAX_PANS per video). */
+function toggleStopPan(id) {
+  const i = state.waypoints.findIndex(w => w.stop?.room_id === id);
+  if (i >= 0) setWpPan(i, !state.waypoints[i].stop.pan);
+}
+
+function renderPickList() {
+  const list = document.getElementById('pick-list');
+  if (!state.plan) { list.innerHTML = ''; return; }
+  if (!state.tourRooms.length) { list.innerHTML = '<li class="pick-empty">No rooms yet — click rooms on the plan.</li>'; renderTourStats(); return; }
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  const stops = new Map(state.waypoints.filter(w => w.stop).map(w => [w.stop.room_id, w.stop]));
+  list.innerHTML = state.tourRooms.map((id, i) => {
+    const r = byId.get(id), stop = stops.get(id), name = r?.name || 'Room';
+    return `<li draggable="true" data-id="${esc(id)}">
+      <span class="pick-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
+      <span class="pick-n">${i + 1}</span>
+      <span class="pick-body"><span class="pick-name">${esc(name)}</span><span class="pick-meta">${r ? `${r.area_m2.toFixed(1)} m²` : ''}</span></span>
+      <button type="button" class="pick-tag${stop?.pan ? ' on' : ''}" aria-pressed="${!!stop?.pan}" ${stop ? '' : 'disabled'}
+        title="Switch between a walk-by look and stopping to look around (max ${MAX_PANS} per video)"
+        onclick="toggleStopPan(${esc(JSON.stringify(id))})">${stop?.pan ? 'Stand &amp; look' : 'Look'}</button>
+      <button type="button" class="pick-x" aria-label="Remove ${esc(name)} from the tour" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button>
+    </li>`;
+  }).join('');
+  list.querySelectorAll('li[draggable]').forEach(li => {
+    li.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', li.dataset.id); li.classList.add('dragging'); });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('dragover', e => { e.preventDefault(); li.classList.add('drop-target'); });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-target'));
+    li.addEventListener('drop', e => { e.preventDefault(); li.classList.remove('drop-target'); movePick(e.dataTransfer.getData('text/plain'), li.dataset.id); });
+  });
+  renderTourWarnings(byId);
+  renderTourStats();
+}
+
+function renderTourWarnings(byId) {
+  const warned = new Map();
+  state.tourRooms.map(id => byId.get(id)).filter(r => r?.stop?.warning).forEach(r =>
+    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
+  const box = document.getElementById('tour-warn');
+  box.hidden = !warned.size;
+  box.textContent = [...warned].map(([w, names]) => `${names.join(', ')}: ${w}`).join(' · ');
+}
+
+const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+function routeLengthM() {
+  const w = state.waypoints, u = state.unitsToMetres || 1;
+  return w.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - w[i].x, p.y - w[i].y) * u, 0);
+}
+
+function renderTourStats() {
+  const len = routeLengthM(), has = state.waypoints.length >= 2;
+  document.getElementById('st-rooms').textContent = state.tourRooms.length;
+  document.getElementById('st-walk').textContent = has ? `${Math.round(len)} m` : '–';
+  document.getElementById('st-len').textContent = has ? fmtTime(cam.dur) : '–';
+  document.getElementById('st-pace').textContent = has ? `${(len / cam.dur).toFixed(1)} m/s` : '–';
+}
+
+function onHandEditToggle() {
+  if (document.getElementById('hand-edit').open && state.mode === 'autopath') setMode('waypoint');
+  renderTourSelection();
+}
+
+/* Picked rooms: tint + numbered badge in the zoomed plan, plus the start marker for a tour route (step 2 only). */
 function renderTourSelection() {
   d3.select('#tour-selection').remove();
   const layer = d3.select('#plan-layer');
-  if (layer.empty() || !tourPicking()) return;
+  if (layer.empty() || state.step !== 2) return;
   const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
   const sel = state.tourRooms.map((id, i) => ({ r: byId.get(id), n: i + 1 })).filter(d => d.r);
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9), rad = 30 * scale;
   const g = layer.append('g').attr('id', 'tour-selection');
   g.selectAll('path').data(sel).join('path').attr('class', 'tour-sel-room')
     .attr('d', d => 'M' + d.r.polygon.map(p => p.join(',')).join('L') + 'Z');
-  const badges = g.selectAll('g').data(sel).join('g').attr('class', 'tour-badge')
+  const badges = g.selectAll('g.tour-badge').data(sel).join('g').attr('class', 'tour-badge')
     .attr('transform', d => `translate(${d.r.label_point[0]},${d.r.label_point[1] - 2.2 * rad})`);
   badges.append('circle').attr('r', rad);
   badges.append('text').attr('font-size', rad * 1.2).text(d => d.n);
+  const start = state.waypoints[0];
+  if (start && state.tourRooms.length && !state.routeHandEdited) {
+    const w = rad * 9, h = rad * 2.4;
+    const m = g.append('g').attr('class', 'start-marker').attr('transform', `translate(${start.x},${start.y + 2.4 * rad})`);
+    m.append('rect').attr('x', -w / 2).attr('y', -h / 2).attr('width', w).attr('height', h).attr('rx', h / 4);
+    m.append('text').attr('font-size', rad * 1.05).text('Start · Entrance');
+  }
 }
 
 function showRoomTip(e, r) {
@@ -1143,6 +1341,7 @@ function finishFreehand() {
   if (s[s.length-1] !== state.freePts[state.freePts.length-1]) s.push(state.freePts[state.freePts.length-1]);
   state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null})));
   state.freePts = [];
+  markHandEdited();
   renderRoute(); updateWpList(); enableExport();
 }
 
@@ -1169,16 +1368,22 @@ function findInsertIndex(x, y) {
 function addWaypoint(x, y) {
   const idx = findInsertIndex(x, y);
   state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null});
+  markHandEdited();
   renderRoute(); updateWpList(); enableExport();
 }
-function clearWaypoints()   { state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
-function undoLast()         { if (!state.waypoints.length) return; state.waypoints.pop(); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+function clearWaypoints()   { markHandEdited(); state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
+function undoLast()         { if (!state.waypoints.length) return; markHandEdited(); state.waypoints.pop(); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
 
-function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
-function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
+function deleteWp(i)        { markHandEdited(); state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+function setWpYaw(i, val)   { if (state.waypoints[i]) { state.waypoints[i].yawOffset = parseFloat(val)||0; markHandEdited(); } }
 const wpWire = w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '', w.stop || null];
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function setWpPan(i, on) { const w = state.waypoints[i]; if (w && w.stop) w.stop.pan = !!on; }
+function setWpPan(i, on) {
+  const w = state.waypoints[i]; if (!w || !w.stop) return;
+  if (!canSetPan(state.waypoints, i, on)) toast(`Stand & look is limited to ${MAX_PANS} per video`, 'inf');
+  else w.stop.pan = !!on;
+  updateWpList(); renderPickList();
+}
 function setWpDwell(i, v) { const w = state.waypoints[i]; if (w && w.stop) w.stop.dwell_s = Math.min(10, Math.max(0.5, parseFloat(v) || 0.5)); }
 function cleanStop(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
@@ -1188,10 +1393,11 @@ function cleanStop(s) {
   return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d,
            pan: s.pan === true };
 }
-function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
+function setWpTod(i, val)   { if (state.waypoints[i]) { state.waypoints[i].timeOfDay = val||''; markHandEdited(); } }
 function toggleCut(i) {
   const wp = state.waypoints[i]; if (!wp) return;
   wp.cutAfter = !wp.cutAfter;
+  markHandEdited();
   renderRoute(); updateWpList(); refreshSpline();
 }
 
@@ -1417,6 +1623,7 @@ function wpDragStart(e) {
       renderRoute();
     } else {
       state.dragging = null;
+      markHandEdited();
       refreshSpline();
     }
   };
@@ -1440,6 +1647,7 @@ function yawHandleDragStart(e) {
     while (offset >  180) offset -= 360;
     while (offset < -180) offset += 360;
     wp.yawOffset = Math.round(offset);
+    state.routeHandEdited = true;
     renderRoute(); updateWpList();
   };
   const onUp = () => {
@@ -1461,7 +1669,6 @@ function handleCanvasClick(e) {
 function setMode(m) {
   state.mode = m;
   state.autopathPoints = [];
-  if (m === 'autopath' && tourPicking()) toggleTourPanel();
   document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
   document.getElementById('mode-wp').classList.toggle('active', m==='waypoint');
   document.getElementById('mode-fh').classList.toggle('active', m==='freehand');
@@ -1523,52 +1730,12 @@ function applyRouteResult(data) {
   if (data.warning) toast(data.warning, 'inf', 6000);
 }
 
-function toggleTourPanel() {
-  const panel = document.getElementById('tour-panel');
-  if (panel.hidden) renderTourPanel();
-  panel.hidden = !panel.hidden;
-  renderTourSelection();
-}
-
-function renderTourPanel() {
-  document.getElementById('tour-msg').textContent = '';
-  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
-  document.getElementById('tour-list').innerHTML = state.tourRooms.map((id, i) =>
-    `<div class="tour-pick"><span class="tour-pick-n">${i + 1}.</span>${esc(byId.get(id)?.name)}
-     <button class="tour-pick-x" title="Remove" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button></div>`).join('');
-  document.getElementById('btn-gen-tour').disabled = !state.tourRooms.length;
-  const warned = new Map();
-  state.plan.rooms.filter(r => r.stop?.warning).forEach(r =>
-    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
-  document.getElementById('tour-warn').textContent =
-    [...warned].map(([w, names]) => `${w}: ${names.join(', ')}`).join(' · ');
-}
-
 function setVideoLength(s) {
   const input = document.getElementById('s-dur');
   if (s > parseFloat(input.max)) input.max = Math.ceil(s);
   input.value = s;
   updateSliderFill(input);
   syncSlider('dur', s);
-}
-
-async function generateTour() {
-  if (!state.tourRooms.length) { toast('Click at least one room on the plan', 'inf'); return; }
-  showLoading('Planning the tour through the corridor…');
-  try {
-    const res = await fetch(`${API}/api/auto-tour`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_ids: state.tourRooms, smoothing: cam.smo }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
-    applyRouteResult(data);
-    setVideoLength(data.suggested_duration_s);
-    document.getElementById('tour-msg').textContent = data.unreachable.length
-      ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
-    toast(`Tour: ${data.stops.length} rooms, ${data.suggested_duration_s}s`, 'ok');
-  } catch (e) { toast('Auto tour error: ' + e.message, 'err'); }
-  finally { hideLoading(); }
 }
 
 async function autopathClick(e) {
@@ -1619,6 +1786,7 @@ async function autopathClick(e) {
     const pts = data.waypoints;
     if (!pts || pts.length < 2) { toast('No path found through those points', 'inf'); return; }
     applyRouteResult(data);
+    markHandEdited();
     toast(`Smart Path: ${state.waypoints.length} waypoints`, 'ok');
   } catch (err) {
     toast('Smart Path error: ' + err.message, 'err');
@@ -1661,6 +1829,7 @@ function importFromJSON(text, filename) {
     const kept = rows.filter(Boolean);
     if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
     state.waypoints = kept;
+    adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const skipped = rows.length - kept.length;
     toast(`Loaded ${kept.length} waypoints from ${filename}${skipped ? ` (${skipped} invalid skipped)` : ''}`, 'ok');
@@ -1700,6 +1869,7 @@ function importFromXML(text, filename) {
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
+    adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const hint = !state.loaded ? ' — load a floor plan to see them on the canvas' : '';
     toast(`Loaded ${wpts.length} keyframes from ${filename}${hint}`, 'ok');
@@ -1953,10 +2123,10 @@ function applyFloorPlan(data) {
   }
   state.plan = data.plan || null;
   state.tourRooms = [];
-  document.getElementById('btn-autotour').hidden = !state.plan;
   document.getElementById('btn-labels').hidden = !state.plan;
-  document.getElementById('tour-panel').hidden = true;
-  initD3(data.svg); clearWaypoints();
+  initD3(data.svg); resetRoute();
+  state.routeHandEdited = false;
+  renderPickList();
   showPlanName();
   goStep(2);
   toast(`Plan loaded — ${data.level}`, 'ok');
@@ -1987,6 +2157,7 @@ function goStep(n) {
   document.body.dataset.step = n;
   if ((n === 4) !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
   renderDock();
+  renderTourSelection();
   if (n !== 4 && state.loaded) requestAnimationFrame(fitView);
 }
 

@@ -6,37 +6,44 @@
 <title>Path Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="frontend/js/flow.js"></script>
+<script src="frontend/js/video-timeline.js"></script>
+<script src="frontend/js/pick-list.js"></script>
+<script src="frontend/js/video-settings.js"></script>
+<script src="frontend/js/music.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* qbiq's own tokens (matched to the classify app's real, hand-written values) */
-  --bg:        #f8fafc;
-  --canvas:    #f1f5f9;
+  /* qbiq tokens */
+  --bg:        #f6f7f9;
+  --canvas:    #f6f7f9;
   --surface:   #ffffff;
-  --surface2:  #f1f5f9;
-  --border:    #e2e8f0;
-  --border2:   #cbd5e1;
-  --text:      #1e293b;
-  --text2:     #64748b;
-  --text3:     #94a3b8;
-  --blue:      #2563eb;
-  --blue-lt:   #eff6ff;
-  --blue-md:   #bfdbfe;
-  --blue-dk:   #1d4ed8;
+  --surface2:  #f1f3f6;
+  --border:    #e6e8ec;
+  --border2:   #d7dae0;
+  --text:      #1f2733;
+  --text2:     #5f6673;
+  --text3:     #7b828e;
+  --blue:      #2f6bff;
+  --blue-lt:   #eaf1ff;
+  --blue-md:   #c9d8ff;
+  --blue-dk:   #1f52d6;
   --indigo:    #4338ca;
   --indigo-lt: #e0e7ff;
   --indigo-md: #c7d2fe;
-  --green:     #16a34a;
-  --green-lt:  #dcfce7;
-  --red:       #dc2626;
-  --red-lt:    #fef2f2;
-  --amber:     #ca8a04;
+  --green:     #31a354;
+  --green-lt:  #e8f5ec;
+  --red:       #d64545;
+  --red-lt:    #fbeaea;
+  --amber:     #d99000;
+  --amber-lt:  #fbf1e0;
+  --dark:      #1e2430;
   --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
-  --shadow:    0 4px 24px rgba(16,24,40,.1);
-  --r:         14px;
-  --r-sm:      7px;
+  --shadow:    0 8px 24px rgba(16,24,40,.08);
+  --r:         8px;
+  --r-sm:      6px;
 }
 
 html, body { height: 100%; overflow: hidden; }
@@ -550,57 +557,125 @@ body {
 .export-btn:not(:disabled):hover { border-color: var(--border2); color: var(--text); background: var(--bg); }
 .export-btn.is-primary { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: var(--shadow-sm); }
 .export-btn.is-primary:not(:disabled):hover { background: var(--blue-dk); border-color: var(--blue-dk); }
+
+/* ── Guided shell ─────────────────────────────────────────────── */
+.header { height: 56px; gap: 12px; padding: 0 24px; box-shadow: none; }
+.brand-logo { height: 20px; width: auto; display: block; }
+.brand-sep { width: 1px; height: 22px; background: var(--border); }
+.brand-name { font-weight: 700; font-size: 15px; }
+.plan-name { font-size: 13px; color: var(--text2); }
+.toolbar { top: 14px; bottom: auto; }
+.toast-container { bottom: 96px; }
+
+.step-panel { display: none; }
+body[data-step="1"] #step-1,
+body[data-step="2"] #step-2,
+body[data-step="3"] #step-2,
+body[data-step="4"] #step-4 { display: flex; }
+body[data-step="4"] .canvas-area,
+body[data-step="4"] .resize-handle { display: none; }
+body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
+
+.step-panel-left, .step-panel-right {
+  flex-direction: column; gap: 16px; padding: 24px; overflow-y: auto;
+  background: var(--surface); flex-shrink: 0;
+}
+.step-panel-left { width: 380px; border-right: 1px solid var(--border); }
+.step-panel-right { width: 392px; border-left: 1px solid var(--border); padding: 16px 18px 96px; }
+.sp-eyebrow { font-size: 12px; font-weight: 600; color: var(--blue); letter-spacing: .04em; text-transform: uppercase; }
+.sp-title { font-size: 22px; line-height: 1.25; font-weight: 700; margin-top: 6px; }
+.sp-help { color: var(--text2); font-size: 14px; line-height: 1.5; margin-top: 6px; }
+.sp-sub { font-size: 14px; font-weight: 700; margin-top: 8px; }
+.load-card {
+  display: flex; align-items: center; gap: 12px; padding: 16px; cursor: pointer;
+  border: 1.5px dashed var(--blue-md); border-radius: var(--r); background: #f7faff;
+  color: var(--blue-dk); font-size: 14px; font-weight: 600; transition: background .15s, border-color .15s;
+}
+.load-card:hover { background: var(--blue-lt); border-color: var(--blue); }
+.load-card.loaded { border-style: solid; border-color: var(--green); background: var(--green-lt); color: #1f7a3c; }
+.load-card.secondary { border-color: var(--border2); background: var(--surface); color: var(--text); }
+.load-card.secondary:hover { border-color: var(--blue); }
+.load-card.disabled { opacity: .5; pointer-events: none; }
+.load-card input { display: none; }
+.plan-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.plan-summary[hidden] { display: none; }
+.plan-summary div { padding: 10px 12px; border-radius: var(--r); background: var(--bg); }
+.plan-summary dt { font-size: 12px; color: var(--text2); }
+.plan-summary dd { font-weight: 700; font-size: 15px; }
+
+.dock {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 16px; padding: 8px 8px 8px 12px;
+  border-radius: 999px; background: var(--dark); color: #fff;
+  box-shadow: 0 12px 32px rgba(16,24,40,.28); white-space: nowrap;
+}
+.dock button { font-family: inherit; cursor: pointer; }
+.dock button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.dock-back {
+  width: 36px; height: 36px; border: none; border-radius: 999px;
+  background: rgba(255,255,255,.1); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.dock-back:disabled { opacity: .3; cursor: default; }
+.dock-label { display: flex; flex-direction: column; gap: 3px; min-width: 170px; }
+.dock-eyebrow { font-size: 11px; font-weight: 600; color: #b8bfcc; letter-spacing: .04em; text-transform: uppercase; }
+.dock-name { font-size: 14px; font-weight: 700; }
+.dock-dots { display: flex; gap: 6px; }
+.dock-dot { width: 8px; height: 8px; border: none; padding: 0; border-radius: 999px; background: rgba(255,255,255,.25); }
+.dock-dot.done { background: var(--green); }
+.dock-dot.now { width: 22px; background: var(--blue); }
+.dock-dot:disabled { cursor: default; }
+.dock-next {
+  height: 40px; padding: 0 18px; border: none; border-radius: 999px;
+  background: var(--blue); color: #fff; font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.dock-next:hover:not(:disabled) { background: var(--blue-dk); }
+.dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
 <body>
 
 <!-- HEADER -->
 <header class="header">
-  <svg height="36" viewBox="0 0 2184 546" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
-    <path d="M0 0 C0.66008515 -0.00205263 1.3201703 -0.00410527 2.00025803 -0.0062201 C4.22172476 -0.01189407 6.44312957 -0.01043236 8.66460228 -0.00901413 C10.26960044 -0.01159755 11.87459796 -0.01461064 13.47959459 -0.01801753 C17.89786806 -0.02609369 22.3161253 -0.02787745 26.73440528 -0.028615 C31.49667469 -0.03046451 36.25893565 -0.03801137 41.02120018 -0.04475021 C51.43865674 -0.05833889 61.85610945 -0.06435921 72.2735734 -0.06876087 C78.77774099 -0.07152264 85.2819071 -0.0757599 91.78607368 -0.08026505 C109.79219087 -0.09245889 127.79830687 -0.10275766 145.8044281 -0.10614014 C146.95714038 -0.1063597 148.10985267 -0.10657927 149.29749563 -0.10680549 C150.45297835 -0.10702377 151.60846107 -0.10724204 152.79895842 -0.10746694 C155.14043403 -0.1079104 157.48190963 -0.10835697 159.82338524 -0.10880661 C160.98483989 -0.10902804 162.14629454 -0.10924947 163.34294479 -0.10947761 C182.16001125 -0.11342508 200.97703897 -0.13087703 219.79409046 -0.15416613 C239.11069891 -0.17788061 258.42728791 -0.19034205 277.74391115 -0.19150805 C288.59046816 -0.19242481 299.43697472 -0.19817722 310.28351784 -0.21632767 C319.52043873 -0.23173 328.75729357 -0.23684835 337.99422486 -0.22858956 C342.70631132 -0.22468342 347.41826477 -0.22561094 352.13033485 -0.23964691 C356.44719612 -0.25238793 360.76382447 -0.25118653 365.08068542 -0.2390562 C366.63928212 -0.23709954 368.19789534 -0.2401762 369.75646885 -0.24890056 C381.88145706 -0.31245463 392.30534784 0.41927383 401.44496727 9.13142776 C406.73871838 15.11215421 408.69278042 21.00324167 408.70223618 29.02905369 C408.70574225 29.70187636 408.70924832 30.37469904 408.71286064 31.06791028 C408.72215885 33.32071782 408.71725549 35.57326596 408.71239281 37.82608414 C408.71612986 39.45827132 408.72073161 41.09045671 408.72612345 42.72263926 C408.73836197 47.2067514 408.73809198 51.69078897 408.7357347 56.174914 C408.73532675 61.0114384 408.74636357 65.84793882 408.75584984 70.68445206 C408.77246534 80.15963884 408.77795963 89.63480075 408.77907459 99.11000089 C408.78002478 106.81144394 408.7841336 114.51287878 408.79047585 122.21431923 C408.80808954 144.04694479 408.81731448 165.87955068 408.8158149 187.71218339 C408.81573499 188.88927671 408.81565507 190.06637003 408.81557274 191.27913284 C408.81549098 192.45766249 408.81540922 193.63619214 408.81532498 194.8504348 C408.81451198 213.95259282 408.83365283 233.05467201 408.86184947 252.15680722 C408.89056984 271.76841147 408.90439024 291.37997726 408.90266192 310.99160308 C408.90199774 322.00299037 408.90750237 333.01429501 408.92901802 344.02566338 C408.94721862 353.40055625 408.95158633 362.775329 408.93799917 372.15023188 C408.93146397 376.93312699 408.93137233 381.71579159 408.94870567 386.49866486 C408.96441687 390.87898872 408.96159278 395.25889891 408.94413741 399.63921257 C408.94106322 401.22195726 408.94471573 402.80473268 408.95585756 404.38744114 C409.02904779 415.52368764 407.9133014 424.19437917 400.14027977 432.63142776 C390.84388888 440.85680588 378.53547124 440.42476204 366.87839317 440.3988533 C365.28445381 440.40259253 363.69051628 440.40719514 362.09658164 440.41258395 C357.72732422 440.42479574 353.35814347 440.42455562 348.98887289 440.4221952 C344.27228074 440.42178657 339.55571303 440.43283062 334.83913231 440.44231033 C325.60217509 440.45891158 316.3652434 440.46441949 307.12827251 440.46553509 C299.61808247 440.46648603 292.10790085 440.47059861 284.59771347 440.47693634 C263.29520452 440.49454676 241.9927157 440.50377558 220.69019941 440.50227539 C219.54217075 440.50219548 218.3941421 440.50211557 217.21132469 440.50203323 C216.06189082 440.50195147 214.91245695 440.50186971 213.72819176 440.50178547 C195.10415195 440.50097274 176.48019306 440.52010766 157.85617665 440.54830997 C138.72361489 440.57705325 119.59109257 440.59084945 100.45850867 440.58912241 C89.72089037 440.58845899 78.98335688 440.59393048 68.24575806 440.61547852 C59.1026912 440.63370934 49.95974758 440.63802204 40.8166704 440.62445967 C36.15477957 440.6179395 31.49312507 440.61777836 26.83125687 440.63516617 C22.55689141 440.6509442 18.28294873 440.64798528 14.00859328 440.6305979 C12.46890549 440.62753837 10.92918576 440.63112061 9.38953564 440.64231806 C-2.64112636 440.72396288 -14.93709274 439.91038168 -23.96909523 431.06892776 C-28.76849267 425.20562449 -30.67865034 419.10316764 -30.68646049 411.60015202 C-30.68851313 410.93049128 -30.69056576 410.26083054 -30.6926806 409.57087705 C-30.69836728 407.31083507 -30.6968913 405.05085372 -30.69547462 402.79080582 C-30.69805731 401.16049653 -30.7010702 399.53018788 -30.70447803 397.89988011 C-30.71256273 393.40707667 -30.71433842 388.9142892 -30.71507549 384.42147934 C-30.71692351 379.58083867 -30.72446961 374.74020633 -30.73121071 369.89957047 C-30.74480533 359.30864077 -30.7508206 348.71771486 -30.75522137 338.12677789 C-30.75798207 331.51592761 -30.76221912 324.9050788 -30.76672554 318.29422951 C-30.77892003 299.99734241 -30.78921876 281.70045648 -30.79260063 263.40356541 C-30.7928202 262.23200921 -30.79303976 261.06045301 -30.79326598 259.85339512 C-30.79348426 258.67900369 -30.79370254 257.50461226 -30.79392743 256.29463321 C-30.7943709 253.91479194 -30.79481746 251.53495067 -30.79526711 249.15510941 C-30.79548853 247.97462094 -30.79570996 246.79413248 -30.7959381 245.57787164 C-30.79988625 226.44899751 -30.81733996 207.32016146 -30.84062663 188.19130204 C-30.86433166 168.56059149 -30.87680211 148.92990006 -30.87796855 129.29917496 C-30.87888583 118.27381485 -30.88465129 107.24850435 -30.90278816 96.22315788 C-30.91817775 86.83464097 -30.92331638 77.446189 -30.91505006 68.05766187 C-30.91113942 63.26684561 -30.91209334 58.47616018 -30.92610741 53.68535995 C-30.9388215 49.2988653 -30.93767074 44.91260013 -30.92551669 40.5261059 C-30.92355536 38.93992427 -30.92665824 37.35372652 -30.93536106 35.76756755 C-30.99206817 24.73284077 -30.44925238 16.38225454 -22.65659523 7.95955276 C-16.01969546 2.18619014 -8.61045123 0.00911277 0 0 Z M67.44496727 101.13142776 C64.24786266 104.6637127 61.30295775 108.32077379 58.44496727 112.13142776 C57.70633446 113.11627151 56.96770164 114.10111526 56.20668602 115.11580276 C38.52212141 139.6726075 29.2212977 167.74071543 29.19496727 198.00642776 C29.19429253 198.70117203 29.19361778 199.39591629 29.19292259 200.11171341 C29.20935023 210.75651561 29.76790713 220.77797831 32.44496727 231.13142776 C32.61657372 231.81769241 32.78818016 232.50395706 32.9649868 233.21101761 C38.36079771 254.45189969 48.05629239 273.53346816 62.44496727 290.13142776 C63.48910789 291.3573262 63.48910789 291.3573262 64.55434227 292.60799026 C80.35516215 310.70609246 101.25137979 325.95133551 124.44496727 333.13142776 C125.43496727 333.13142776 126.42496727 333.13142776 127.44496727 333.13142776 C127.44496727 334.78142776 127.44496727 336.43142776 127.44496727 338.13142776 C104.52480749 341.46883437 81.66460361 344.10951729 58.56606102 345.82283401 C53.48081921 346.20066999 48.39856018 346.61289371 43.31606102 347.02595901 C38.69280957 347.40000849 34.06882133 347.76490275 29.44496727 348.13142776 C29.44496727 359.02142776 29.44496727 369.91142776 29.44496727 381.13142776 C136.03496727 381.13142776 242.62496727 381.13142776 352.44496727 381.13142776 C352.44496727 370.24142776 352.44496727 359.35142776 352.44496727 348.13142776 C297.33496727 348.13142776 242.22496727 348.13142776 185.44496727 348.13142776 C185.44496727 346.15142776 185.44496727 344.17142776 185.44496727 342.13142776 C186.42852196 341.9238887 187.41207664 341.71634964 188.42543602 341.50252151 C229.89311015 332.43400374 266.83582654 312.42865994 290.44496727 276.13142776 C311.3625307 243.09193775 318.03653799 204.48042272 309.73402977 166.26814651 C301.12695703 130.16891036 278.19423453 98.20699152 246.81777 78.4561348 C188.2149931 42.87123911 115.39141307 52.55410768 67.44496727 101.13142776 Z" fill="#CBEDFA" transform="translate(411.55503273010254,52.86857223510742)"/>
-    <path d="M0 0 C1.26457031 1.15628906 1.26457031 1.15628906 2.5546875 2.3359375 C3.08803711 2.8215918 3.62138672 3.30724609 4.17089844 3.80761719 C23.8822079 21.97983946 37.94502909 46.41849395 39.77758789 73.64794922 C40.75975887 103.82584189 34.99700942 132.11846289 14.5546875 155.3359375 C13.89082031 156.14289063 13.22695313 156.94984375 12.54296875 157.78125 C-3.74203389 176.98611448 -28.30254932 190.63750259 -53.4453125 193.3359375 C-85.09888727 195.25393328 -115.06116061 189.81038387 -139.4453125 168.3359375 C-140.67314453 167.32273437 -140.67314453 167.32273437 -141.92578125 166.2890625 C-161.58771536 149.58403941 -174.60793681 123.89473084 -177.4453125 98.3359375 C-179.49421195 68.0235821 -173.13603753 38.41196784 -152.890625 14.9921875 C-145.35208875 6.80336218 -137.97738486 -0.76793527 -128.4453125 -6.6640625 C-127.45660156 -7.30859375 -126.46789062 -7.953125 -125.44921875 -8.6171875 C-87.51930554 -32.02740484 -34.22899594 -29.15803358 0 0 Z" fill="#CBEDFA" transform="translate(651.4453125,166.6640625)"/>
-    <path d="M0 0 C14.52 0 29.04 0 44 0 C44.33 41.58 44.66 83.16 45 126 C48.96 121.05 48.96 121.05 53 116 C71.77640009 96.06858477 99.40959897 86.4843853 126.34765625 85.6640625 C128.91913021 85.63418276 131.49085466 85.62162956 134.0625 85.625 C135.07339188 85.62531723 135.07339188 85.62531723 136.10470581 85.62564087 C168.58601059 85.72683172 197.42169045 97.47193699 220.57714844 120.51123047 C241.34879927 142.24519182 252.90369318 174.02110515 253.23828125 203.8828125 C253.25297203 204.97541382 253.25297203 204.97541382 253.26795959 206.09008789 C253.44220494 222.41341803 253.27872312 238.12316398 249 254 C248.79632812 254.77359863 248.59265625 255.54719727 248.3828125 256.34423828 C240.53609225 285.06105474 221.99443618 311.81543788 196.00683594 326.88720703 C165.98544307 343.5341059 129.68991918 346.51876521 96.7331543 337.40795898 C76.92249773 331.45964046 56.66242687 319.49364031 45 302 C44.67 315.2 44.34 328.4 44 342 C29.48 342 14.96 342 0 342 C0 229.14 0 116.28 0 0 Z M74 142 C73.19304687 142.71542969 72.38609375 143.43085938 71.5546875 144.16796875 C54.46981011 160.18177584 44.87920085 183.70117734 44 207 C43.9484375 208.00546875 43.896875 209.0109375 43.84375 210.046875 C43.13007646 235.85806819 50.77110705 261.88046236 68.71069336 280.85375977 C84.32340707 296.61160801 103.84918981 304.6212486 125.9375 305.25 C144.95474057 305.03014751 161.70865812 299.40450156 177 288 C177.63035156 287.55398438 178.26070312 287.10796875 178.91015625 286.6484375 C196.13612356 273.37263291 204.71509035 251.40792884 208.61328125 230.75 C211.38891623 203.83475174 207.70866838 175.19847905 190.64697266 153.26025391 C176.87690816 136.61383819 158.62186175 125.79843388 137 123 C113.80175041 121.49514965 91.64602091 125.91881491 74 142 Z" fill="#000000" transform="translate(1200,59)"/>
-    <path d="M0 0 C6.90112093 5.40519546 12.71667475 11.22396843 18.1875 18.0625 C18.5175 6.1825 18.8475 -5.6975 19.1875 -17.9375 C33.7075 -17.9375 48.2275 -17.9375 63.1875 -17.9375 C63.1875 93.9325 63.1875 205.8025 63.1875 321.0625 C48.6675 321.0625 34.1475 321.0625 19.1875 321.0625 C18.8575 279.4825 18.5275 237.9025 18.1875 195.0625 C13.7325 200.5075 13.7325 200.5075 9.1875 206.0625 C-14.31672792 228.74312963 -45.18755748 235.62726111 -76.84375 235.27734375 C-108.62498284 234.45629457 -136.93436924 221.35859378 -158.75390625 198.4375 C-162.60390434 194.26249451 -165.87469532 189.92482189 -168.8125 185.0625 C-169.46605469 184.00675781 -170.11960937 182.95101562 -170.79296875 181.86328125 C-177.53678943 170.70814876 -182.17241465 159.05835195 -185.5625 146.5 C-185.76125732 145.76950439 -185.96001465 145.03900879 -186.16479492 144.28637695 C-189.28011133 132.1015239 -190.1934578 119.91740694 -190.125 107.375 C-190.12317719 106.67728485 -190.12135437 105.9795697 -190.11947632 105.26071167 C-189.97953676 73.32759757 -181.09818613 43.20682075 -160.8125 18.0625 C-159.89210938 16.89267578 -159.89210938 16.89267578 -158.953125 15.69921875 C-122.20904192 -28.50359915 -44.90905719 -34.14824588 0 0 Z M-125.19677734 43.66894531 C-142.9179207 65.40739538 -147.85666237 93.09310598 -145.61035156 120.53173828 C-142.91277512 144.02101236 -131.64629517 165.54320011 -113.8125 181.0625 C-96.3917404 194.46674789 -74.734992 200.37681578 -52.91015625 197.55859375 C-44.09641268 196.17022854 -35.96728744 193.74326009 -27.8125 190.0625 C-26.42998047 189.45148438 -26.42998047 189.45148438 -25.01953125 188.828125 C-6.15984583 179.57517689 6.70386773 161.27453317 13.73046875 141.96875 C22.70543175 115.68538347 21.40839406 85.54760492 9.1809082 60.47607422 C-1.03574449 40.71183581 -16.69421502 26.61881979 -37.79589844 19.38232422 C-68.90467174 9.52944828 -103.81186027 18.85188105 -125.19677734 43.66894531 Z" fill="#000000" transform="translate(1739.8125,165.9375)"/>
-    <path d="M0 0 C0.98081543 0.24943359 0.98081543 0.24943359 1.98144531 0.50390625 C16.89049932 4.38385284 30.44075695 10.71123232 42 21 C42.70511719 21.57492188 43.41023438 22.14984375 44.13671875 22.7421875 C49.4537816 27.13762612 52.57310072 31.30827235 57 37 C57.33 24.79 57.66 12.58 58 0 C72.19 0 86.38 0 101 0 C101 111.87 101 223.74 101 339 C86.81 339 72.62 339 58 339 C57.67 297.42 57.34 255.84 57 213 C53.37 216.96 49.74 220.92 46 225 C23.67602624 246.68614593 -5.73720228 253.39900929 -35.9453125 253.30249023 C-65.63746227 252.80061821 -93.74490517 241.93618673 -115.53515625 221.55859375 C-141.87795979 194.21384523 -152.13924842 158.33068535 -152 121 C-150.93389625 87.8335682 -140.78258229 57.26097508 -119 32 C-118.03513672 30.88044922 -118.03513672 30.88044922 -117.05078125 29.73828125 C-88.33300404 -0.97292084 -39.77734382 -10.42788717 0 0 Z M-52 38 C-53.57974609 38.5259375 -53.57974609 38.5259375 -55.19140625 39.0625 C-75.51510026 46.69382187 -89.9677956 62.73650576 -98.96362305 82.07788086 C-109.21692085 105.10866096 -110.66451399 132.9499304 -103 157 C-102.62617187 158.17433594 -102.25234375 159.34867187 -101.8671875 160.55859375 C-93.9472289 182.82364293 -78.94700593 199.33592519 -57.66015625 209.49609375 C-35.63639346 218.54534527 -12.97416661 217.6550328 9 209 C30.12370711 199.56291526 43.76539149 181.70924029 52.05224609 160.68579102 C55.80729341 150.54138221 57.450962 139.7748707 58 129 C58.04125 128.31421875 58.0825 127.6284375 58.125 126.921875 C58.85373701 103.05573783 51.27320722 77.73561781 35 60 C34.33613281 59.24460937 33.67226562 58.48921875 32.98828125 57.7109375 C19.52880551 43.23142756 0.4452516 34.6657251 -19.21875 33.6796875 C-30.74084111 33.33382368 -41.07149191 34.32898734 -52 38 Z" fill="#000000" transform="translate(1058,148)"/>
-    <path d="M0 0 C14.19 0 28.38 0 43 0 C43 83.16 43 166.32 43 252 C28.81 252 14.62 252 0 252 C0 168.84 0 85.68 0 0 Z" fill="#000000" transform="translate(1481,149)"/>
-    <path d="M0 0 C5.47241428 4.27086245 9.55814156 10.85801621 10.796875 17.71484375 C11.58825815 28.01579823 10.41015377 35.6000643 5.171875 44.46484375 C-2.24991515 51.49601337 -10.61209819 54.65004569 -20.703125 54.96484375 C-29.66071235 54.68540428 -37.11296216 52.37252887 -44.203125 46.71484375 C-50.96833224 39.04295925 -52.69285809 31.05686302 -52.51953125 21.00390625 C-51.64771934 11.94136768 -47.47121547 5.27158581 -40.578125 -0.47265625 C-27.82256378 -7.32286505 -12.622636 -7.36320434 0 0 Z" fill="#000000" transform="translate(1523.203125,58.28515625)"/>
-  </svg>
-  <span class="level-tag" id="h-level">No plan loaded</span>
-  <div class="header-sep"></div>
-
-  <!-- Design JSON upload -->
-  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-      <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <span id="load-folder-btn-text">Load Project</span>
-    <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
-  </label>
-
-  <button class="btn-3d-toggle" id="btn-3d-toggle" onclick="toggle3DPanel()" title="Toggle 3D walkthrough preview">
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 9L6.5 4L12 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><rect x="3" y="9" width="7" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
-    3D Preview
-  </button>
-
-  <div class="header-export">
-    <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the raw waypoint path as JSON">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Save JSON
-    </button>
-    <button class="export-btn is-primary" id="btn-xml" onclick="exportRoute('xml')" disabled title="Export the walkthrough as an Enscape camera path">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Enscape XML
-    </button>
-  </div>
-
+  <img class="brand-logo" src="frontend/img/qbiq-logo.svg" alt="qbiq"/>
+  <span class="brand-sep" aria-hidden="true"></span>
+  <span class="brand-name">Path Editor</span>
+  <span class="header-sep"></span>
+  <span class="plan-name" id="h-level">No plan loaded</span>
   <div id="upload-hint-header" style="font-size:10.5px;color:var(--text3);max-width:180px;text-align:right;line-height:1.4"></div>
 </header>
 
 <div class="body">
 
-  <!-- SIDEBAR -->
-  <aside class="panel">
+  <!-- STEP 1 · LOAD PLAN -->
+  <aside class="step-panel step-panel-left" id="step-1" aria-label="Load plan">
+    <div>
+      <div class="sp-eyebrow">Step 1 of 4</div>
+      <h1 class="sp-title">Load your floor plan</h1>
+      <p class="sp-help">Choose the qbiq design .json for the floor you want to walk through, or drag it onto the page.</p>
+    </div>
+    <label class="load-card" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
+      <svg width="22" height="22" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="load-folder-btn-text">Choose design .json</span>
+      <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
+    </label>
+    <dl class="plan-summary" id="plan-summary" hidden>
+      <div><dt>Floor</dt><dd id="sum-floor">–</dd></div>
+      <div><dt>Rooms</dt><dd id="sum-rooms">–</dd></div>
+    </dl>
+    <div>
+      <div class="sp-sub">Continue a saved path</div>
+      <p class="sp-help">Load a path you saved before: a path .json or an Enscape .xml. Load the floor plan first.</p>
+    </div>
+    <label class="load-card secondary disabled" id="import-path-wrap" title="Load a previously exported path (Enscape XML or JSON) to continue editing">
+      <svg width="20" height="20" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Load saved path
+      <input type="file" id="import-path-input" accept=".xml,.json" onchange="onImportPath(this)" disabled/>
+    </label>
+  </aside>
+
+  <!-- STEP 2 · ROOMS & ROUTE -->
+  <aside class="panel step-panel" id="step-2" aria-label="Rooms and route">
     <div class="panel-inner">
 
       <!-- DRAW MODE -->
@@ -621,22 +696,6 @@ body {
               Freehand
             </button>
           </div>
-        </div>
-      </div>
-
-      <!-- IMPORT PATH -->
-      <div class="section">
-        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
-          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-          Import Path
-          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="card-body">
-          <label style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:8px;border:1.5px dashed var(--border2);background:var(--bg);color:var(--text2);cursor:pointer;font-size:11.5px;font-weight:500;transition:all .18s" onmouseover="this.style.borderColor='var(--blue)';this.style.color='var(--blue)';this.style.background='var(--blue-lt)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='var(--bg)'" title="Load a previously exported path (Enscape XML or JSON) to continue editing">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Load XML / JSON path
-            <input type="file" accept=".xml,.json" style="display:none" onchange="onImportPath(this)"/>
-          </label>
         </div>
       </div>
 
@@ -745,7 +804,7 @@ body {
     <div class="empty-state" id="empty-state">
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
-        Click <strong>Load Project</strong> in the top bar to select a qbiq design .json<br/>
+        Choose a <strong>qbiq design .json</strong> on the left<br/>
         — or <strong>drag &amp; drop</strong> the file here
       </div>
     </div>
@@ -816,7 +875,23 @@ body {
       </div>
     </div>
   </div>
+
+  <!-- STEP 4 · PREVIEW & EXPORT -->
+  <aside class="step-panel step-panel-right" id="step-4" aria-label="Preview and export">
+    <div class="sp-sub">Export</div>
+    <button class="export-btn is-primary" id="btn-xml" onclick="exportRoute('xml')" disabled title="Export the walkthrough as an Enscape camera path">Export Enscape XML</button>
+    <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the path as JSON to continue later">Save path JSON</button>
+  </aside>
 </div>
+
+<nav class="dock" id="dock" aria-label="Steps">
+  <button type="button" class="dock-back" id="dock-back" onclick="goStep(state.step - 1)" aria-label="Previous step">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+  </button>
+  <div class="dock-label"><span class="dock-eyebrow" id="dock-eyebrow">Step 1 of 4</span><span class="dock-name" id="dock-name">Load plan</span></div>
+  <div class="dock-dots" id="dock-dots"></div>
+  <button type="button" class="dock-next" id="dock-next"></button>
+</nav>
 
 <div class="toast-container" id="toasts"></div>
 
@@ -852,6 +927,7 @@ const state = {
   geometry:      null,
   showLabels:    true,
   tourRooms:     [],
+  step:          1,
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
@@ -1875,13 +1951,14 @@ function applyFloorPlan(data) {
   } else if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
     state.geometry.meshes = savedMeshes;
   }
-  document.getElementById('h-level').textContent = data.level;
   state.plan = data.plan || null;
   state.tourRooms = [];
   document.getElementById('btn-autotour').hidden = !state.plan;
   document.getElementById('btn-labels').hidden = !state.plan;
   document.getElementById('tour-panel').hidden = true;
   initD3(data.svg); clearWaypoints();
+  showPlanName();
+  goStep(2);
   toast(`Plan loaded — ${data.level}`, 'ok');
   if (document.getElementById('preview-3d').classList.contains('visible')) {
     build3DGeometry();
@@ -1897,8 +1974,56 @@ function showHeaderHint(msg, type) {
 }
 
 /* ── Export ── */
-function enableExport()  { const ok = state.waypoints.length>=2; document.getElementById('btn-json').disabled=!ok; document.getElementById('btn-xml').disabled=!ok; }
-function disableExport() { document.getElementById('btn-json').disabled=true; document.getElementById('btn-xml').disabled=true; }
+function enableExport()  { const ok = state.waypoints.length>=2; document.getElementById('btn-json').disabled=!ok; document.getElementById('btn-xml').disabled=!ok; renderDock(); }
+function disableExport() { document.getElementById('btn-json').disabled=true; document.getElementById('btn-xml').disabled=true; renderDock(); }
+
+/* ── Guided steps ── */
+const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoints.length });
+
+/* Open step n when its precondition holds; step 4 shows the 3D preview in place of the plan. */
+function goStep(n) {
+  if (n < 1 || n > STEPS.length || !canEnterStep(n, stepState())) return;
+  state.step = n;
+  document.body.dataset.step = n;
+  if ((n === 4) !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
+  renderDock();
+  if (n !== 4 && state.loaded) requestAnimationFrame(fitView);
+}
+
+const DOCK_ARROW = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+
+function renderDock() {
+  const n = state.step, s = stepState();
+  document.getElementById('dock-eyebrow').textContent = `Step ${n} of ${STEPS.length}`;
+  document.getElementById('dock-name').textContent = STEPS[n - 1];
+  const back = document.getElementById('dock-back');
+  back.disabled = n === 1;
+  back.setAttribute('aria-label', n > 1 ? `Previous step: ${STEPS[n - 2]}` : 'Previous step');
+  const next = document.getElementById('dock-next');
+  if (n < STEPS.length) {
+    next.innerHTML = `${esc(STEPS[n])}${DOCK_ARROW}`;
+    next.disabled = !canEnterStep(n + 1, s);
+    next.onclick = () => goStep(n + 1);
+  } else {
+    next.textContent = 'Export Enscape XML';
+    next.disabled = s.waypointCount < 2;
+    next.onclick = () => exportRoute('xml');
+  }
+  document.getElementById('dock-dots').innerHTML = STEPS.map((name, i) =>
+    `<button type="button" class="dock-dot${i + 1 < n ? ' done' : ''}${i + 1 === n ? ' now' : ''}" aria-label="${esc(name)}"
+      ${canEnterStep(i + 1, s) ? '' : 'disabled'} onclick="goStep(${i + 1})"></button>`).join('');
+}
+
+/* Header and step-1 summary for the loaded plan. */
+function showPlanName() {
+  const rooms = state.plan?.rooms.length ?? 0;
+  document.getElementById('h-level').textContent = `${state.level}${rooms ? ` · ${rooms} rooms` : ''}`;
+  document.getElementById('sum-floor').textContent = state.level;
+  document.getElementById('sum-rooms').textContent = rooms;
+  document.getElementById('plan-summary').hidden = false;
+  document.getElementById('import-path-wrap').classList.remove('disabled');
+  document.getElementById('import-path-input').disabled = false;
+}
 
 async function exportRoute(fmt) {
   if (state.waypoints.length < 2) return;
@@ -1979,6 +2104,10 @@ function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/
 /* ── Keyboard ── */
 document.addEventListener('keydown', e => {
   if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); }
+  if (!e.target.matches('input, textarea, select') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.key === 'ArrowRight') goStep(state.step + 1);
+    if (e.key === 'ArrowLeft')  goStep(state.step - 1);
+  }
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
   if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
@@ -1986,6 +2115,8 @@ document.addEventListener('keydown', e => {
 });
 
 setMode('waypoint');
+document.body.dataset.step = state.step;
+renderDock();
 
 // ── 3D Preview (Three.js) ────────────────────────────────────────────────────
 
@@ -2038,10 +2169,8 @@ function fadeOpacityAt(t) {
 /* Toggle the 3D panel open/closed */
 function toggle3DPanel() {
   const panel  = document.getElementById('preview-3d');
-  const btn    = document.getElementById('btn-3d-toggle');
   const handle = document.getElementById('resize-handle');
   const nowVisible = panel.classList.toggle('visible');
-  btn.classList.toggle('active', nowVisible);
   handle.classList.toggle('active', nowVisible);
 
   if (nowVisible) {

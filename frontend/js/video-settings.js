@@ -1,10 +1,10 @@
 /* Preview-only video settings: title card text, music theme, volume and fades, plus brand prefs kept per machine. */
 
 const THEMES = [
-  { id: 'premium-lobby', name: 'Premium lobby', sub: 'Warm piano, soft pads' },
-  { id: 'modern-workspace', name: 'Modern workspace', sub: 'Light electronic pulse' },
-  { id: 'bright-leasing', name: 'Bright leasing', sub: 'Upbeat, optimistic' },
-  { id: 'cinematic-reveal', name: 'Cinematic reveal', sub: 'Slow swell to the end' },
+  { id: 'premium-lobby', name: 'Premium lobby', sub: 'Your Breath — Eugenio Mininni' },
+  { id: 'modern-workspace', name: 'Modern workspace', sub: 'Focus on Yourself — Eugenio Mininni' },
+  { id: 'bright-leasing', name: 'Bright leasing', sub: 'Motivating Mornings — Ahjay Stelino' },
+  { id: 'cinematic-reveal', name: 'Cinematic reveal', sub: 'Drawing the Sky — Eugenio Mininni' },
 ];
 
 const CARD_COLOURS = [

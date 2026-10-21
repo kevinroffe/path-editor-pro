@@ -2369,7 +2369,7 @@ function goStep(n) {
   renderDock();
   renderTourSelection();
   if (n === 4) {
-    if (window.AudioContext) musicPlayer().prime();
+    if (window.AudioContext) { musicPlayer().prime(); musicPlayer().setTheme(state.video.theme); }
     if (!p3.frames.length || p3.framesSig !== previewSig()) loadPreviewFrames();
     else rebuildTimeline();
   } else {
@@ -3043,7 +3043,11 @@ function selectTheme(id) {
   renderVideoPanel(); renderTimelineLanes(); updatePlaybackDisplay(); syncMusic();
 }
 
-function sampleTheme(id) { if (window.AudioContext) { p3.playing = false; updatePlayBtn(); musicPlayer().sample(id); } }
+function sampleTheme(id) {
+  if (!window.AudioContext) return;
+  p3.playing = false; updatePlayBtn();
+  musicPlayer().sample(id).catch(() => toast('Couldn\'t load that track', 'err'));
+}
 
 function setMusicVolume(pct) {
   state.video.volume = Math.min(1, Math.max(0, pct / 100));
@@ -3172,8 +3176,7 @@ function renderTimelineLanes() {
     `<div class="vtl-block ${b.kind}" data-kind="${b.kind}" style="flex:${(b.end - b.start).toFixed(3)} 0 0">${LANE_LABEL[b.kind] || ''}</div>`).join('');
   const N = 120, amp = [...Array(N + 1)].map((_, i) => {
     const t = (i / N) * tl.total;
-    const g = musicGain(t, tl.total) * intensityAt(state.video.theme, t, tl.total);
-    return g * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.37)));
+    return musicGain(t, tl.total) * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.37)));
   });
   const top = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 - a * 13).toFixed(2)}`);
   const bottom = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 + a * 13).toFixed(2)}`).reverse();

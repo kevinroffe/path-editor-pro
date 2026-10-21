@@ -1,68 +1,68 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const M = require('../js/music.js');
+const { THEMES } = require('../js/video-settings.js');
 
-const BPM = { 'premium-lobby': 70, 'modern-workspace': 100, 'bright-leasing': 118, 'cinematic-reveal': 64 };
+const ROOT = path.join(__dirname, '..', '..');
 
-test('midiToHz(69) is concert A', () => assert.equal(M.midiToHz(69), 440));
-
-for (const [id, bpm] of Object.entries(BPM)) {
-  test(`${id} is ${bpm} bpm and loops cleanly`, () => {
-    const p = M.themePattern(id);
-    assert.equal(p.bpm, bpm);
-    assert.ok(p.notes.length > 0);
-    for (const n of p.notes) {
-      assert.ok(n.beat >= 0 && n.beat + n.beats <= p.bars * 4, `note ${JSON.stringify(n)} runs past the loop`);
-      assert.ok(n.vel > 0 && n.vel <= 1);
-      assert.ok(['pad', 'keys', 'pulse', 'bass'].includes(n.voice));
-    }
-  });
-}
-
-test('the four themes are different', () => {
-  const sigs = Object.keys(BPM).map(id => JSON.stringify(M.themePattern(id).notes));
-  assert.equal(new Set(sigs).size, 4);
+test('trackOffset follows the track, then loops with a 2 s crossfade', () => {
+  assert.equal(M.LOOP_CROSSFADE_S, 2);
+  assert.equal(M.trackOffset(10, 96), 10);
+  assert.equal(M.trackOffset(93, 96), 93);
+  assert.equal(M.trackOffset(95, 96), 1, 'second pass began at 94 s and is crossfading');
+  assert.equal(M.trackOffset(96, 96), 2);
+  assert.equal(M.trackOffset(300, 96), 300 % 94);
 });
 
-test('cinematic reveal builds towards the end, others stay level', () => {
-  assert.equal(M.intensityAt('cinematic-reveal', 0, 60), 0.35);
-  assert.equal(M.intensityAt('cinematic-reveal', 60, 60), 1);
-  assert.equal(M.intensityAt('bright-leasing', 0, 60), 1);
+test('every track is a bundled file with a title, artist and length', () => {
+  for (const [id, t] of Object.entries(M.TRACKS)) {
+    assert.match(t.file, /^frontend\/audio\/[\w-]+\.mp3$/, id);
+    assert.ok(fs.existsSync(path.join(ROOT, t.file)), `${t.file} is on disk`);
+    assert.ok(t.title && t.artist, id);
+    assert.ok(t.durationS > 0, id);
+  }
+});
+
+test('one track per theme', () => {
+  assert.deepEqual(Object.keys(M.TRACKS), THEMES.map(t => t.id));
+});
+
+test('theme cards name the track and artist', () => {
+  for (const t of THEMES) assert.equal(t.sub, `${M.TRACKS[t.id].title} — ${M.TRACKS[t.id].artist}`);
+});
+
+test('a short video plays one pass from the requested second', () => {
+  assert.deepEqual(M.loopPasses(10, 60, 96), [{ at: 0, offset: 10, fadeIn: false, fadeOut: false }]);
+});
+
+test('a long video loops, each pass crossfading into the next', () => {
+  assert.deepEqual(M.loopPasses(0, 200, 96), [
+    { at: 0, offset: 0, fadeIn: false, fadeOut: true },
+    { at: 94, offset: 0, fadeIn: true, fadeOut: true },
+    { at: 188, offset: 0, fadeIn: true, fadeOut: false },
+  ]);
+});
+
+test('starting inside a crossfade plays both passes', () => {
+  const passes = M.loopPasses(95, 150, 96);
+  assert.deepEqual(passes, [
+    { at: 0, offset: 95, fadeIn: false, fadeOut: true },
+    { at: 94, offset: 1, fadeIn: true, fadeOut: false },
+  ]);
+  assert.equal(passes.at(-1).offset, M.trackOffset(95, 96));
 });
 
 function fakeContext() {
-  const param = () => ({ value: 0, setTargetAtTime() {}, cancelScheduledValues() {}, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
-  const node = extra => ({ connect: x => x, ...extra });
+  const param = () => ({ value: 0, setTargetAtTime() {}, cancelScheduledValues() {}, setValueAtTime() {}, linearRampToValueAtTime() {} });
   const ctx = {
     currentTime: 0, state: 'running', destination: {}, starts: [],
-    createGain: () => node({ gain: param() }),
-    createBiquadFilter: () => node({ type: '', frequency: param() }),
-    createOscillator: () => {
-      const o = node({ type: '', frequency: param(), stop() {}, start: when => ctx.starts.push({ when, hz: o.frequency.value }) });
-      return o;
-    },
+    createGain: () => ({ gain: param(), connect: x => x }),
+    createBufferSource: () => ({ connect: x => x, stop() {}, start: (...a) => ctx.starts.push(a) }),
   };
   return ctx;
 }
-
-test('player schedules the first chord straight away and stops cleanly', () => {
-  const ctx = fakeContext(), player = M.createMusicPlayer(() => ctx);
-  player.start(0, 30);
-  player.stop();
-  const first = ctx.starts.filter(s => Math.abs(s.when - 0.05) < 1e-6).map(s => Math.round(s.hz));
-  assert.ok(first.includes(Math.round(M.midiToHz(60))), 'C4 pad note at the start');
-  assert.ok(first.includes(Math.round(M.midiToHz(36))), 'bass root at the start');
-  assert.equal(player.playing, false);
-});
-
-test('starting mid-video picks up the right bar', () => {
-  const ctx = fakeContext(), player = M.createMusicPlayer(() => ctx);
-  player.start(4 * 60 / 70, 30); // bar 2 of Premium lobby: A minor
-  player.stop();
-  const hz = ctx.starts.map(s => Math.round(s.hz));
-  assert.ok(hz.includes(Math.round(M.midiToHz(57))));
-  assert.ok(!hz.includes(Math.round(M.midiToHz(71))), 'no bar-1 chord tones');
-});
 
 test('prime unlocks audio once without playing anything', () => {
   let made = 0;

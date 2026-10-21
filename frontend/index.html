@@ -4,6 +4,12 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Path Editor</title>
+<script>
+(() => {
+  const prefix = location.pathname.match(/^\/r\/[^/]+/)?.[0];
+  if (prefix) { const base = document.createElement('base'); base.href = `${prefix}/`; document.head.appendChild(base); }
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="frontend/js/flow.js"></script>
@@ -11,6 +17,7 @@
 <script src="frontend/js/pick-list.js"></script>
 <script src="frontend/js/video-settings.js"></script>
 <script src="frontend/js/music.js"></script>
+<script src="frontend/js/room-colours.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -333,7 +340,8 @@ body {
 .tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
 .tb-btn-auto:disabled { opacity: .5; cursor: not-allowed; }
 .tb-btn-auto[hidden], .tour-panel[hidden], .room-tip[hidden] { display: none; }
-.corridor { fill: rgba(47,107,255,.07); stroke: rgba(47,107,255,.25); stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.corridor { fill: rgba(31,39,51,.07); stroke: rgba(31,39,51,.18); stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.room-fill { pointer-events: none; }
 .room-hit { fill: transparent; pointer-events: all; }
 .room-hit:hover { fill: rgba(47,107,255,.06); }
 .room-label { fill: var(--text2); text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: 600; font-family: inherit; }
@@ -357,7 +365,7 @@ body {
 .tour-pick-n { font-weight: 700; color: var(--blue-dk); min-width: 16px; }
 .tour-pick-x { margin-left: auto; border: 0; background: none; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; }
 .tour-pick-x:hover { color: var(--text); }
-.tour-sel-room { fill: rgba(47,107,255,.18); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
+.tour-sel-room { fill: rgba(47,107,255,.10); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
 .tour-badge circle { fill: var(--blue); }
 .tour-badge text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
 .tour-badge { pointer-events: none; }
@@ -406,7 +414,7 @@ body {
 
 /* ── Loading ──────────────────────────────────────────────────── */
 .loading {
-  position: absolute; inset: 0; background: rgba(246,247,249,.85);
+  position: fixed; inset: 56px 0 0 0; z-index: 50; background: rgba(246,247,249,.85);
   display: none; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px;
   backdrop-filter: blur(4px);
@@ -971,10 +979,6 @@ body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
       <div class="strip-row" id="strip-row"></div>
     </section>
 
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loading-text">Working on it…</div>
-    </div>
   </main>
 
   <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
@@ -1058,6 +1062,11 @@ body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
   <button type="button" class="dock-next" id="dock-next"></button>
 </nav>
 
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Working on it…</div>
+</div>
+
 <div class="toast-container" id="toasts"></div>
 
 <div class="drop-overlay" id="drop-overlay">
@@ -1106,6 +1115,7 @@ function safeStorage() { try { return window.localStorage; } catch { return null
 state.brand = loadBrandPrefs(safeStorage());
 state.video = { ...defaultVideo(), theme: state.brand.theme };
 state.fadePick = null;
+state.cardVersion = 0;
 state.fadesRouteKey = null;
 state.fadeNotice = false;
 
@@ -1179,6 +1189,17 @@ function initD3(svgString) {
   fitView();
 }
 
+/* Program colours by room type, just above the plan's own floor fills and under its walls and furniture. */
+function renderRoomColours(line) {
+  d3.select('#room-colours').remove();
+  const cg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  cg.id = 'room-colours';
+  const spaces = gRoot.querySelector('#layer-spaces');
+  if (spaces) spaces.after(cg); else gRoot.insertBefore(cg, gRoot.firstChild);
+  d3.select(cg).selectAll('path').data([...state.plan.rooms].filter(r => roomColour(r.type)).sort((a, b) => b.area_m2 - a.area_m2))
+    .join('path').attr('class', 'room-fill').attr('d', r => line(r.polygon)).attr('fill', r => roomColour(r.type));
+}
+
 /* Design-JSON room layer: corridor tint, room hit-areas and labels, inside the zoomed group, under the route */
 function renderPlanLayer() {
   hideRoomTip();
@@ -1187,6 +1208,7 @@ function renderPlanLayer() {
   const g = d3.select(gRoot).insert('g', '#route-overlay').attr('id', 'plan-layer');
   const line = pts => 'M' + pts.map(p => p.join(',')).join('L') + 'Z';
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9);
+  renderRoomColours(line);
   g.selectAll('path.corridor').data(state.plan.corridor).join('path')
     .attr('class', 'corridor').attr('d', line);
   const rooms = g.selectAll('g.room').data([...state.plan.rooms].sort((a, b) => b.area_m2 - a.area_m2)).join('g').attr('class', 'room');
@@ -1245,7 +1267,17 @@ function adoptLoadedRoute() {
   renderTourSelection(); renderPickList();
 }
 
-function markHandEdited() { state.routeHandEdited = true; renderTourSelection(); }
+function markHandEdited() {
+  if (state.rebuildPending) {
+    clearTimeout(state.rebuildTimer);
+    state.rebuildSeq++;
+    state.rebuildPending = false;
+    document.getElementById('tour-msg').textContent = '';
+    renderDock();
+  }
+  state.routeHandEdited = true;
+  renderTourSelection();
+}
 
 /* Route cleared without counting as a hand edit (no rooms picked, new plan). */
 function resetRoute() {
@@ -1256,6 +1288,7 @@ function resetRoute() {
 function scheduleRebuild() {
   clearTimeout(state.rebuildTimer);
   state.rebuildPending = true;
+  renderDock();
   document.getElementById('tour-msg').textContent = 'Updating the route…';
   state.rebuildTimer = setTimeout(rebuildTour, REBUILD_DEBOUNCE_MS);
 }
@@ -1266,7 +1299,7 @@ async function rebuildTour() {
   const msg = document.getElementById('tour-msg');
   if (!ids.length) {
     resetRoute(); state.routeHandEdited = false; state.rebuildPending = false; msg.textContent = '';
-    renderTourSelection(); renderPickList(); return;
+    renderTourSelection(); renderPickList(); renderDock(); return;
   }
   try {
     const res = await fetch(`${API}/api/auto-tour`, {
@@ -1291,7 +1324,7 @@ async function rebuildTour() {
     toast('Couldn\'t plan the tour: ' + e.message, 'err');
   }
   state.rebuildPending = false;
-  renderTourSelection(); renderPickList(); renderTourStats(); scheduleCameraStrip();
+  renderTourSelection(); renderPickList(); renderTourStats(); renderDock(); scheduleCameraStrip();
 }
 
 /* Stand & look for the stop in room `id` (max MAX_PANS per video). */
@@ -1452,7 +1485,7 @@ let _pendingClicks = [];
 function handleClick(e) {
   if (!state.loaded || e.button !== 0 || e.detail > 1) return;
   if (state.step !== 2 && !(state.step === 4 && state.fadePick)) return;
-  if (e.target?.classList.contains('wp-dot')) return;
+  if (e.target?.classList.contains('wp-dot') && !state.fadePick) return;
   const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
   const id = setTimeout(() => { _pendingClicks = _pendingClicks.filter(p => p !== id); actOnClick(ev); }, CLICK_DELAY_MS);
   _pendingClicks.push(id);
@@ -1631,11 +1664,16 @@ function updateWpList() {
    Each segment (a run of waypoints with no cut between them) is smoothed
    independently — no curve bridges a cut, so a "jump" reads as an actual gap
    on the canvas rather than a stretched-out S-curve across the whole plan. */
+let _splineSeq = 0;
+const splineKey = () => JSON.stringify([state.waypoints.map(w => [w.x, w.y, w.cutAfter]), cam.smo, cam.utr]);
+
 async function refreshSpline() {
-  if (state.waypoints.length < 2) { state.splineSegments=[]; renderRoute(); return; }
+  if (state.waypoints.length < 2) { state.splineSegments=[]; drawRoute(); return; }
+  const seq = ++_splineSeq, key = splineKey();
   const bounds = computeSegments();
+  let segments;
   try {
-    state.splineSegments = await Promise.all(bounds.map(async ([s, e]) => {
+    segments = await Promise.all(bounds.map(async ([s, e]) => {
       const slice = state.waypoints.slice(s, e+1).map(w => [w.x, w.y]);
       if (slice.length < 2) return slice;
       const r = await fetch(`${API}/api/smooth-preview`, {
@@ -1645,11 +1683,22 @@ async function refreshSpline() {
       });
       return (await r.json()).spline || slice;
     }));
-  } catch { state.splineSegments = bounds.map(([s,e]) => state.waypoints.slice(s,e+1).map(w=>[w.x,w.y])); }
-  renderRoute();
+  } catch { segments = bounds.map(([s,e]) => state.waypoints.slice(s,e+1).map(w=>[w.x,w.y])); }
+  if (seq !== _splineSeq || key !== splineKey()) return;
+  state.splineSegments = segments;
+  _splineKey = key;
+  drawRoute();
 }
 
+let _splineKey = null;
+
+/* Draw the route, then fetch a fresh curve only if the route or curve settings changed. */
 function renderRoute() {
+  drawRoute();
+  if (splineKey() !== _splineKey) debounceSpline();
+}
+
+function drawRoute() {
   const ov = document.getElementById('route-overlay'); if (!ov) return;
   ov.innerHTML = '';
   const wpts = state.waypoints; if (!wpts.length) return;
@@ -1736,7 +1785,6 @@ function renderRoute() {
     g.appendChild(lbl);
     ov.appendChild(g);
   });
-  debounceSpline();
 }
 
 function circleR() {
@@ -2308,7 +2356,7 @@ function enableExport()  { document.getElementById('btn-json').disabled = state.
 function disableExport() { document.getElementById('btn-json').disabled = true; renderDock(); }
 
 /* ── Guided steps ── */
-const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoints.length });
+const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoints.length, busy: !!state.rebuildPending });
 
 /* Open step n when its precondition holds; step 4 shows the 3D preview in place of the plan. */
 function goStep(n) {
@@ -2327,6 +2375,7 @@ function goStep(n) {
   } else {
     _music?.stop();
     if (state.fadePick) endFadePick();
+    if (p3.loading && !(n === 3 && state.step3Preview)) { p3.loadSeq++; p3.loading = false; hideLoading(); }
     if (n === 3 && p3.frames.length) rebuildTimeline();
   }
   if (n >= 3) requestAnimationFrame(resize3D);
@@ -2349,7 +2398,7 @@ function renderDock() {
     next.onclick = () => goStep(n + 1);
   } else {
     next.textContent = 'Export Enscape XML';
-    next.disabled = s.waypointCount < 2;
+    next.disabled = s.waypointCount < 2 || s.busy || !!state.exporting;
     next.onclick = () => exportRoute('xml');
   }
   document.getElementById('dock-dots').innerHTML = STEPS.map((name, i) =>
@@ -2369,7 +2418,9 @@ function showPlanName() {
 }
 
 async function exportRoute(fmt) {
-  if (state.waypoints.length < 2) return;
+  if (state.waypoints.length < 2 || state.exporting) return;
+  state.exporting = true;
+  renderDock();
   const settings = {
     level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
@@ -2387,7 +2438,7 @@ async function exportRoute(fmt) {
     download(blob, `walkthrough_${state.level}.${fmt==='xml'?'xml':'json'}`);
     toast('File saved successfully!', 'ok');
   } catch(e) { toast(e.message,'err'); }
-  finally { hideLoading(); }
+  finally { hideLoading(); state.exporting = false; renderDock(); }
 }
 
 function download(blob, name) {
@@ -2450,15 +2501,17 @@ function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/
 /* ── Keyboard ── */
 document.addEventListener('keydown', e => {
   if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); if (state.fadePick) endFadePick(); }
-  if (!e.target.matches('input, textarea, select') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  if (e.target.matches('input, textarea, select, [contenteditable], [contenteditable] *')) return;
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
     if (e.key === 'ArrowRight') goStep(state.step + 1);
     if (e.key === 'ArrowLeft')  goStep(state.step - 1);
   }
-  if (e.key === ' ' && state.step === 4 && !e.target.matches('input, textarea, select, button')) { e.preventDefault(); togglePlay3D(); }
+  if (e.key === ' ' && state.step === 4 && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
+  if (state.step !== 2) return;
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
   if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
-  if (e.key==='Delete'||(e.key==='Backspace'&&!e.target.matches('input'))) undoLast();
+  if (e.key==='Delete'||e.key==='Backspace') undoLast();
 });
 
 setMode('waypoint');
@@ -2552,7 +2605,7 @@ function syncCeiling() {
   const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
   threeScene.traverse(o => { if (o.userData.ceiling) o.visible = inside; });
 }
-const p3 = { playing: false, speed: 1.0, t: 0, tl: 0, frames: [], lastTime: null, duration: 30, cutTimes: [], timeline: null, dists: [] };
+const p3 = { playing: false, speed: 1.0, t: 0, tl: 0, frames: [], lastTime: null, duration: 30, cutTimes: [], timeline: null, dists: [], loadSeq: 0 };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
 function fadeOpacityAt(t) {
@@ -2943,6 +2996,7 @@ const cardColour = () => CARD_COLOURS.find(c => c.id === state.brand.colour) || 
 const saveBrand = () => saveBrandPrefs(safeStorage(), state.brand);
 
 function renderVideoPanel() {
+  state.cardVersion++;
   const v = state.video, b = state.brand, c = cardColour();
   for (const [id, key] of [['v-name', 'name'], ['v-tagline', 'tagline'], ['v-outro', 'outro']]) {
     const el = document.getElementById(id);
@@ -2979,7 +3033,7 @@ function renderCardPreview() {
   document.getElementById('cp-line').textContent = v.tagline;
 }
 
-function setVideoText(key, value) { state.video[key] = value.slice(0, 120); renderCardPreview(); }
+function setVideoText(key, value) { state.video[key] = value.slice(0, 120); state.cardVersion++; renderCardPreview(); }
 function setCardColour(id) { state.brand.colour = id; saveBrand(); renderVideoPanel(); }
 
 function selectTheme(id) {
@@ -3007,7 +3061,6 @@ function onLogoPicked(input) {
     state.brand.logo = reader.result;
     state.brand.logoName = f.name;
     saveBrand();
-    document.getElementById('title-card').dataset.sig = '';
     renderVideoPanel();
   };
   reader.readAsDataURL(f);
@@ -3101,7 +3154,7 @@ function showTitleCard(kind) {
   el.classList.toggle('show', !!kind);
   if (!kind) return;
   const v = state.video, b = state.brand, colour = CARD_COLOURS.find(c => c.id === b.colour) || CARD_COLOURS[0];
-  const sig = JSON.stringify([kind, v.name, v.tagline, v.outro, b.logo, colour.id]);
+  const sig = `${kind}|${state.cardVersion}`;
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.style.background = colour.hex;
@@ -3173,6 +3226,8 @@ async function loadPreviewFrames() {
   const panel = document.getElementById('preview-3d');
   if (!panel.classList.contains('visible')) toggle3DPanel();
 
+  const seq = ++p3.loadSeq, key = routeKey(), sig = previewSig(), dur = cam.dur;
+  p3.loading = true;
   showLoading('Building 3D preview…');
   try {
     const res = await fetch(`${API}/api/process-route`, {
@@ -3191,14 +3246,15 @@ async function loadPreviewFrames() {
       }),
     });
     const data = await res.json();
+    if (seq !== p3.loadSeq || sig !== previewSig()) return;
     if (!res.ok) throw new Error(data.error || 'Failed');
 
     (data.warnings || []).forEach(w => toast(w, 'inf'));
     renderCamWarnings(data.warnings || []);
     p3.frames   = data.frames;
-    p3.framesKey = routeKey();
-    p3.framesSig = previewSig();
-    p3.duration = cam.dur;
+    p3.framesKey = key;
+    p3.framesSig = sig;
+    p3.duration = dur;
     p3.t        = 0;
     p3.tl       = 0;
     p3.playing  = true;
@@ -3209,11 +3265,10 @@ async function loadPreviewFrames() {
     document.getElementById('p3d-play').disabled = false;
     updatePlayBtn();
     showP3dEmpty(false);
-    // Make sure render loop is running
-    if (!threeAnimId) render3DLoop();
+    if (!threeAnimId && panel.classList.contains('visible')) render3DLoop();
     toast('3D preview ready', 'ok');
   } catch(e) { toast(e.message, 'err'); }
-  finally { hideLoading(); }
+  finally { if (seq === p3.loadSeq) { p3.loading = false; hideLoading(); } }
 }
 
 /* Play / pause */

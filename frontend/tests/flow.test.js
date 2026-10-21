@@ -23,3 +23,9 @@ test('test_index_has_no_root_absolute_assets', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.equal(html.match(/(src|href)="\/(?!\/)[^"]*"/g), null);
 });
+
+test('steps 3 and 4 wait while the route is being rebuilt', () => {
+  assert.equal(F.canEnterStep(3, { loaded: true, waypointCount: 5, busy: true }), false);
+  assert.equal(F.canEnterStep(4, { loaded: true, waypointCount: 5, busy: true }), false);
+  assert.equal(F.canEnterStep(2, { loaded: true, waypointCount: 5, busy: true }), true);
+});

@@ -82,6 +82,18 @@ In step 4's Video panel, the Fades section becomes:
   editable: clicking a row reopens the mini-map with its pins.
 - Keyboard: when a pin has focus, ←/→ move it along the route (0.5 m steps, Shift = 5 m).
 
+## 2b · Mini-map in the video (Kevin, 2026-10-25)
+
+Kevin asked for "a mini map in the video and a small dot to see where the camera is moving".
+- A mini-map sits in the bottom-right corner of the 3D preview (about 22% of its width,
+  white rounded card, soft shadow): rooms in their program colours, the route as a line,
+  and a dot with a short view cone that moves and turns with the camera.
+- Visible during playback and scrubbing in step 4, and drawn into the rendered video
+  (Task 7) at the same place. Hidden behind the intro/outro cards and black during fades.
+- On by default; a **Mini-map** switch in the Video panel turns it off. The setting is
+  saved with the path (`state.video.minimap`, default `true`).
+- The fade editor's mini-map and the video's mini-map are the same drawing code.
+
 ## 3 · Photoreal real-time preview
 
 Rendering stack (CDN, pinned, loaded as ES modules through an import map; versions at

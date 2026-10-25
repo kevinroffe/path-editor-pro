@@ -2117,12 +2117,13 @@ function importFromXML(text, filename) {
     const keyframes = doc.querySelectorAll('Keyframe');
     if (!keyframes.length) { toast('No keyframes found in XML', 'err'); return; }
     const u = state.unitsToMetres || 1.0;
+    const [ox, oz] = state.plan?.enscape_offset || [0, 0];
     const wpts = [];
     keyframes.forEach(kf => {
       const pos = kf.querySelector('Position');
       if (!pos) return;
-      // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
-      const x = parseFloat(pos.getAttribute('x')) / u, y = parseFloat(pos.getAttribute('z')) / u;
+      // Reverse of export: svg.x = (enscape.x - ox) / u,  svg.y = (enscape.z - oz) / u
+      const x = (parseFloat(pos.getAttribute('x')) - ox) / u, y = (parseFloat(pos.getAttribute('z')) - oz) / u;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       wpts.push({ x, y, yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
     });

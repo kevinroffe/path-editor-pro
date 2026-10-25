@@ -51,6 +51,18 @@ class PlanModel:
     rooms: tuple
     entrance: tuple | None
     units_to_metres: float
+    enscape_offset: tuple | None = None  # metres added to (x·u, y_display·u) to land on qbiq's Revit model
+
+
+# qbiq's Revit models put the floor outline's (max x, min y) corner 2 m / 1.7 m from the origin
+# (qbiq video-path tool, nfp_to_enscape, metres mode).
+ENSCAPE_SHIFT_M = (2.0, 1.7)
+
+
+def enscape_offset(fill_bounds, u: float) -> tuple:
+    """Metres to add to a display-space point scaled to metres so it sits on qbiq's Revit model in Enscape."""
+    _, ymin, xmax, _ = fill_bounds
+    return (-(xmax * u + ENSCAPE_SHIFT_M[0]), ymin * u - ENSCAPE_SHIFT_M[1])
 
 
 def dwell_for(space_type: str | None) -> float:
@@ -162,7 +174,9 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     me = qe._wkt(nfp.get("main_entrance"))
     entrance = _into(inner, corridor, (me.x, me.y)) if me is not None and me.geom_type == "Point" else None
     columns = [pl for g in qe._wkt_many(nfp.get("columns")) for pl in qe._polylines(g)]
-    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u)
+    fill = qe._wkt(nfp.get("fill"))
+    offset = enscape_offset(fill.bounds, u) if fill is not None and not fill.is_empty else None
+    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u, offset)
 
 
 def snap_to_corridor(plan: PlanModel, pt) -> tuple:
@@ -202,6 +216,7 @@ def plan_to_json(plan: PlanModel) -> dict:
     return {
         "corridor": _rings(plan.corridor),
         "entrance": list(plan.entrance) if plan.entrance else None,
+        "enscape_offset": list(plan.enscape_offset) if plan.enscape_offset else None,
         "default_tour_types": [t for t in types if t not in BACK_OF_HOUSE],
         "rooms": [{
             "id": r.id, "name": r.space_type or "Room", "type": r.space_type,

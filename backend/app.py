@@ -631,6 +631,8 @@ def export_xml():
     """Enscape VideoPath XML with the house-style keyframes."""
     data = request.get_json(force=True)
     wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    if _LAST_PLAN is not None and _LAST_PLAN.enscape_offset:
+        settings = {**settings, "enscape_offset": _LAST_PLAN.enscape_offset}
     try:
         out = to_enscape_xml(_camera_plan(wpts, cuts, settings), settings)
     except (ValueError, TypeError) as e:

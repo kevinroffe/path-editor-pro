@@ -165,6 +165,11 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u)
 
 
+def snap_to_corridor(plan: PlanModel, pt) -> tuple:
+    """pt if it is in the corridor, else the nearest point a stop's offset inside it."""
+    return _into(_inner(plan.corridor, STOP_OFFSET_M / plan.units_to_metres), plan.corridor, pt)
+
+
 def _fy(pt) -> tuple:
     return (pt[0], -pt[1])
 

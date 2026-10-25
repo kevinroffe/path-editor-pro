@@ -787,6 +787,13 @@ body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
 .fade-txt { flex: 1; min-width: 0; }
 .fade-txt b { display: block; font-size: 12px; font-weight: 600; }
 .fade-txt span { display: block; font-size: 11px; color: var(--text2); }
+.entrance-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r); }
+.entrance-row .entrance-dot { flex: none; width: 24px; height: 24px; border-radius: 999px; background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center; }
+.entrance-row .entrance-txt { flex: 1; min-width: 0; }
+.entrance-row .entrance-txt b { display: block; font-size: 13px; }
+.entrance-row .entrance-txt span { display: block; font-size: 12px; color: var(--text2); }
+.entrance-row .link-btn[hidden] { display: none; }
+body.picking-entrance .canvas-area { cursor: crosshair; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
@@ -842,6 +849,12 @@ body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
       <button type="button" class="pill" data-quick="offices" onclick="quickAddGroup('offices')">+ All offices</button>
       <button type="button" class="pill" data-quick="meeting" onclick="quickAddGroup('meeting')">+ Meeting rooms</button>
       <button type="button" class="pill" data-quick="amenities" onclick="quickAddGroup('amenities')">+ Amenities</button>
+    </div>
+    <div class="entrance-row" id="entrance-row">
+      <span class="entrance-dot" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></span>
+      <span class="entrance-txt"><b>Start · Main entrance</b><span id="entrance-sub">From the plan</span></span>
+      <button type="button" class="pill" id="move-entrance" onclick="startEntrancePick()">Move</button>
+      <button type="button" class="link-btn" id="reset-entrance" onclick="resetEntrance()" hidden>Reset</button>
     </div>
     <ol class="pick-list" id="pick-list" aria-label="Rooms in visiting order"></ol>
     <div class="tour-status" id="tour-msg" aria-live="polite"></div>
@@ -1106,6 +1119,8 @@ const state = {
   suggestedS:    null,
   rebuildSeq:    0,
   rebuildPending: false,
+  entrance:      null,
+  pickingEntrance: false,
   step3Preview:  false,
 };
 
@@ -1304,7 +1319,7 @@ async function rebuildTour() {
   try {
     const res = await fetch(`${API}/api/auto-tour`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_ids: ids, smoothing: cam.smo }),
+      body: JSON.stringify({ room_ids: ids, smoothing: cam.smo, ...(state.entrance ? { entrance: state.entrance } : {}) }),
     });
     const data = await res.json();
     if (seq !== state.rebuildSeq) return;
@@ -1314,6 +1329,7 @@ async function rebuildTour() {
     state.waypoints = carryStopSettings(prev, state.waypoints);
     updateWpList();
     state.routeHandEdited = false;
+    if (state.entrance && data.start) state.entrance = data.start;
     state.suggestedS = data.suggested_duration_s;
     if (!state.durationTouched) setVideoLength(data.suggested_duration_s);
     renderDurSuggest();
@@ -1430,13 +1446,48 @@ function renderTourSelection() {
     .attr('transform', d => `translate(${d.r.label_point[0]},${d.r.label_point[1] - 2.2 * rad})`);
   badges.append('circle').attr('r', rad);
   badges.append('text').attr('font-size', rad * 1.2).text(d => d.n);
-  const start = state.waypoints[0];
-  if (start && state.tourRooms.length && !state.routeHandEdited) {
+  const first = state.waypoints[0];
+  const at = first && state.tourRooms.length ? (state.routeHandEdited ? null : [first.x, first.y]) : (state.entrance || state.plan.entrance);
+  if (at) {
+    const start = { x: at[0], y: at[1] };
     const w = rad * 9, h = rad * 2.4;
     const m = g.append('g').attr('class', 'start-marker').attr('transform', `translate(${start.x},${start.y + 2.4 * rad})`);
     m.append('rect').attr('x', -w / 2).attr('y', -h / 2).attr('width', w).attr('height', h).attr('rx', h / 4);
     m.append('text').attr('font-size', rad * 1.05).text('Start · Entrance');
   }
+}
+
+/* ── Main entrance: where the tour starts ── */
+function startEntrancePick() {
+  state.pickingEntrance = true;
+  document.body.classList.add('picking-entrance');
+  toast('Click the plan where the tour should start', 'inf');
+}
+
+function endEntrancePick() {
+  state.pickingEntrance = false;
+  document.body.classList.remove('picking-entrance');
+}
+
+/* Move the tour's start to pt (display units); the server snaps it into the corridor. */
+function setEntrance(pt) {
+  endEntrancePick();
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) return;
+  state.entrance = pt;
+  renderEntranceRow(); renderTourSelection();
+  if (state.tourRooms.length) scheduleRebuild();
+}
+
+function resetEntrance() {
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) return;
+  state.entrance = null;
+  renderEntranceRow(); renderTourSelection();
+  if (state.tourRooms.length) scheduleRebuild();
+}
+
+function renderEntranceRow() {
+  document.getElementById('entrance-sub').textContent = state.entrance ? 'Moved by you' : 'From the plan';
+  document.getElementById('reset-entrance').hidden = !state.entrance;
 }
 
 function showRoomTip(e, r) {
@@ -1499,6 +1550,7 @@ function onCanvasDblClick(e) {
 }
 
 function actOnClick(e) {
+  if (state.pickingEntrance) { const m = s2m(e); setEntrance([m.x, m.y]); return; }
   if (state.fadePick) { fadePickClick(e); return; }
   if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
@@ -2030,6 +2082,9 @@ function importFromJSON(text, filename) {
     if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
     state.waypoints = kept;
     state.video = cleanVideo(data.meta?.video);
+    const e = data.meta?.entrance;
+    state.entrance = Array.isArray(e) && e.length === 2 && e.every(Number.isFinite) ? [e[0], e[1]] : null;
+    renderEntranceRow();
     state.fadesRouteKey = null;
     state.fadeNotice = false;
     renderVideoPanel();
@@ -2333,6 +2388,9 @@ function applyFloorPlan(data) {
   state.tourRooms = [];
   initD3(data.svg); resetRoute();
   state.routeHandEdited = false;
+  state.entrance = null;
+  endEntrancePick();
+  renderEntranceRow();
   renderPickList();
   showPlanName();
   goStep(2);
@@ -2425,7 +2483,7 @@ async function exportRoute(fmt) {
     level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
-    ...(fmt === 'json' ? { video: state.video } : {}),
+    ...(fmt === 'json' ? { video: state.video, ...(state.entrance ? { entrance: state.entrance } : {}) } : {}),
   };
   showLoading('Building your path…');
   try {
@@ -2500,7 +2558,7 @@ function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/
 
 /* ── Keyboard ── */
 document.addEventListener('keydown', e => {
-  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); if (state.fadePick) endFadePick(); }
+  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); if (state.pickingEntrance) endEntrancePick(); if (state.fadePick) endFadePick(); }
   if (e.target.matches('input, textarea, select, [contenteditable], [contenteditable] *')) return;
   if (!e.ctrlKey && !e.metaKey && !e.altKey) {
     if (e.key === 'ArrowRight') goStep(state.step + 1);

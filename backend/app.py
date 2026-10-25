@@ -454,6 +454,12 @@ def demo():
     return _load_2d_geometry(geo, clear_ifc=True)
 
 
+def _is_point(v) -> bool:
+    """True for a JSON [x, y] pair of finite numbers."""
+    return (isinstance(v, list) and len(v) == 2
+            and all(isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c) for c in v))
+
+
 @app.route("/api/auto-tour", methods=["POST"])
 def auto_tour():
     """Auto walkthrough of the loaded design plan."""
@@ -466,11 +472,13 @@ def auto_tour():
         if (room_ids := data.get("room_ids")) is not None and not (
                 isinstance(room_ids, list) and all(isinstance(i, (str, int)) for i in room_ids)):
             return _err("room_ids must be a list of room ids")
+        if (entrance := data.get("entrance")) is not None and not _is_point(entrance):
+            return _err("entrance must be [x, y]")
         polygon, graph = first_graph(get_graph, clearance_m)
         if graph is None:
             return _err("The corridor is too narrow to route at this clearance")
         return jsonify(build_tour(plan, graph, polygon, get_graph, room_types=data.get("room_types"),
-                                  room_ids=room_ids,
+                                  room_ids=room_ids, entrance=entrance,
                                   clearance_m=clearance_m, smoothing=smoothing))
     except (CorridorBlocked, ValueError) as e:
         return _err(str(e))

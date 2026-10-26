@@ -27,9 +27,9 @@ const FINISH_LOOKS = {
 
 const TYPE_FINISHES = { wall: 'plaster', floor: 'concrete', glass: 'glass', window: 'glass', frame: 'metal', ceiling: 'ceiling', light: 'light' };
 
-/* The mesh's finish, or one that fits its type when the source (e.g. an IFC model) gave none. */
+/* The mesh's finish, or one that fits its type when the source (e.g. an IFC model) gave none or one we have no look for. */
 function finishFor(mesh) {
-  return mesh.finish || TYPE_FINISHES[mesh.type] || 'plain';
+  return FINISH_LOOKS[mesh.finish] ? mesh.finish : TYPE_FINISHES[mesh.type] || 'plain';
 }
 
 /* Box-mapped texture coordinates in metres / tileM: each vertex is projected onto the plane its normal faces most. */

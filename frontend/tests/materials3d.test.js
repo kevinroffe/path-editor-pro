@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { FINISH_LOOKS, finishFor, boxUV } = require('../js/materials3d.js');
+const { FINISH_LOOKS, finishFor, boxUV, makeMaterial } = require('../js/materials3d.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const TEXTURES = path.join(ROOT, 'frontend', 'assets', 'textures');
@@ -20,6 +20,23 @@ const range = (uv, k) => { const v = [...uv].filter((_, i) => i % 2 === k); retu
 test('a mesh keeps the finish the backend gave it', () => {
   assert.equal(finishFor({ type: 'furniture', finish: 'fabric' }), 'fabric');
   assert.equal(finishFor({ type: 'wall', finish: 'glass' }), 'glass');
+});
+
+test('a finish with no look falls back by type', () => {
+  assert.equal(finishFor({ type: 'wall', finish: 'marble' }), 'plaster');
+  assert.equal(finishFor({ type: 'furniture', finish: 'velvet' }), 'plain');
+});
+
+test('makeMaterial builds a plain material for a finish with no look', () => {
+  class Color { multiply() { return this; } lerp() { return this; } multiplyScalar() { return this; } }
+  class MeshStandardMaterial { constructor(o) { Object.assign(this, o); } }
+  globalThis.THREE = { Color, MeshStandardMaterial, MeshPhysicalMaterial: MeshStandardMaterial, DoubleSide: 2 };
+  try {
+    const mat = makeMaterial({ type: 'furniture', finish: 'velvet', color: '#808080' }, () => assert.fail('no maps to load'));
+    assert.equal(mat.roughness, FINISH_LOOKS.plain.roughness);
+  } finally {
+    delete globalThis.THREE;
+  }
 });
 
 test('meshes without a finish fall back by type', () => {

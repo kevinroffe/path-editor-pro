@@ -11,7 +11,17 @@
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+    "mediabunny": "https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs"
+  }
+}
+</script>
+<script>window.threeReady = new Promise(resolve => window.addEventListener('three-ready', () => resolve(), { once: true }));</script>
+<script type="module" src="frontend/js/three-boot.js"></script>
 <script src="frontend/js/flow.js"></script>
 <script src="frontend/js/video-timeline.js"></script>
 <script src="frontend/js/pick-list.js"></script>
@@ -2647,6 +2657,12 @@ function ensureScene() {
   state.sceneGeometry = state.geometry;
 }
 
+/* three.js arrives as an ES module after this script: build whatever was asked for before it loaded. */
+window.threeReady.then(() => {
+  if (document.getElementById('preview-3d').classList.contains('visible')) { ensureScene(); resize3D(); }
+  scheduleCameraStrip();
+});
+
 const STRIP_EYE_M = 1.57, STRIP_LOOK_Y_M = 1.2, STRIP_W = 480, STRIP_H = 270;
 let _stripTimer = null;
 function scheduleCameraStrip() { clearTimeout(_stripTimer); _stripTimer = setTimeout(renderCameraStrip, 600); }
@@ -2773,7 +2789,6 @@ function init3DScene() {
   if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
 
   threeScene = new THREE.Scene();
-  // Background/fog are output-space colours in r128 (clear colour and fog are applied after encoding).
   threeScene.background = new THREE.Color(P3D_BG);
   threeScene.fog = new THREE.Fog(P3D_BG, 200, 1200);
 
@@ -2783,14 +2798,16 @@ function init3DScene() {
 
   threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  threeRenderer.outputEncoding = THREE.sRGBEncoding;
+  threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
   threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
   threeRenderer.toneMappingExposure = 1.0;
   threeRenderer.shadowMap.enabled = true;
-  threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  threeRenderer.shadowMap.type = THREE.PCFShadowMap;   // r186's PCF is the soft one; PCFSoftShadowMap was removed
 
-  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.6));
-  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9);
+  // Physically based light units: × π matches the r128 (legacy-lights) scene; the extra 20 % on the
+  // hemisphere makes up for r186's darker indirect response, measured on before/after screenshots.
+  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.72 * Math.PI));
+  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9 * Math.PI);
   threeSun.castShadow = true;
   threeSun.shadow.mapSize.set(2048, 2048);
   threeSun.shadow.bias = -0.0005;
@@ -2801,9 +2818,6 @@ function init3DScene() {
   resize3D();
   showP3dEmpty(!state.geometry && p3.frames.length === 0);
 }
-
-/* sRGB hex/'#rrggbb' → linear THREE.Color (r128 treats material colours as linear when outputEncoding is sRGB) */
-const p3dColor = c => new THREE.Color(c).convertSRGBToLinear();
 
 /* Remove and dispose everything build3DGeometry added (geometry AND materials) */
 function clear3DGeometry() {
@@ -2871,9 +2885,9 @@ function buildContractMesh(mesh) {
   const opacity = mesh.opacity ?? style.opacity ?? 1.0;
   const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
   const mat = mesh.type === 'light'
-    ? new THREE.MeshBasicMaterial({ color: p3dColor(mesh.color || style.color), side: THREE.DoubleSide })
+    ? new THREE.MeshBasicMaterial({ color: mesh.color || style.color, side: THREE.DoubleSide })
     : new THREE.MeshStandardMaterial({
-    color: p3dColor(mesh.color || style.color),
+    color: mesh.color || style.color,
     roughness: mesh.roughness ?? style.roughness ?? 0.85,
     metalness: mesh.metalness ?? style.metalness ?? 0.0,
     side: THREE.DoubleSide,
@@ -2898,8 +2912,8 @@ function buildContractMesh(mesh) {
 /* DXF fallback: extrude 2D wall/column polylines upward as boxes (capped at 4000 segments) */
 function buildExtrudedWalls(u) {
   const wH = 3.2; // wall height metres
-  const wallMat = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.wall.color), roughness: 0.85 });
-  const colMat  = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.column.color), roughness: 0.85 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: P3D_TYPE_STYLE.wall.color, roughness: 0.85 });
+  const colMat  = new THREE.MeshStandardMaterial({ color: P3D_TYPE_STYLE.column.color, roughness: 0.85 });
   const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
   let segCount = 0;
   pairs.forEach(([polys, mat]) => {
@@ -2936,7 +2950,7 @@ function build3DGeometry() {
   const size = Math.max(Math.hypot(frame.hw, frame.hd) * 8, 400);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),
-    new THREE.MeshStandardMaterial({ color: p3dColor(P3D_GROUND), roughness: 1.0 })
+    new THREE.MeshStandardMaterial({ color: P3D_GROUND, roughness: 1.0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(frame.cx, -0.01, frame.cz);
@@ -2964,7 +2978,7 @@ function build3DLabels() {
     x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(0, 0, 512, 128);
     x.fillStyle = '#1d2939'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText(r.name, 256, 64, 496);
-    const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     sp.scale.set(2.4, 0.6, 1);
     sp.position.set(r.label_point[0] * u, 3.3, r.label_point[1] * u);
@@ -3024,8 +3038,8 @@ function updateCameraFromT(t) {
 
   threeCam.position.set(fx * u, fz, fy * u);
 
-  const yr = THREE.Math.degToRad(yaw);
-  const pr = THREE.Math.degToRad(pit);
+  const yr = THREE.MathUtils.degToRad(yaw);
+  const pr = THREE.MathUtils.degToRad(pit);
   const lx = Math.cos(yr) * Math.cos(pr);
   const ly = Math.sin(pr);
   const lz = Math.sin(yr) * Math.cos(pr);

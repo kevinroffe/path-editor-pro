@@ -127,6 +127,26 @@ least two weeks old):
 - Performance budget: the step-4 preview holds ≥30 fps at 1280×720 in High on a mid-range
   laptop GPU, and stays usable on integrated graphics in Draft.
 
+## 3b · Better furniture (Kevin, 2026-10-26: "make the 3D model and the furniture a better quality")
+
+Kevin chose the mix: real models where good free ones exist, more detailed code-built
+pieces for the rest. Work happens on branch `main-entrance` (the app on :5004).
+- **Real models** (CC0 glTF from Poly Haven, 1k textures, bundled under
+  `frontend/assets/models/`, ≈ 20 MB in all): sofas (`L_S`; an armchair model when the piece
+  is under 1.2 m wide), coffee tables (`T_CF`), bar stools (`C_B`) and plants (`V_P`,
+  two or three potted-plant models chosen per piece so a room isn't a row of clones).
+  Each model is scaled to the piece's footprint from the design (width and depth from the
+  bom/box, rotation and mirror from its matrix), standing on the floor, its height scaled by
+  the mean of the two footprint scales so it keeps its proportions.
+- The backend sends these pieces as a separate list of placed items instead of building
+  their code-made shape; if a model fails to load, the frontend shows a plain rounded
+  block of the same footprint so the room never has a hole.
+- **Code-built pieces get more detail**: desks, task/conference/guest chairs, monitors,
+  storage, kitchen and printer stay generated from the design but gain rounded/bevelled
+  edges, curved chair backs, proper desk legs/frames and modesty panels, thin-bezel monitors
+  on stands, and visible fronts/handles — within the existing vertex cap.
+- The total-asset budget grows to ≲ 70 MB (models ≈ 20 MB on top of the earlier ≈ 40 MB).
+
 ## 4 · Render video (best-quality real-time renderer, offline)
 
 - Step 4 gets **"Render video"** (secondary button next to the dock's Export Enscape XML).

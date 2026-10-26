@@ -137,6 +137,45 @@
 - [ ] **Step 5: Run** unit tests — PASS; smoke `pw/guided_three.js` extended: at least one material per textured finish present in the scene has a `map`; glass is `MeshPhysicalMaterial`; screenshots of office, conference, kitchen saved for review.
 - [ ] **Step 6: Commit** `feat(3d): textured physically based materials`
 
+### Task 5b: Real furniture models
+
+**Files:**
+- Modify: `backend/qbiq_scene3d.py` (model-backed parts become placed items), plus wherever the scene payload is assembled (`backend/app.py` or the scene route)
+- Create: `backend/tests/test_scene_items.py`, `frontend/js/furniture-models.js`, `frontend/tests/furniture-models.test.js`, `frontend/assets/models/<id>/…` (Poly Haven 1k glTF), credits added to `frontend/assets/CREDITS.md`
+- Modify: `frontend/js/three-boot.js` (add `GLTFLoader` to `THREE_ADDONS`), `frontend/index.html` (scene build places items)
+
+**Interfaces:**
+- Consumes: `THREE`, `THREE_ADDONS` (Task 4); `makeMaterial`/finishes (Task 5) for the stand-in block.
+- Produces (backend): `MODEL_CODES = frozenset({"L_S", "T_CF", "C_B", "V_P"})`; the 3D scene response gains `"items": [{"model": str, "x": float, "y": float, "yaw": float, "mirror": bool, "w": float, "d": float}]` — metres, same plan-space x/y as mesh verts, `yaw` radians from the component matrix, `w`/`d` = the part's placed footprint (local x / local y). `model` ∈ `{"sofa", "armchair", "coffee_table", "bar_stool", "plant"}`; `L_S` with `w < 1.2` → `"armchair"`. Those parts produce no faces; every other part (including chairs inside desk assemblies) is built as today.
+- Produces (furniture-models.js):
+  - `MODELS: Record<model, { files: string[] }>` — `frontend/assets/models/<id>/<id>_1k.gltf` paths (plant has 2–3 variants).
+  - `variantFor(model: string, x: number, y: number) -> number` — a stable index into `files` from the position (same piece → same variant).
+  - `fitScale(box: {w, d, h}, item: {w, d}) -> [sx, sy, sz]` — `sx = item.w / box.w`, `sz = item.d / box.d`, `sy = (sx + sz) / 2` (three's y is up).
+- In index.html: each file loads once (GLTFLoader, cached, cloned per item), rotated by `yaw`, mirrored when `mirror`, standing on the floor at (x, y); while loading or on failure a rounded block of the footprint stands in; failure never raises a page error.
+
+- [ ] **Step 1: Write the failing tests** — backend (`test_scene_items.py`): a component whose bom primary part is `L_S_L200_W90` yields one `sofa` item with `w ≈ 2.0`, `d ≈ 0.9` and contributes no furniture faces; `L_S_L90_W85` → `armchair`; `V_P_L50_W50` → `plant`; a component rotated 90° gives `yaw ≈ ±π/2` (sign per the three.js convention the frontend uses — document it); a desk assembly `T_WS_…|C_W_…` yields no items; the real file `C:/Users/kevin/Downloads/121937120410001.json` (skip if missing) yields ≥ 1 item and every item's `model` is in the set above. Frontend: `fitScale({w: 2, d: 1, h: 0.8}, {w: 1, d: 0.5})` → `[0.5, 0.5, 0.5]`; `fitScale({w: 1, d: 1, h: 1}, {w: 2, d: 1})` → `[2, 1.5, 1]`; `variantFor('plant', 3, 4) === variantFor('plant', 3, 4)` and is within `MODELS.plant.files.length`; every `MODELS[*].files` path exists on disk.
+- [ ] **Step 2: Run** — FAIL.
+- [ ] **Step 3: Download** from Poly Haven (CC0, 1k glTF with its bin and textures; file list from `https://api.polyhaven.com/files/<id>`): `sofa_03` (sofa), `modern_arm_chair_01` (armchair), `modern_coffee_table_01` (coffee table), `bar_chair_round_01` (bar stool), `potted_plant_02`, `potted_plant_04`, `pachira_aquatica_01` (plants). Look at each thumbnail (`https://cdn.polyhaven.com/asset_img/thumbs/<id>.png`) and swap for a better-fitting model from the same CC0 set if one looks wrong in an office. Record each in `frontend/assets/CREDITS.md`. Models total ≲ 25 MB.
+- [ ] **Step 4: Implement** backend items and the frontend placement.
+- [ ] **Step 5: Run** unit tests, the full backend suite, flake8 — PASS. Smoke `pw/guided_three.js` extended: the scene has ≥ 1 loaded glTF item; each placed item's world bounding-box footprint is within 15% of its `w × d`; **model failure**: with `page.route('**/assets/models/**', r => r.abort())` the preview renders, stand-in blocks exist and there are no page errors; screenshots of a lounge and a kitchen with stools.
+- [ ] **Step 6: Commit** `feat(3d): real furniture models for sofas, armchairs, coffee tables, stools and plants`
+
+### Task 5c: More detailed code-built furniture
+
+**Files:**
+- Modify: `backend/qbiq_scene3d.py` (desk, chair, monitor, storage, counter, printer builders)
+- Test: `backend/tests/test_scene_detail.py` (existing scene tests stay green)
+
+**Interfaces:**
+- Consumes: the builders as they are (`_desk_part`, `_chair_part`, `_monitor`, `_storage_part`, `_counter_part`, `_printer_part`, `_round_rect`, `_fronts`).
+- Produces: same builder signatures and the same footprints and heights; only detail changes.
+
+- [ ] **Step 1: Write the failing tests** — a `T_WS` desk's top ring has rounded corners (> 4 points) and the desk has ≥ 4 leg/frame pieces plus a modesty panel below the top; a `C_W` chair's back ring is curved (> 4 points, not all on one line) and the chair keeps its five-star base and castors; a monitor has a stand (a piece from the desk top up to the screen) and a bezel thinner than 0.03 m around the screen; `S_LS` storage has a top with rounded edges and a handle on each front; the real file's full scene logs no "vertex cap" warning (no faces dropped).
+- [ ] **Step 2: Run** — FAIL.
+- [ ] **Step 3: Implement** the extra detail with the existing primitives (`_round_rect`, `_disc`, `_bar_ring`, prisms).
+- [ ] **Step 4: Run** the new tests, the full backend suite, flake8 — PASS; smoke screenshots of an open-space desk cluster and a meeting room for review.
+- [ ] **Step 5: Commit** `feat(3d): more detailed desks, chairs, monitors and storage`
+
 ### Task 6: Light, environment, post-processing and quality
 
 **Files:**

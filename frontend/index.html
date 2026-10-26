@@ -672,7 +672,10 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
 .hand-edit .panel-inner { padding: 8px; }
 #step-2 .panel-inner { flex: none; overflow: visible; }
 .hand-edit-tools { display: flex; flex-wrap: wrap; gap: 6px; }
-.start-marker rect { fill: var(--dark); }
+.start-marker { cursor: grab; }
+.start-marker.dragging { cursor: grabbing; }
+.start-marker rect, .start-marker circle { fill: var(--dark); }
+.start-marker circle { stroke: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .start-marker text { fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
 .canvas-area { display: flex; flex-direction: column; }
 #svg-wrap { flex: 1; min-height: 0; height: auto; }
@@ -1434,6 +1437,7 @@ function onHandEditToggle() {
 /* Picked rooms: tint + numbered badge in the zoomed plan, plus the start marker for a tour route (step 2 only). */
 function renderTourSelection() {
   d3.select('#tour-selection').remove();
+  d3.select('#start-pin').remove();
   const layer = d3.select('#plan-layer');
   if (layer.empty() || state.step !== 2) return;
   const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
@@ -1451,10 +1455,39 @@ function renderTourSelection() {
   if (at) {
     const start = { x: at[0], y: at[1] };
     const w = rad * 9, h = rad * 2.4;
-    const m = g.append('g').attr('class', 'start-marker').attr('transform', `translate(${start.x},${start.y + 2.4 * rad})`);
+    // above the route so its dots never cover the pin, except while those dots are being hand-edited
+    const editing = document.getElementById('hand-edit')?.open;
+    const m = (editing ? g : d3.select(gRoot)).append('g').attr('id', 'start-pin').attr('class', 'start-marker').attr('transform', `translate(${start.x},${start.y + 2.4 * rad})`)
+      .on('mousedown', e => entranceDragStart(e, at));
+    m.append('title').text('Drag to move where the tour starts');
+    if (!state.waypoints.length) m.append('circle').attr('cy', -2.4 * rad).attr('r', rad * 0.5);
     m.append('rect').attr('x', -w / 2).attr('y', -h / 2).attr('width', w).attr('height', h).attr('rx', h / 4);
     m.append('text').attr('font-size', rad * 1.05).text('Start · Entrance');
   }
+}
+
+/* Drag the Start pin: it follows the pointer, and dropping it moves the entrance there. */
+function entranceDragStart(e, at) {
+  if (e.button !== 0) return;
+  e.stopPropagation(); e.preventDefault();
+  const marker = e.currentTarget, base = marker.getAttribute('transform'), grab = s2m(e);
+  let moved = false, pt = at;
+  const onMove = ev => {
+    moved ||= Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) > 4;
+    if (!moved) return;
+    const m = s2m(ev), dx = m.x - grab.x, dy = m.y - grab.y;
+    pt = [at[0] + dx, at[1] + dy];
+    marker.classList.add('dragging');
+    marker.setAttribute('transform', `translate(${dx},${dy}) ${base}`);
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    marker.classList.remove('dragging');
+    if (moved) setEntrance(pt);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 
 /* ── Main entrance: where the tour starts ── */
@@ -1486,7 +1519,7 @@ function resetEntrance() {
 }
 
 function renderEntranceRow() {
-  document.getElementById('entrance-sub').textContent = state.entrance ? 'Moved by you' : 'From the plan';
+  document.getElementById('entrance-sub').textContent = (state.entrance ? 'Moved by you' : 'From the plan') + ' · drag Start on the plan to move it';
   document.getElementById('reset-entrance').hidden = !state.entrance;
 }
 
@@ -1537,6 +1570,7 @@ function handleClick(e) {
   if (!state.loaded || e.button !== 0 || e.detail > 1) return;
   if (state.step !== 2 && !(state.step === 4 && state.fadePick)) return;
   if (e.target?.classList.contains('wp-dot') && !state.fadePick) return;
+  if (e.target?.closest?.('.start-marker')) return;
   const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
   const id = setTimeout(() => { _pendingClicks = _pendingClicks.filter(p => p !== id); actOnClick(ev); }, CLICK_DELAY_MS);
   _pendingClicks.push(id);

@@ -4,39 +4,64 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Path Editor</title>
+<script>
+(() => {
+  const prefix = location.pathname.match(/^\/r\/[^/]+/)?.[0];
+  if (prefix) { const base = document.createElement('base'); base.href = `${prefix}/`; document.head.appendChild(base); }
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+    "mediabunny": "https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs"
+  }
+}
+</script>
+<script>window.threeReady = new Promise(resolve => window.addEventListener('three-ready', () => resolve(), { once: true }));</script>
+<script type="module" src="frontend/js/three-boot.js"></script>
+<script src="frontend/js/flow.js"></script>
+<script src="frontend/js/video-timeline.js"></script>
+<script src="frontend/js/pick-list.js"></script>
+<script src="frontend/js/video-settings.js"></script>
+<script src="frontend/js/music.js"></script>
+<script src="frontend/js/room-colours.js"></script>
+<script src="frontend/js/materials3d.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* qbiq's own tokens (matched to the classify app's real, hand-written values) */
-  --bg:        #f8fafc;
-  --canvas:    #f1f5f9;
+  /* qbiq tokens */
+  --bg:        #f6f7f9;
+  --canvas:    #f6f7f9;
   --surface:   #ffffff;
-  --surface2:  #f1f5f9;
-  --border:    #e2e8f0;
-  --border2:   #cbd5e1;
-  --text:      #1e293b;
-  --text2:     #64748b;
-  --text3:     #94a3b8;
-  --blue:      #2563eb;
-  --blue-lt:   #eff6ff;
-  --blue-md:   #bfdbfe;
-  --blue-dk:   #1d4ed8;
+  --surface2:  #f1f3f6;
+  --border:    #e6e8ec;
+  --border2:   #d7dae0;
+  --text:      #1f2733;
+  --text2:     #5f6673;
+  --text3:     #7b828e;
+  --blue:      #2f6bff;
+  --blue-lt:   #eaf1ff;
+  --blue-md:   #c9d8ff;
+  --blue-dk:   #1f52d6;
   --indigo:    #4338ca;
   --indigo-lt: #e0e7ff;
   --indigo-md: #c7d2fe;
-  --green:     #16a34a;
-  --green-lt:  #dcfce7;
-  --red:       #dc2626;
-  --red-lt:    #fef2f2;
-  --amber:     #ca8a04;
+  --green:     #31a354;
+  --green-lt:  #e8f5ec;
+  --red:       #d64545;
+  --red-lt:    #fbeaea;
+  --amber:     #d99000;
+  --amber-lt:  #fbf1e0;
+  --dark:      #1e2430;
   --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
-  --shadow:    0 4px 24px rgba(16,24,40,.1);
-  --r:         14px;
-  --r-sm:      7px;
+  --shadow:    0 8px 24px rgba(16,24,40,.08);
+  --r:         8px;
+  --r-sm:      6px;
 }
 
 html, body { height: 100%; overflow: hidden; }
@@ -309,16 +334,6 @@ body {
 .wp-yaw-line  { stroke: #d97706; stroke-linecap: round; pointer-events: none; }
 .fh-preview   { fill: none; stroke: #f97316; opacity: .75; stroke-linecap: round; pointer-events: none; }
 
-/* ── Bottom toolbar ───────────────────────────────────────────── */
-.toolbar {
-  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 4px;
-  background: rgba(255,255,255,.9);
-  border: 1px solid var(--border);
-  border-radius: var(--r); padding: 5px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
-}
 .tb-btn {
   width: 34px; height: 34px; border-radius: 9px; border: none;
   background: transparent; color: var(--text2); cursor: pointer;
@@ -336,11 +351,11 @@ body {
 .tb-btn-auto.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
 .tb-btn-auto:disabled { opacity: .5; cursor: not-allowed; }
 .tb-btn-auto[hidden], .tour-panel[hidden], .room-tip[hidden] { display: none; }
-.corridor { fill: rgba(47,107,255,.07); stroke: rgba(47,107,255,.25); stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.corridor { fill: rgba(31,39,51,.07); stroke: rgba(31,39,51,.18); stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.room-fill { pointer-events: none; }
 .room-hit { fill: transparent; pointer-events: all; }
 .room-hit:hover { fill: rgba(47,107,255,.06); }
 .room-label { fill: var(--text2); text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: 600; font-family: inherit; }
-#plan-layer.labels-off .room-label { display: none; }
 .room-tip {
   position: fixed; z-index: 120; pointer-events: none; min-width: 140px; max-width: 240px; padding: 8px 10px;
   background: var(--surface, #fff); border: 1px solid var(--border); border-radius: 10px;
@@ -361,7 +376,7 @@ body {
 .tour-pick-n { font-weight: 700; color: var(--blue-dk); min-width: 16px; }
 .tour-pick-x { margin-left: auto; border: 0; background: none; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; }
 .tour-pick-x:hover { color: var(--text); }
-.tour-sel-room { fill: rgba(47,107,255,.18); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
+.tour-sel-room { fill: rgba(47,107,255,.10); stroke: var(--blue); vector-effect: non-scaling-stroke; stroke-width: 2px; pointer-events: none; }
 .tour-badge circle { fill: var(--blue); }
 .tour-badge text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
 .tour-badge { pointer-events: none; }
@@ -377,7 +392,6 @@ body {
 .check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); cursor: pointer; }
 .wp-dwell { width: 44px; font-size: 10px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 5px; }
 .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-.tb-tip { font-size: 10px; color: var(--text3); padding: 0 4px; }
 
 /* ── Empty state ──────────────────────────────────────────────── */
 .empty-state {
@@ -411,7 +425,7 @@ body {
 
 /* ── Loading ──────────────────────────────────────────────────── */
 .loading {
-  position: absolute; inset: 0; background: rgba(246,247,249,.85);
+  position: fixed; inset: 56px 0 0 0; z-index: 50; background: rgba(246,247,249,.85);
   display: none; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px;
   backdrop-filter: blur(4px);
@@ -550,58 +564,328 @@ body {
 .export-btn:not(:disabled):hover { border-color: var(--border2); color: var(--text); background: var(--bg); }
 .export-btn.is-primary { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: var(--shadow-sm); }
 .export-btn.is-primary:not(:disabled):hover { background: var(--blue-dk); border-color: var(--blue-dk); }
+
+/* ── Guided shell ─────────────────────────────────────────────── */
+.header { height: 56px; gap: 12px; padding: 0 24px; box-shadow: none; }
+.brand-logo { height: 20px; width: auto; display: block; }
+.brand-sep { width: 1px; height: 22px; background: var(--border); }
+.brand-name { font-weight: 700; font-size: 15px; }
+.plan-name { font-size: 13px; color: var(--text2); }
+.toast-container { bottom: 96px; }
+
+.step-panel { display: none; }
+body[data-step="1"] #step-1,
+body[data-step="2"] #step-2,
+body[data-step="3"] #step-3,
+body[data-step="4"] #step-4 { display: flex; }
+body[data-step="4"] .canvas-area,
+body[data-step="4"] .resize-handle { display: none; }
+body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
+
+.step-panel-left, .step-panel-right {
+  flex-direction: column; gap: 16px; padding: 24px; overflow-y: auto;
+  background: var(--surface); flex-shrink: 0;
+}
+.step-panel-left { width: 380px; border-right: 1px solid var(--border); }
+.step-panel-right { width: 392px; border-left: 1px solid var(--border); padding: 16px 18px 96px; }
+.sp-eyebrow { font-size: 12px; font-weight: 600; color: var(--blue); letter-spacing: .04em; text-transform: uppercase; }
+.sp-title { font-size: 22px; line-height: 1.25; font-weight: 700; margin-top: 6px; }
+.sp-help { color: var(--text2); font-size: 14px; line-height: 1.5; margin-top: 6px; }
+.sp-sub { font-size: 14px; font-weight: 700; margin-top: 8px; }
+.load-card {
+  display: flex; align-items: center; gap: 12px; padding: 16px; cursor: pointer;
+  border: 1.5px dashed var(--blue-md); border-radius: var(--r); background: #f7faff;
+  color: var(--blue-dk); font-size: 14px; font-weight: 600; transition: background .15s, border-color .15s;
+}
+.load-card:hover { background: var(--blue-lt); border-color: var(--blue); }
+.load-card.loaded { border-style: solid; border-color: var(--green); background: var(--green-lt); color: #1f7a3c; }
+.load-card.secondary { border-color: var(--border2); background: var(--surface); color: var(--text); }
+.load-card.secondary:hover { border-color: var(--blue); }
+.load-card.disabled { opacity: .5; pointer-events: none; }
+.load-card input { display: none; }
+.plan-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.plan-summary[hidden] { display: none; }
+.plan-summary div { padding: 10px 12px; border-radius: var(--r); background: var(--bg); }
+.plan-summary dt { font-size: 12px; color: var(--text2); }
+.plan-summary dd { font-weight: 700; font-size: 15px; }
+
+.dock {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 16px; padding: 8px 8px 8px 12px;
+  border-radius: 999px; background: var(--dark); color: #fff;
+  box-shadow: 0 12px 32px rgba(16,24,40,.28); white-space: nowrap;
+}
+.dock button { font-family: inherit; cursor: pointer; }
+.dock button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.dock-back {
+  width: 36px; height: 36px; border: none; border-radius: 999px;
+  background: rgba(255,255,255,.1); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.dock-back:disabled { opacity: .3; cursor: default; }
+.dock-label { display: flex; flex-direction: column; gap: 3px; min-width: 170px; }
+.dock-eyebrow { font-size: 11px; font-weight: 600; color: #b8bfcc; letter-spacing: .04em; text-transform: uppercase; }
+.dock-name { font-size: 14px; font-weight: 700; }
+.dock-dots { display: flex; gap: 6px; }
+.dock-dot { width: 8px; height: 8px; border: none; padding: 0; border-radius: 999px; background: rgba(255,255,255,.25); }
+.dock-dot.done { background: var(--green); }
+.dock-dot.now { width: 22px; background: var(--blue); }
+.dock-dot:disabled { cursor: default; }
+.dock-next {
+  height: 40px; padding: 0 18px; border: none; border-radius: 999px;
+  background: var(--blue); color: #fff; font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.dock-next:hover:not(:disabled) { background: var(--blue-dk); }
+.step-panel-left { padding-bottom: 96px; }
+.quick-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+  min-height: 34px; padding: 0 12px; border: 1px solid var(--border2); border-radius: 999px;
+  background: var(--surface); color: var(--text); font: 500 13px/1 inherit; cursor: pointer;
+}
+.pill:hover { border-color: var(--blue); color: var(--blue-dk); }
+.pick-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.pick-list li {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px;
+  border: 1px solid var(--border); border-radius: var(--r); background: var(--surface);
+}
+.pick-list li.dragging { opacity: .5; }
+.pick-list li.drop-target { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(47,107,255,.15); }
+.pick-grip { color: #b3b9c3; cursor: grab; display: flex; }
+.pick-n {
+  flex: none; width: 26px; height: 26px; border-radius: 999px; background: var(--blue); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+}
+.pick-body { flex: 1; min-width: 0; }
+.pick-name { display: block; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-meta { display: block; color: var(--text2); font-size: 12px; }
+.pick-tag {
+  flex: none; border: none; cursor: pointer; font: 600 11px/1 inherit; padding: 6px 9px;
+  border-radius: 999px; background: var(--blue-lt); color: var(--blue-dk);
+}
+.pick-tag.on { background: var(--amber-lt); color: #6b4600; }
+.pick-tag:disabled { opacity: .5; cursor: default; }
+.pick-x {
+  flex: none; width: 28px; height: 28px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text2); font-size: 16px; cursor: pointer;
+}
+.pick-x:hover { background: var(--surface2); color: var(--text); }
+.pick-empty { color: var(--text2); font-size: 13px; padding: 14px; border: 1px dashed var(--border2); border-radius: var(--r); text-align: center; }
+.tour-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tour-stats div { padding: 8px 10px; border-radius: var(--r); background: var(--bg); }
+.tour-stats dt { font-size: 11px; color: var(--text2); }
+.tour-stats dd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.warn-box { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--amber-lt); color: #6b4600; font-size: 13px; line-height: 1.5; }
+.warn-box[hidden] { display: none; }
+.tour-status { font-size: 12px; color: var(--text2); min-height: 16px; }
+.hand-edit { border: 1px solid var(--border); border-radius: var(--r); background: var(--bg); }
+.hand-edit summary { cursor: pointer; padding: 10px 12px; font-weight: 600; font-size: 13px; }
+.hand-edit[open] summary { border-bottom: 1px solid var(--border); }
+.hand-edit .panel-inner { padding: 8px; }
+#step-2 .panel-inner { flex: none; overflow: visible; }
+.hand-edit-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.start-marker { cursor: grab; }
+.start-marker.dragging { cursor: grabbing; }
+.start-marker rect, .start-marker circle { fill: var(--dark); }
+.start-marker circle { stroke: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.start-marker text { fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
+.canvas-area { display: flex; flex-direction: column; }
+#svg-wrap { flex: 1; min-height: 0; height: auto; }
+.camera-strip { flex: none; padding: 10px 16px 88px; background: linear-gradient(to bottom, rgba(246,247,249,0), var(--bg) 24px); }
+.camera-strip[hidden], body:not([data-step="2"]) .camera-strip { display: none; }
+.strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.strip-head b { font-size: 14px; }
+.strip-head span { font-size: 12px; color: var(--text2); }
+.strip-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.strip-row figure {
+  flex: 0 0 calc((100% - 36px) / 4); min-width: 170px; margin: 0; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-sm);
+}
+.strip-row img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface2); }
+.strip-row figcaption { display: flex; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 12px; }
+.strip-row figcaption b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip-row figcaption span { color: var(--text2); font-variant-numeric: tabular-nums; }
+.cam-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--r); }
+.dur-suggest { font-size: 12px; color: var(--text2); }
+.dur-suggest[hidden] { display: none; }
+.link-btn { border: none; background: none; padding: 0; color: var(--blue-dk); font: 600 12px/1 inherit; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.cam-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--r); background: var(--amber-lt); color: #6b4600; font-size: 13px; line-height: 1.45; }
+.cam-warnings[hidden] { display: none; }
+body[data-step="4"] .p3d-bar { display: none; }
+.p3d-hud {
+  position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-radius: 8px; background: rgba(30,36,48,.82); color: #fff; font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+#p3d-hud-time { left: 12px; top: 12px; }
+#p3d-hud-theme { right: 12px; top: 12px; }
+body:not([data-step="4"]) .p3d-hud { display: none; }
+.p3d-hud .rec { width: 8px; height: 8px; border-radius: 999px; background: #e5484d; }
+.title-card {
+  position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; pointer-events: none;
+  visibility: hidden; opacity: 0; transition: opacity .35s, visibility 0s linear .35s;
+}
+.title-card.show { visibility: visible; opacity: 1; transition: opacity .35s, visibility 0s; }
+.title-card img { max-height: 72px; max-width: 50%; }
+.title-card img.invert { filter: invert(1); }
+.title-card img[hidden], .title-card div:empty { display: none; }
+.tc-name { font-size: clamp(22px, 3vw, 40px); font-weight: 700; line-height: 1.2; }
+.tc-line { font-size: clamp(14px, 1.5vw, 20px); opacity: .8; }
+.vtl { flex-shrink: 0; position: relative; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: var(--surface); border-top: 1px solid var(--border); }
+body[data-step="4"] .vtl { padding-bottom: 92px; }
+.vtl-top { display: flex; align-items: center; gap: 10px; }
+.vtl-note { margin-left: auto; font-size: 12px; color: var(--text2); }
+.vtl-lane { display: flex; align-items: center; gap: 8px; }
+.vtl-name { width: 52px; flex: none; font-size: 11px; font-weight: 600; color: var(--text2); }
+.vtl-track { flex: 1; min-width: 0; height: 30px; display: flex; gap: 2px; cursor: pointer; touch-action: none; }
+.vtl-block { min-width: 2px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; }
+.vtl-block.walk { background: var(--blue-lt); border: 1px solid var(--blue-md); }
+.vtl-block.intro, .vtl-block.outro { background: var(--dark); color: #fff; }
+.vtl-block.fade { background: linear-gradient(90deg, var(--blue-lt), var(--dark) 50%, var(--blue-lt)); color: #fff; font-size: 10px; }
+#vtl-music svg { width: 100%; height: 100%; display: block; }
+.vtl-playhead { position: absolute; width: 2px; background: var(--blue); pointer-events: none; border-radius: 1px; }
+body:not([data-step="4"]) .vtl-lane, body:not([data-step="4"]) .vtl-note, body:not([data-step="4"]) .vtl-playhead { display: none; }
+body[data-step="4"].picking-fade .canvas-area { display: flex; }
+body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
+.vp-sec { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.vp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vp-head b { font-size: 14px; }
+.vp-head span { font-size: 12px; color: var(--text2); }
+.vp-brand { display: flex; gap: 12px; }
+.card-preview {
+  flex: none; width: 150px; aspect-ratio: 16 / 9; border-radius: var(--r); color: #fff; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; text-align: center;
+  box-shadow: 0 1px 2px rgba(16,24,40,.2);
+}
+.card-preview img { max-height: 16px; max-width: 70%; }
+.card-preview img.invert { filter: invert(1); }
+#cp-name { font-size: 10px; font-weight: 700; }
+#cp-line { font-size: 8px; opacity: .75; }
+#cp-name:empty, #cp-line:empty { display: none; }
+.vp-brand-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.logo-drop {
+  display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer;
+  border: 1px dashed var(--blue-md); border-radius: var(--r); background: #f7faff; font-size: 12px; color: var(--text2);
+}
+.logo-drop:hover { border-color: var(--blue); }
+.logo-drop input { display: none; }
+.logo-drop img { height: 16px; max-width: 48px; object-fit: contain; }
+.logo-drop img[hidden] { display: none; }
+#logo-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 26px; height: 26px; border-radius: 999px; border: none; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(16,24,40,.12); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--blue); }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld label { font-size: 12px; font-weight: 600; color: var(--text2); }
+.fld input { height: 34px; padding: 0 10px; border: 1px solid var(--border2); border-radius: var(--r-sm); font: inherit; font-size: 13px; color: var(--text); }
+.fld input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.themes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.theme-card {
+  display: flex; align-items: center; gap: 8px; padding: 8px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font: inherit;
+}
+.theme-card[aria-checked="true"] { border-color: var(--blue); background: #f7faff; }
+.theme-play {
+  flex: none; width: 28px; height: 28px; border: none; border-radius: 999px; cursor: pointer;
+  background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.theme-card[aria-checked="true"] .theme-play { background: var(--blue); }
+.theme-txt { min-width: 0; }
+.theme-txt b { display: block; font-size: 12px; }
+.theme-txt span { display: block; font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fade-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.fade-list li { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r); }
+.fade-pts { flex: none; display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; }
+.fade-pts i { font-style: normal; width: 22px; height: 22px; border-radius: 999px; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.fade-txt { flex: 1; min-width: 0; }
+.fade-txt b { display: block; font-size: 12px; font-weight: 600; }
+.fade-txt span { display: block; font-size: 11px; color: var(--text2); }
+.entrance-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r); }
+.entrance-row .entrance-dot { flex: none; width: 24px; height: 24px; border-radius: 999px; background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center; }
+.entrance-row .entrance-txt { flex: 1; min-width: 0; }
+.entrance-row .entrance-txt b { display: block; font-size: 13px; }
+.entrance-row .entrance-txt span { display: block; font-size: 12px; color: var(--text2); }
+.entrance-row .link-btn[hidden] { display: none; }
+body.picking-entrance .canvas-area { cursor: crosshair; }
+.dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
 </head>
 <body>
 
 <!-- HEADER -->
 <header class="header">
-  <svg height="36" viewBox="0 0 2184 546" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
-    <path d="M0 0 C0.66008515 -0.00205263 1.3201703 -0.00410527 2.00025803 -0.0062201 C4.22172476 -0.01189407 6.44312957 -0.01043236 8.66460228 -0.00901413 C10.26960044 -0.01159755 11.87459796 -0.01461064 13.47959459 -0.01801753 C17.89786806 -0.02609369 22.3161253 -0.02787745 26.73440528 -0.028615 C31.49667469 -0.03046451 36.25893565 -0.03801137 41.02120018 -0.04475021 C51.43865674 -0.05833889 61.85610945 -0.06435921 72.2735734 -0.06876087 C78.77774099 -0.07152264 85.2819071 -0.0757599 91.78607368 -0.08026505 C109.79219087 -0.09245889 127.79830687 -0.10275766 145.8044281 -0.10614014 C146.95714038 -0.1063597 148.10985267 -0.10657927 149.29749563 -0.10680549 C150.45297835 -0.10702377 151.60846107 -0.10724204 152.79895842 -0.10746694 C155.14043403 -0.1079104 157.48190963 -0.10835697 159.82338524 -0.10880661 C160.98483989 -0.10902804 162.14629454 -0.10924947 163.34294479 -0.10947761 C182.16001125 -0.11342508 200.97703897 -0.13087703 219.79409046 -0.15416613 C239.11069891 -0.17788061 258.42728791 -0.19034205 277.74391115 -0.19150805 C288.59046816 -0.19242481 299.43697472 -0.19817722 310.28351784 -0.21632767 C319.52043873 -0.23173 328.75729357 -0.23684835 337.99422486 -0.22858956 C342.70631132 -0.22468342 347.41826477 -0.22561094 352.13033485 -0.23964691 C356.44719612 -0.25238793 360.76382447 -0.25118653 365.08068542 -0.2390562 C366.63928212 -0.23709954 368.19789534 -0.2401762 369.75646885 -0.24890056 C381.88145706 -0.31245463 392.30534784 0.41927383 401.44496727 9.13142776 C406.73871838 15.11215421 408.69278042 21.00324167 408.70223618 29.02905369 C408.70574225 29.70187636 408.70924832 30.37469904 408.71286064 31.06791028 C408.72215885 33.32071782 408.71725549 35.57326596 408.71239281 37.82608414 C408.71612986 39.45827132 408.72073161 41.09045671 408.72612345 42.72263926 C408.73836197 47.2067514 408.73809198 51.69078897 408.7357347 56.174914 C408.73532675 61.0114384 408.74636357 65.84793882 408.75584984 70.68445206 C408.77246534 80.15963884 408.77795963 89.63480075 408.77907459 99.11000089 C408.78002478 106.81144394 408.7841336 114.51287878 408.79047585 122.21431923 C408.80808954 144.04694479 408.81731448 165.87955068 408.8158149 187.71218339 C408.81573499 188.88927671 408.81565507 190.06637003 408.81557274 191.27913284 C408.81549098 192.45766249 408.81540922 193.63619214 408.81532498 194.8504348 C408.81451198 213.95259282 408.83365283 233.05467201 408.86184947 252.15680722 C408.89056984 271.76841147 408.90439024 291.37997726 408.90266192 310.99160308 C408.90199774 322.00299037 408.90750237 333.01429501 408.92901802 344.02566338 C408.94721862 353.40055625 408.95158633 362.775329 408.93799917 372.15023188 C408.93146397 376.93312699 408.93137233 381.71579159 408.94870567 386.49866486 C408.96441687 390.87898872 408.96159278 395.25889891 408.94413741 399.63921257 C408.94106322 401.22195726 408.94471573 402.80473268 408.95585756 404.38744114 C409.02904779 415.52368764 407.9133014 424.19437917 400.14027977 432.63142776 C390.84388888 440.85680588 378.53547124 440.42476204 366.87839317 440.3988533 C365.28445381 440.40259253 363.69051628 440.40719514 362.09658164 440.41258395 C357.72732422 440.42479574 353.35814347 440.42455562 348.98887289 440.4221952 C344.27228074 440.42178657 339.55571303 440.43283062 334.83913231 440.44231033 C325.60217509 440.45891158 316.3652434 440.46441949 307.12827251 440.46553509 C299.61808247 440.46648603 292.10790085 440.47059861 284.59771347 440.47693634 C263.29520452 440.49454676 241.9927157 440.50377558 220.69019941 440.50227539 C219.54217075 440.50219548 218.3941421 440.50211557 217.21132469 440.50203323 C216.06189082 440.50195147 214.91245695 440.50186971 213.72819176 440.50178547 C195.10415195 440.50097274 176.48019306 440.52010766 157.85617665 440.54830997 C138.72361489 440.57705325 119.59109257 440.59084945 100.45850867 440.58912241 C89.72089037 440.58845899 78.98335688 440.59393048 68.24575806 440.61547852 C59.1026912 440.63370934 49.95974758 440.63802204 40.8166704 440.62445967 C36.15477957 440.6179395 31.49312507 440.61777836 26.83125687 440.63516617 C22.55689141 440.6509442 18.28294873 440.64798528 14.00859328 440.6305979 C12.46890549 440.62753837 10.92918576 440.63112061 9.38953564 440.64231806 C-2.64112636 440.72396288 -14.93709274 439.91038168 -23.96909523 431.06892776 C-28.76849267 425.20562449 -30.67865034 419.10316764 -30.68646049 411.60015202 C-30.68851313 410.93049128 -30.69056576 410.26083054 -30.6926806 409.57087705 C-30.69836728 407.31083507 -30.6968913 405.05085372 -30.69547462 402.79080582 C-30.69805731 401.16049653 -30.7010702 399.53018788 -30.70447803 397.89988011 C-30.71256273 393.40707667 -30.71433842 388.9142892 -30.71507549 384.42147934 C-30.71692351 379.58083867 -30.72446961 374.74020633 -30.73121071 369.89957047 C-30.74480533 359.30864077 -30.7508206 348.71771486 -30.75522137 338.12677789 C-30.75798207 331.51592761 -30.76221912 324.9050788 -30.76672554 318.29422951 C-30.77892003 299.99734241 -30.78921876 281.70045648 -30.79260063 263.40356541 C-30.7928202 262.23200921 -30.79303976 261.06045301 -30.79326598 259.85339512 C-30.79348426 258.67900369 -30.79370254 257.50461226 -30.79392743 256.29463321 C-30.7943709 253.91479194 -30.79481746 251.53495067 -30.79526711 249.15510941 C-30.79548853 247.97462094 -30.79570996 246.79413248 -30.7959381 245.57787164 C-30.79988625 226.44899751 -30.81733996 207.32016146 -30.84062663 188.19130204 C-30.86433166 168.56059149 -30.87680211 148.92990006 -30.87796855 129.29917496 C-30.87888583 118.27381485 -30.88465129 107.24850435 -30.90278816 96.22315788 C-30.91817775 86.83464097 -30.92331638 77.446189 -30.91505006 68.05766187 C-30.91113942 63.26684561 -30.91209334 58.47616018 -30.92610741 53.68535995 C-30.9388215 49.2988653 -30.93767074 44.91260013 -30.92551669 40.5261059 C-30.92355536 38.93992427 -30.92665824 37.35372652 -30.93536106 35.76756755 C-30.99206817 24.73284077 -30.44925238 16.38225454 -22.65659523 7.95955276 C-16.01969546 2.18619014 -8.61045123 0.00911277 0 0 Z M67.44496727 101.13142776 C64.24786266 104.6637127 61.30295775 108.32077379 58.44496727 112.13142776 C57.70633446 113.11627151 56.96770164 114.10111526 56.20668602 115.11580276 C38.52212141 139.6726075 29.2212977 167.74071543 29.19496727 198.00642776 C29.19429253 198.70117203 29.19361778 199.39591629 29.19292259 200.11171341 C29.20935023 210.75651561 29.76790713 220.77797831 32.44496727 231.13142776 C32.61657372 231.81769241 32.78818016 232.50395706 32.9649868 233.21101761 C38.36079771 254.45189969 48.05629239 273.53346816 62.44496727 290.13142776 C63.48910789 291.3573262 63.48910789 291.3573262 64.55434227 292.60799026 C80.35516215 310.70609246 101.25137979 325.95133551 124.44496727 333.13142776 C125.43496727 333.13142776 126.42496727 333.13142776 127.44496727 333.13142776 C127.44496727 334.78142776 127.44496727 336.43142776 127.44496727 338.13142776 C104.52480749 341.46883437 81.66460361 344.10951729 58.56606102 345.82283401 C53.48081921 346.20066999 48.39856018 346.61289371 43.31606102 347.02595901 C38.69280957 347.40000849 34.06882133 347.76490275 29.44496727 348.13142776 C29.44496727 359.02142776 29.44496727 369.91142776 29.44496727 381.13142776 C136.03496727 381.13142776 242.62496727 381.13142776 352.44496727 381.13142776 C352.44496727 370.24142776 352.44496727 359.35142776 352.44496727 348.13142776 C297.33496727 348.13142776 242.22496727 348.13142776 185.44496727 348.13142776 C185.44496727 346.15142776 185.44496727 344.17142776 185.44496727 342.13142776 C186.42852196 341.9238887 187.41207664 341.71634964 188.42543602 341.50252151 C229.89311015 332.43400374 266.83582654 312.42865994 290.44496727 276.13142776 C311.3625307 243.09193775 318.03653799 204.48042272 309.73402977 166.26814651 C301.12695703 130.16891036 278.19423453 98.20699152 246.81777 78.4561348 C188.2149931 42.87123911 115.39141307 52.55410768 67.44496727 101.13142776 Z" fill="#CBEDFA" transform="translate(411.55503273010254,52.86857223510742)"/>
-    <path d="M0 0 C1.26457031 1.15628906 1.26457031 1.15628906 2.5546875 2.3359375 C3.08803711 2.8215918 3.62138672 3.30724609 4.17089844 3.80761719 C23.8822079 21.97983946 37.94502909 46.41849395 39.77758789 73.64794922 C40.75975887 103.82584189 34.99700942 132.11846289 14.5546875 155.3359375 C13.89082031 156.14289063 13.22695313 156.94984375 12.54296875 157.78125 C-3.74203389 176.98611448 -28.30254932 190.63750259 -53.4453125 193.3359375 C-85.09888727 195.25393328 -115.06116061 189.81038387 -139.4453125 168.3359375 C-140.67314453 167.32273437 -140.67314453 167.32273437 -141.92578125 166.2890625 C-161.58771536 149.58403941 -174.60793681 123.89473084 -177.4453125 98.3359375 C-179.49421195 68.0235821 -173.13603753 38.41196784 -152.890625 14.9921875 C-145.35208875 6.80336218 -137.97738486 -0.76793527 -128.4453125 -6.6640625 C-127.45660156 -7.30859375 -126.46789062 -7.953125 -125.44921875 -8.6171875 C-87.51930554 -32.02740484 -34.22899594 -29.15803358 0 0 Z" fill="#CBEDFA" transform="translate(651.4453125,166.6640625)"/>
-    <path d="M0 0 C14.52 0 29.04 0 44 0 C44.33 41.58 44.66 83.16 45 126 C48.96 121.05 48.96 121.05 53 116 C71.77640009 96.06858477 99.40959897 86.4843853 126.34765625 85.6640625 C128.91913021 85.63418276 131.49085466 85.62162956 134.0625 85.625 C135.07339188 85.62531723 135.07339188 85.62531723 136.10470581 85.62564087 C168.58601059 85.72683172 197.42169045 97.47193699 220.57714844 120.51123047 C241.34879927 142.24519182 252.90369318 174.02110515 253.23828125 203.8828125 C253.25297203 204.97541382 253.25297203 204.97541382 253.26795959 206.09008789 C253.44220494 222.41341803 253.27872312 238.12316398 249 254 C248.79632812 254.77359863 248.59265625 255.54719727 248.3828125 256.34423828 C240.53609225 285.06105474 221.99443618 311.81543788 196.00683594 326.88720703 C165.98544307 343.5341059 129.68991918 346.51876521 96.7331543 337.40795898 C76.92249773 331.45964046 56.66242687 319.49364031 45 302 C44.67 315.2 44.34 328.4 44 342 C29.48 342 14.96 342 0 342 C0 229.14 0 116.28 0 0 Z M74 142 C73.19304687 142.71542969 72.38609375 143.43085938 71.5546875 144.16796875 C54.46981011 160.18177584 44.87920085 183.70117734 44 207 C43.9484375 208.00546875 43.896875 209.0109375 43.84375 210.046875 C43.13007646 235.85806819 50.77110705 261.88046236 68.71069336 280.85375977 C84.32340707 296.61160801 103.84918981 304.6212486 125.9375 305.25 C144.95474057 305.03014751 161.70865812 299.40450156 177 288 C177.63035156 287.55398438 178.26070312 287.10796875 178.91015625 286.6484375 C196.13612356 273.37263291 204.71509035 251.40792884 208.61328125 230.75 C211.38891623 203.83475174 207.70866838 175.19847905 190.64697266 153.26025391 C176.87690816 136.61383819 158.62186175 125.79843388 137 123 C113.80175041 121.49514965 91.64602091 125.91881491 74 142 Z" fill="#000000" transform="translate(1200,59)"/>
-    <path d="M0 0 C6.90112093 5.40519546 12.71667475 11.22396843 18.1875 18.0625 C18.5175 6.1825 18.8475 -5.6975 19.1875 -17.9375 C33.7075 -17.9375 48.2275 -17.9375 63.1875 -17.9375 C63.1875 93.9325 63.1875 205.8025 63.1875 321.0625 C48.6675 321.0625 34.1475 321.0625 19.1875 321.0625 C18.8575 279.4825 18.5275 237.9025 18.1875 195.0625 C13.7325 200.5075 13.7325 200.5075 9.1875 206.0625 C-14.31672792 228.74312963 -45.18755748 235.62726111 -76.84375 235.27734375 C-108.62498284 234.45629457 -136.93436924 221.35859378 -158.75390625 198.4375 C-162.60390434 194.26249451 -165.87469532 189.92482189 -168.8125 185.0625 C-169.46605469 184.00675781 -170.11960937 182.95101562 -170.79296875 181.86328125 C-177.53678943 170.70814876 -182.17241465 159.05835195 -185.5625 146.5 C-185.76125732 145.76950439 -185.96001465 145.03900879 -186.16479492 144.28637695 C-189.28011133 132.1015239 -190.1934578 119.91740694 -190.125 107.375 C-190.12317719 106.67728485 -190.12135437 105.9795697 -190.11947632 105.26071167 C-189.97953676 73.32759757 -181.09818613 43.20682075 -160.8125 18.0625 C-159.89210938 16.89267578 -159.89210938 16.89267578 -158.953125 15.69921875 C-122.20904192 -28.50359915 -44.90905719 -34.14824588 0 0 Z M-125.19677734 43.66894531 C-142.9179207 65.40739538 -147.85666237 93.09310598 -145.61035156 120.53173828 C-142.91277512 144.02101236 -131.64629517 165.54320011 -113.8125 181.0625 C-96.3917404 194.46674789 -74.734992 200.37681578 -52.91015625 197.55859375 C-44.09641268 196.17022854 -35.96728744 193.74326009 -27.8125 190.0625 C-26.42998047 189.45148438 -26.42998047 189.45148438 -25.01953125 188.828125 C-6.15984583 179.57517689 6.70386773 161.27453317 13.73046875 141.96875 C22.70543175 115.68538347 21.40839406 85.54760492 9.1809082 60.47607422 C-1.03574449 40.71183581 -16.69421502 26.61881979 -37.79589844 19.38232422 C-68.90467174 9.52944828 -103.81186027 18.85188105 -125.19677734 43.66894531 Z" fill="#000000" transform="translate(1739.8125,165.9375)"/>
-    <path d="M0 0 C0.98081543 0.24943359 0.98081543 0.24943359 1.98144531 0.50390625 C16.89049932 4.38385284 30.44075695 10.71123232 42 21 C42.70511719 21.57492188 43.41023438 22.14984375 44.13671875 22.7421875 C49.4537816 27.13762612 52.57310072 31.30827235 57 37 C57.33 24.79 57.66 12.58 58 0 C72.19 0 86.38 0 101 0 C101 111.87 101 223.74 101 339 C86.81 339 72.62 339 58 339 C57.67 297.42 57.34 255.84 57 213 C53.37 216.96 49.74 220.92 46 225 C23.67602624 246.68614593 -5.73720228 253.39900929 -35.9453125 253.30249023 C-65.63746227 252.80061821 -93.74490517 241.93618673 -115.53515625 221.55859375 C-141.87795979 194.21384523 -152.13924842 158.33068535 -152 121 C-150.93389625 87.8335682 -140.78258229 57.26097508 -119 32 C-118.03513672 30.88044922 -118.03513672 30.88044922 -117.05078125 29.73828125 C-88.33300404 -0.97292084 -39.77734382 -10.42788717 0 0 Z M-52 38 C-53.57974609 38.5259375 -53.57974609 38.5259375 -55.19140625 39.0625 C-75.51510026 46.69382187 -89.9677956 62.73650576 -98.96362305 82.07788086 C-109.21692085 105.10866096 -110.66451399 132.9499304 -103 157 C-102.62617187 158.17433594 -102.25234375 159.34867187 -101.8671875 160.55859375 C-93.9472289 182.82364293 -78.94700593 199.33592519 -57.66015625 209.49609375 C-35.63639346 218.54534527 -12.97416661 217.6550328 9 209 C30.12370711 199.56291526 43.76539149 181.70924029 52.05224609 160.68579102 C55.80729341 150.54138221 57.450962 139.7748707 58 129 C58.04125 128.31421875 58.0825 127.6284375 58.125 126.921875 C58.85373701 103.05573783 51.27320722 77.73561781 35 60 C34.33613281 59.24460937 33.67226562 58.48921875 32.98828125 57.7109375 C19.52880551 43.23142756 0.4452516 34.6657251 -19.21875 33.6796875 C-30.74084111 33.33382368 -41.07149191 34.32898734 -52 38 Z" fill="#000000" transform="translate(1058,148)"/>
-    <path d="M0 0 C14.19 0 28.38 0 43 0 C43 83.16 43 166.32 43 252 C28.81 252 14.62 252 0 252 C0 168.84 0 85.68 0 0 Z" fill="#000000" transform="translate(1481,149)"/>
-    <path d="M0 0 C5.47241428 4.27086245 9.55814156 10.85801621 10.796875 17.71484375 C11.58825815 28.01579823 10.41015377 35.6000643 5.171875 44.46484375 C-2.24991515 51.49601337 -10.61209819 54.65004569 -20.703125 54.96484375 C-29.66071235 54.68540428 -37.11296216 52.37252887 -44.203125 46.71484375 C-50.96833224 39.04295925 -52.69285809 31.05686302 -52.51953125 21.00390625 C-51.64771934 11.94136768 -47.47121547 5.27158581 -40.578125 -0.47265625 C-27.82256378 -7.32286505 -12.622636 -7.36320434 0 0 Z" fill="#000000" transform="translate(1523.203125,58.28515625)"/>
-  </svg>
-  <span class="level-tag" id="h-level">No plan loaded</span>
-  <div class="header-sep"></div>
-
-  <!-- Design JSON upload -->
-  <label class="load-btn load-folder-btn" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-      <path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <span id="load-folder-btn-text">Load Project</span>
-    <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
-  </label>
-
-  <button class="btn-3d-toggle" id="btn-3d-toggle" onclick="toggle3DPanel()" title="Toggle 3D walkthrough preview">
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 9L6.5 4L12 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><rect x="3" y="9" width="7" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
-    3D Preview
-  </button>
-
-  <div class="header-export">
-    <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the raw waypoint path as JSON">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Save JSON
-    </button>
-    <button class="export-btn is-primary" id="btn-xml" onclick="exportRoute('xml')" disabled title="Export the walkthrough as an Enscape camera path">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M3.5 5.5L6.5 8.5L9.5 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5V10.5C1 11.05 1.45 11.5 2 11.5H11C11.55 11.5 12 11.05 12 10.5V9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Enscape XML
-    </button>
-  </div>
-
+  <img class="brand-logo" src="frontend/img/qbiq-logo.svg" alt="qbiq"/>
+  <span class="brand-sep" aria-hidden="true"></span>
+  <span class="brand-name">Path Editor</span>
+  <span class="header-sep"></span>
+  <span class="plan-name" id="h-level">No plan loaded</span>
   <div id="upload-hint-header" style="font-size:10.5px;color:var(--text3);max-width:180px;text-align:right;line-height:1.4"></div>
 </header>
 
 <div class="body">
 
-  <!-- SIDEBAR -->
-  <aside class="panel">
+  <!-- STEP 1 · LOAD PLAN -->
+  <aside class="step-panel step-panel-left" id="step-1" aria-label="Load plan">
+    <div>
+      <div class="sp-eyebrow">Step 1 of 4</div>
+      <h1 class="sp-title">Load your floor plan</h1>
+      <p class="sp-help">Choose the qbiq design .json for the floor you want to walk through, or drag it onto the page.</p>
+    </div>
+    <label class="load-card" id="load-folder-btn-wrap" title="Select a qbiq design .json file">
+      <svg width="22" height="22" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5.5L7 4H11.5C12.33 4 13 4.67 13 5.5V10.5C13 11.33 12.33 12 11.5 12H2.5C1.67 12 1 11.33 1 10.5V3.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5 8.5L7 6.5L9 8.5M7 6.5V11" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="load-folder-btn-text">Choose design .json</span>
+      <input type="file" id="file-folder-input" accept=".json,application/json" onchange="onDesignSelected(this)"/>
+    </label>
+    <dl class="plan-summary" id="plan-summary" hidden>
+      <div><dt>Floor</dt><dd id="sum-floor">–</dd></div>
+      <div><dt>Rooms</dt><dd id="sum-rooms">–</dd></div>
+    </dl>
+    <div>
+      <div class="sp-sub">Continue a saved path</div>
+      <p class="sp-help">Load a path you saved before: a path .json or an Enscape .xml. Load the floor plan first.</p>
+    </div>
+    <label class="load-card secondary disabled" id="import-path-wrap" title="Load a previously exported path (Enscape XML or JSON) to continue editing">
+      <svg width="20" height="20" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Load saved path
+      <input type="file" id="import-path-input" accept=".xml,.json" onchange="onImportPath(this)" disabled/>
+    </label>
+  </aside>
+
+  <!-- STEP 2 · ROOMS & ROUTE -->
+  <aside class="step-panel step-panel-left" id="step-2" aria-label="Rooms and route">
+    <div>
+      <div class="sp-eyebrow">Step 2 of 4</div>
+      <h1 class="sp-title">Which rooms should the tour show?</h1>
+      <p class="sp-help">Click rooms on the plan in the order you want to visit them. The walk starts at the main entrance and follows the corridors.</p>
+    </div>
+    <div class="quick-add" role="group" aria-label="Quick add">
+      <button type="button" class="pill" data-quick="offices" onclick="quickAddGroup('offices')">+ All offices</button>
+      <button type="button" class="pill" data-quick="meeting" onclick="quickAddGroup('meeting')">+ Meeting rooms</button>
+      <button type="button" class="pill" data-quick="amenities" onclick="quickAddGroup('amenities')">+ Amenities</button>
+    </div>
+    <div class="entrance-row" id="entrance-row">
+      <span class="entrance-dot" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></span>
+      <span class="entrance-txt"><b>Start · Main entrance</b><span id="entrance-sub">From the plan</span></span>
+      <button type="button" class="pill" id="move-entrance" onclick="startEntrancePick()">Move</button>
+      <button type="button" class="link-btn" id="reset-entrance" onclick="resetEntrance()" hidden>Reset</button>
+    </div>
+    <ol class="pick-list" id="pick-list" aria-label="Rooms in visiting order"></ol>
+    <div class="tour-status" id="tour-msg" aria-live="polite"></div>
+    <dl class="tour-stats" id="tour-stats">
+      <div><dt>Rooms</dt><dd id="st-rooms">0</dd></div>
+      <div><dt>Walk</dt><dd id="st-walk">–</dd></div>
+      <div><dt>Length</dt><dd id="st-len">–</dd></div>
+      <div><dt>Pace</dt><dd id="st-pace">–</dd></div>
+    </dl>
+    <div class="warn-box" id="tour-warn" hidden></div>
+    <details class="hand-edit" id="hand-edit" ontoggle="onHandEditToggle()">
+      <summary>Edit route by hand</summary>
     <div class="panel-inner">
+      <div class="hand-edit-tools">
+        <button class="tb-btn-auto" id="btn-autopath" title="Click a start point, three via points and an end point — a path around walls is drawn for you" onclick="generateAutoPath()">Smart Path</button>
+        <button class="tb-btn-auto" title="Undo (Ctrl+Z)" onclick="undoLast()">Undo</button>
+      </div>
 
       <!-- DRAW MODE -->
       <div class="section">
@@ -621,22 +905,6 @@ body {
               Freehand
             </button>
           </div>
-        </div>
-      </div>
-
-      <!-- IMPORT PATH -->
-      <div class="section">
-        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
-          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-          Import Path
-          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="card-body">
-          <label style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:8px;border:1.5px dashed var(--border2);background:var(--bg);color:var(--text2);cursor:pointer;font-size:11.5px;font-weight:500;transition:all .18s" onmouseover="this.style.borderColor='var(--blue)';this.style.color='var(--blue)';this.style.background='var(--blue-lt)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='var(--bg)'" title="Load a previously exported path (Enscape XML or JSON) to continue editing">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 10v1.5A1.5 1.5 0 002.5 13h9a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Load XML / JSON path
-            <input type="file" accept=".xml,.json" style="display:none" onchange="onImportPath(this)"/>
-          </label>
         </div>
       </div>
 
@@ -663,81 +931,59 @@ body {
         </div>
       </div>
 
-      <!-- VIDEO SETTINGS -->
-      <div class="section">
-        <button class="sec-head" onclick="toggleCard(this)" aria-expanded="true">
-          <span class="sec-icon"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 5.5L6.5 2L12 5.5V9.5L6.5 13L1 9.5V5.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>
-          Video Settings
-          <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="card-body">
+    </div>
+    </details>
+  </aside>
 
-          <div class="preset-row">
-            <button class="preset-btn" data-preset="quick" onclick="applyPreset('quick')">Quick Tour</button>
-            <button class="preset-btn active" data-preset="standard" onclick="applyPreset('standard')">Standard</button>
-            <button class="preset-btn" data-preset="cinematic" onclick="applyPreset('cinematic')">Cinematic</button>
-          </div>
-
-          <!-- Duration strip -->
-          <div class="dur-card">
-            <div class="dur-time" id="dur-display">0:30</div>
-            <div class="dur-detail">
-              <span class="dur-label">Video Length</span>
-              <span class="dur-sub" id="dur-sub">30 seconds</span>
-            </div>
-          </div>
-
-          <div class="slider-block">
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M6.5 3.5V6.5L8.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                Video length
-              </span>
-              <span class="slider-value" id="v-dur">30s</span>
-              <input type="range" id="s-dur" min="5" max="300" value="30" step="1"
-                     oninput="syncSlider('dur',this.value)"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 8C2.5 4 4.5 4 6.5 8S10.5 12 12 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
-                Path smoothness
-              </span>
-              <span class="slider-value" id="v-smo">1.0</span>
-              <input type="range" id="s-smo" min="0" max="1" value="1.0" step="0.05"
-                     oninput="syncSlider('smo',this.value);debounceSpline()"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 6.5C1 6.5 3.5 2 6.5 2S12 6.5 12 6.5S9.5 11 6.5 11S1 6.5 1 6.5Z" stroke="currentColor" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.2"/></svg>
-                Camera view width
-              </span>
-              <span class="slider-value" id="v-fov">90°</span>
-              <input type="range" id="s-fov" min="40" max="120" value="90" step="1"
-                     oninput="syncSlider('fov',this.value)"/>
-            </div>
-
-            <div class="slider-item">
-              <span class="slider-label">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5H8C9.66 3.5 11 4.84 11 6.5C11 8.16 9.66 9.5 8 9.5H2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4.5 7L2 9.5L4.5 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Turn smoothness
-              </span>
-              <span class="slider-value" id="v-utr">3m</span>
-              <input type="range" id="s-utr" min="0" max="20" value="3" step="0.5"
-                     oninput="syncSlider('utr',this.value);debounceSpline()"/>
-            </div>
-
-            <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
-              <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
-            </label>
-
-          </div>
+  <!-- STEP 3 · CAMERA STYLE -->
+  <aside class="step-panel step-panel-left" id="step-3" aria-label="Camera style">
+    <div>
+      <div class="sp-eyebrow">Step 3 of 4</div>
+      <h1 class="sp-title">How should the camera move?</h1>
+      <p class="sp-help">The camera walks at eye height and turns its head slowly, in the qbiq house style. Adjust the feel, then preview it in 3D.</p>
+    </div>
+    <div class="preset-row" role="group" aria-label="Presets">
+      <button class="preset-btn" data-preset="quick" onclick="applyPreset('quick')">Quick</button>
+      <button class="preset-btn active" data-preset="standard" onclick="applyPreset('standard')">Standard</button>
+      <button class="preset-btn" data-preset="cinematic" onclick="applyPreset('cinematic')">Cinematic</button>
+    </div>
+    <div class="cam-card">
+      <div class="dur-card">
+        <div class="dur-time" id="dur-display">0:30</div>
+        <div class="dur-detail">
+          <span class="dur-label">Video length</span>
+          <span class="dur-sub" id="dur-sub">30 seconds</span>
         </div>
       </div>
-
+      <div class="dur-suggest" id="dur-suggest" hidden>Suggested for this tour: <b id="dur-suggest-val"></b> · <button type="button" class="link-btn" id="use-suggested" onclick="useSuggested()">Use suggested</button></div>
+      <div class="slider-block">
+        <div class="slider-item">
+          <label class="slider-label" for="s-dur">Video length</label>
+          <span class="slider-value" id="v-dur">30s</span>
+          <input type="range" id="s-dur" min="5" max="300" value="30" step="1" oninput="onDurationInput(this.value)"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-smo">Smoothness</label>
+          <span class="slider-value" id="v-smo">1.0</span>
+          <input type="range" id="s-smo" min="0" max="1" value="1.0" step="0.05" oninput="syncSlider('smo',this.value);debounceSpline()"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-fov">Field of view</label>
+          <span class="slider-value" id="v-fov">90°</span>
+          <input type="range" id="s-fov" min="40" max="120" value="90" step="1" oninput="syncSlider('fov',this.value)"/>
+        </div>
+        <div class="slider-item">
+          <label class="slider-label" for="s-utr">U-turn radius</label>
+          <span class="slider-value" id="v-utr">3m</span>
+          <input type="range" id="s-utr" min="0" max="20" value="3" step="0.5" oninput="syncSlider('utr',this.value);debounceSpline()"/>
+        </div>
+        <label class="slider-item check-row" title="Stand still for ~5 s at the start and look around before walking">
+          <input type="checkbox" id="c-startpan" onchange="cam.startPan = this.checked"/> Look around at start
+        </label>
+      </div>
     </div>
+    <button type="button" class="pill" id="cam-preview" onclick="previewInStep3()">▶ Preview in 3D</button>
+    <ul class="cam-warnings" id="cam-warnings" aria-live="polite" hidden></ul>
   </aside>
 
   <!-- CANVAS -->
@@ -745,47 +991,21 @@ body {
     <div class="empty-state" id="empty-state">
       <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="6" y="10" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2"/><path d="M14 34l8-10 6 7 6-8 8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="empty-text">
-        Click <strong>Load Project</strong> in the top bar to select a qbiq design .json<br/>
-        — or <strong>drag &amp; drop</strong> the file here
+        Choose a <strong>qbiq design .json</strong> on the left<br/>
+        — or <strong>drag &amp; drop</strong> the file here<br/>
+        Scroll to zoom · middle-drag to pan · double-click to fit
       </div>
     </div>
 
     <div id="svg-wrap"></div>
     <div id="room-tip" class="room-tip" hidden></div>
 
-    <div class="toolbar">
-      <button class="tb-btn" title="Zoom in" onclick="zoomBy(1.3)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 4.3V8.7M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Zoom out" onclick="zoomBy(0.77)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5H8.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="10.5" y1="10.5" x2="13.5" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Fit to screen" onclick="fitView()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 5V2C1 1.45 1.45 1 2 1H5M14 5V2C14 1.45 13.55 1 13 1H10M1 10V13C1 13.55 1.45 14 2 14H5M14 10V13C14 13.55 13.55 14 13 14H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn" title="Undo (Ctrl+Z)" onclick="undoLast()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4 4L1.5 6.5L4 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 6.5H9C11 6.5 12.5 8 12.5 9.5C12.5 11.2 11 12.5 9.5 12.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
-      <button class="tb-btn" title="Clear all" onclick="clearWaypoints()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4H12M6 4V2.5C6 2 6.4 1.5 7 1.5H8C8.6 1.5 9 2 9 2.5V4M4.5 4V12C4.5 12.6 5 13 5.5 13H9.5C10 13 10.5 12.6 10.5 12V4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn-auto" id="btn-autopath" title="Click a start room and an end room — a path around walls is drawn for you" onclick="generateAutoPath()">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11.5" cy="3" r="1.6" fill="currentColor"/><path d="M2.5 11C5 11 4 5 7 5S9 3 11.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
-        Smart Path
-      </button>
-      <span class="tour-wrap">
-        <button class="tb-btn-auto" id="btn-autotour" hidden title="Plan a tour through the rooms along the corridor" onclick="toggleTourPanel()">Auto Tour</button>
-        <div id="tour-panel" class="tour-panel" hidden>
-          <div class="tour-title">Rooms to visit</div>
-          <div class="tour-hint">Click rooms on the plan in the order you want to visit them</div>
-          <div id="tour-list"></div>
-          <button class="tb-btn-auto" onclick="clearTourRooms()">Clear</button>
-          <div id="tour-warn" class="tour-msg"></div>
-          <div id="tour-msg" class="tour-msg"></div>
-          <button class="tb-btn-auto" id="btn-gen-tour" onclick="generateTour()">Generate tour</button>
-        </div>
-      </span>
-      <button class="tb-btn-auto active" id="btn-labels" hidden title="Show or hide room names" onclick="toggleLabels()">Labels</button>
-      <div class="tb-sep"></div>
-      <span class="tb-tip">scroll = zoom · middle click = pan</span>
-    </div>
 
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loading-text">Working on it…</div>
-    </div>
+    <section class="camera-strip" id="camera-strip" aria-label="What the camera will see" hidden>
+      <div class="strip-head"><b>What the camera will see</b><span>Rendered from the 3D model at each room</span></div>
+      <div class="strip-row" id="strip-row"></div>
+    </section>
+
   </main>
 
   <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
@@ -800,22 +1020,78 @@ body {
     <div class="p3d-canvas-wrap">
       <canvas id="preview-canvas"></canvas>
       <div class="p3d-fade" id="p3d-fade"></div>
+      <div class="p3d-hud" id="p3d-hud-time"><span class="rec"></span><span id="p3d-hud-time-text">Preview · 0:00 / 0:00</span></div>
+      <div class="p3d-hud" id="p3d-hud-theme"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span id="p3d-hud-theme-text"></span></div>
+      <div class="title-card" id="title-card" aria-live="polite"><img id="tc-logo" alt=""/><div class="tc-name" id="tc-name"></div><div class="tc-line" id="tc-line"></div></div>
       <div class="p3d-empty" id="p3d-empty">
         <div style="font-size:40px;opacity:.18">🎥</div>
         <div>Load a floor plan, draw a path,<br>then click <strong>Load Path</strong> above</div>
       </div>
     </div>
-    <div class="p3d-controls">
-      <button class="p3d-play-btn" id="p3d-play" onclick="togglePlay3D()" disabled>▶</button>
-      <span class="p3d-time" id="p3d-time">0:00 / 0:30</span>
-      <div class="p3d-speed-row">
-        <span>Speed</span>
-        <input type="range" id="p3d-speed-inp" min="0.25" max="4" step="0.25" value="1"
-               oninput="setPreviewSpeed(this.value)"/>
-        <span class="p3d-speed-val" id="p3d-speed-val">1×</span>
+    <section class="vtl" id="video-timeline" aria-label="Video timeline">
+      <div class="vtl-top">
+        <button class="p3d-play-btn" id="p3d-play" onclick="togglePlay3D()" disabled aria-label="Play or pause">▶</button>
+        <span class="p3d-time" id="p3d-time">0:00 / 0:00</span>
+        <div class="p3d-speed-row" style="margin-left:12px">
+          <span>Speed</span>
+          <input type="range" id="p3d-speed-inp" min="0.25" max="4" step="0.25" value="1" oninput="setPreviewSpeed(this.value)" aria-label="Playback speed"/>
+          <span class="p3d-speed-val" id="p3d-speed-val">1×</span>
+        </div>
+        <span class="vtl-note">Logo, music and fades are preview only, never in the Enscape XML</span>
       </div>
-    </div>
+      <div class="vtl-lane"><span class="vtl-name">Video</span><div class="vtl-track" id="vtl-video"></div></div>
+      <div class="vtl-lane"><span class="vtl-name">Music</span><div class="vtl-track" id="vtl-music"></div></div>
+      <div class="vtl-playhead" id="vtl-playhead" aria-hidden="true"></div>
+    </section>
   </div>
+
+  <!-- STEP 4 · PREVIEW & EXPORT -->
+  <aside class="step-panel step-panel-right" id="step-4" aria-label="Preview and export">
+    <section class="vp-sec" aria-label="Brand">
+      <div class="vp-head"><b>Brand</b><span>Intro &amp; outro cards · 3 s</span></div>
+      <div class="vp-brand">
+        <div class="card-preview" id="card-preview" aria-label="Intro card preview"><img id="cp-logo" alt=""/><span id="cp-name"></span><span id="cp-line"></span></div>
+        <div class="vp-brand-side">
+          <label class="logo-drop" title="Logo for the intro and outro cards">
+            <img id="logo-thumb" alt="" hidden/><span id="logo-name">Add logo (PNG or SVG)</span><span class="link-btn" id="logo-action">Upload</span>
+            <input type="file" id="logo-input" accept="image/png,image/svg+xml" onchange="onLogoPicked(this)"/>
+          </label>
+          <div class="swatches" role="radiogroup" aria-label="Card colour" id="swatches"></div>
+        </div>
+      </div>
+      <div class="fld"><label for="v-name">Property name</label><input id="v-name" maxlength="120" oninput="setVideoText('name', this.value)"/></div>
+      <div class="fld"><label for="v-tagline">Address or tagline</label><input id="v-tagline" maxlength="120" oninput="setVideoText('tagline', this.value)"/></div>
+      <div class="fld"><label for="v-outro">Outro line</label><input id="v-outro" maxlength="120" oninput="setVideoText('outro', this.value)"/></div>
+    </section>
+    <section class="vp-sec" aria-label="Music">
+      <div class="vp-head"><b>Music</b><span id="vol-label">Volume 70%</span></div>
+      <div class="themes" role="radiogroup" aria-label="Music theme" id="themes"></div>
+      <input type="range" id="v-volume" min="0" max="100" value="70" oninput="setMusicVolume(this.value)" aria-label="Music volume"/>
+    </section>
+    <section class="vp-sec" aria-label="Fades">
+      <div class="vp-head"><b>Fades</b><button type="button" class="pill" id="add-fade" onclick="startFadePick()">+ Add fade</button></div>
+      <div class="warn-box" id="fade-notice" hidden>Route changed — check your fades</div>
+      <ul class="fade-list" id="fade-list"></ul>
+      <p class="sp-help" id="fade-help"></p>
+    </section>
+    <div class="sp-sub">Save</div>
+    <p class="sp-help">The dock's <strong>Export Enscape XML</strong> button makes the camera path. Save the path as .json to continue it later, with its title, music and fades.</p>
+    <button class="export-btn" id="btn-json" onclick="exportRoute('json')" disabled title="Save the path as JSON to continue later">Save path JSON</button>
+  </aside>
+</div>
+
+<nav class="dock" id="dock" aria-label="Steps">
+  <button type="button" class="dock-back" id="dock-back" onclick="goStep(state.step - 1)" aria-label="Previous step">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+  </button>
+  <div class="dock-label"><span class="dock-eyebrow" id="dock-eyebrow">Step 1 of 4</span><span class="dock-name" id="dock-name">Load plan</span></div>
+  <div class="dock-dots" id="dock-dots"></div>
+  <button type="button" class="dock-next" id="dock-next"></button>
+</nav>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Working on it…</div>
 </div>
 
 <div class="toast-container" id="toasts"></div>
@@ -850,11 +1126,27 @@ const state = {
   unitsToMetres: 1.0,
   source:        'demo',
   geometry:      null,
-  showLabels:    true,
   tourRooms:     [],
+  step:          1,
+  routeHandEdited: false,
+  durationTouched: false,
+  suggestedS:    null,
+  rebuildSeq:    0,
+  rebuildPending: false,
+  entrance:      null,
+  pickingEntrance: false,
+  step3Preview:  false,
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
+
+function safeStorage() { try { return window.localStorage; } catch { return null; } }
+state.brand = loadBrandPrefs(safeStorage());
+state.video = { ...defaultVideo(), theme: state.brand.theme };
+state.fadePick = null;
+state.cardVersion = 0;
+state.fadesRouteKey = null;
+state.fadeNotice = false;
 
 let svgEl = null, gRoot = null, zoom = null;
 
@@ -910,6 +1202,7 @@ function initD3(svgString) {
 
   d3.select(svgEl).call(zoom);
   svgEl.addEventListener('click',       handleClick);
+  svgEl.addEventListener('dblclick',    onCanvasDblClick);
   svgEl.addEventListener('click',       handleCanvasClick);
   svgEl.addEventListener('mousedown',   fhStart);
   svgEl.addEventListener('mousemove',   fhMove);
@@ -925,6 +1218,17 @@ function initD3(svgString) {
   fitView();
 }
 
+/* Program colours by room type, just above the plan's own floor fills and under its walls and furniture. */
+function renderRoomColours(line) {
+  d3.select('#room-colours').remove();
+  const cg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  cg.id = 'room-colours';
+  const spaces = gRoot.querySelector('#layer-spaces');
+  if (spaces) spaces.after(cg); else gRoot.insertBefore(cg, gRoot.firstChild);
+  d3.select(cg).selectAll('path').data([...state.plan.rooms].filter(r => roomColour(r.type)).sort((a, b) => b.area_m2 - a.area_m2))
+    .join('path').attr('class', 'room-fill').attr('d', r => line(r.polygon)).attr('fill', r => roomColour(r.type));
+}
+
 /* Design-JSON room layer: corridor tint, room hit-areas and labels, inside the zoomed group, under the route */
 function renderPlanLayer() {
   hideRoomTip();
@@ -933,6 +1237,7 @@ function renderPlanLayer() {
   const g = d3.select(gRoot).insert('g', '#route-overlay').attr('id', 'plan-layer');
   const line = pts => 'M' + pts.map(p => p.join(',')).join('L') + 'Z';
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9);
+  renderRoomColours(line);
   g.selectAll('path.corridor').data(state.plan.corridor).join('path')
     .attr('class', 'corridor').attr('d', line);
   const rooms = g.selectAll('g.room').data([...state.plan.rooms].sort((a, b) => b.area_m2 - a.area_m2)).join('g').attr('class', 'room');
@@ -942,11 +1247,10 @@ function renderPlanLayer() {
     .attr('x', r => r.label_point[0]).attr('y', r => r.label_point[1])
     .attr('font-size', r => Math.max(18, Math.min(60, Math.sqrt(r.area_m2) * 9)) * scale)
     .text(r => r.name);
-  g.classed('labels-off', !state.showLabels);
   renderTourSelection();
 }
 
-const tourPicking = () => !document.getElementById('tour-panel').hidden;
+const tourPicking = () => state.step === 2 && !!state.plan && !document.getElementById('hand-edit').open;
 
 /* Point-in-polygon (even-odd) in display space */
 function pointInPolygon(x, y, poly) {
@@ -956,41 +1260,278 @@ function pointInPolygon(x, y, poly) {
   }, false);
 }
 
+const REBUILD_QUESTION = 'Rebuild the route from your rooms? Your hand edits will be lost.';
+const REBUILD_DEBOUNCE_MS = 400;
+
+/* Change the picked rooms; once the route was edited by hand, ask before throwing those edits away. */
+function changePicks(ids) {
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) { renderPickList(); return; }
+  state.tourRooms = ids;
+  renderTourSelection(); renderPickList(); scheduleRebuild();
+}
+
 function toggleTourRoom(e) {
   const m = s2m(e);
   const room = state.plan?.rooms.filter(r => pointInPolygon(m.x, m.y, r.polygon))
     .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
   if (!room) return;
-  const i = state.tourRooms.indexOf(room.id);
-  if (i < 0) state.tourRooms.push(room.id); else state.tourRooms.splice(i, 1);
-  renderTourSelection(); renderTourPanel();
+  const has = state.tourRooms.includes(room.id);
+  changePicks(has ? state.tourRooms.filter(id => id !== room.id) : [...state.tourRooms, room.id]);
 }
 
-function removeTourRoom(id) {
-  state.tourRooms = state.tourRooms.filter(r => r !== id);
-  renderTourSelection(); renderTourPanel();
+function removeTourRoom(id) { changePicks(state.tourRooms.filter(r => r !== id)); }
+function quickAddGroup(group) { if (state.plan) changePicks(quickAdd(state.plan.rooms, state.tourRooms, group)); }
+
+/* Move picked room `id` to just before `beforeId` (or to the end). */
+function movePick(id, beforeId) {
+  const rest = state.tourRooms.filter(r => r !== id);
+  const at = beforeId ? rest.indexOf(beforeId) : rest.length;
+  rest.splice(at < 0 ? rest.length : at, 0, id);
+  if (rest.join() !== state.tourRooms.join()) changePicks(rest);
 }
 
-function clearTourRooms() {
-  state.tourRooms = [];
-  renderTourSelection(); renderTourPanel();
+function adoptLoadedRoute() {
+  state.routeHandEdited = true;
+  state.tourRooms = pickListFromWaypoints(state.waypoints);
+  renderTourSelection(); renderPickList();
 }
 
-/* Selected rooms: tint + outline + numbered badge above the label, in the zoomed plan group */
+function markHandEdited() {
+  if (state.rebuildPending) {
+    clearTimeout(state.rebuildTimer);
+    state.rebuildSeq++;
+    state.rebuildPending = false;
+    document.getElementById('tour-msg').textContent = '';
+    renderDock();
+  }
+  state.routeHandEdited = true;
+  renderTourSelection();
+}
+
+/* Route cleared without counting as a hand edit (no rooms picked, new plan). */
+function resetRoute() {
+  state.waypoints = []; state.splineSegments = []; state.selectedWp = null;
+  renderRoute(); updateWpList(); disableExport(); renderTourStats();
+}
+
+function scheduleRebuild() {
+  clearTimeout(state.rebuildTimer);
+  state.rebuildPending = true;
+  renderDock();
+  document.getElementById('tour-msg').textContent = 'Updating the route…';
+  state.rebuildTimer = setTimeout(rebuildTour, REBUILD_DEBOUNCE_MS);
+}
+
+/* Plan the tour for the current picks; only the newest request's answer is applied. */
+async function rebuildTour() {
+  const seq = ++state.rebuildSeq, ids = [...state.tourRooms];
+  const msg = document.getElementById('tour-msg');
+  if (!ids.length) {
+    resetRoute(); state.routeHandEdited = false; state.rebuildPending = false; msg.textContent = '';
+    renderTourSelection(); renderPickList(); renderDock(); return;
+  }
+  try {
+    const res = await fetch(`${API}/api/auto-tour`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_ids: ids, smoothing: cam.smo, ...(state.entrance ? { entrance: state.entrance } : {}) }),
+    });
+    const data = await res.json();
+    if (seq !== state.rebuildSeq) return;
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const prev = state.waypoints;
+    applyRouteResult(data);
+    state.waypoints = carryStopSettings(prev, state.waypoints);
+    updateWpList();
+    state.routeHandEdited = false;
+    if (state.entrance && data.start) state.entrance = data.start;
+    state.suggestedS = data.suggested_duration_s;
+    if (!state.durationTouched) setVideoLength(data.suggested_duration_s);
+    renderDurSuggest();
+    msg.textContent = data.unreachable.length ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
+  } catch (e) {
+    if (seq !== state.rebuildSeq) return;
+    msg.textContent = '';
+    toast('Couldn\'t plan the tour: ' + e.message, 'err');
+  }
+  state.rebuildPending = false;
+  renderTourSelection(); renderPickList(); renderTourStats(); renderDock(); scheduleCameraStrip();
+}
+
+/* Stand & look for the stop in room `id` (max MAX_PANS per video). */
+function toggleStopPan(id) {
+  const i = state.waypoints.findIndex(w => w.stop?.room_id === id);
+  if (i >= 0) setWpPan(i, !state.waypoints[i].stop.pan);
+}
+
+function renderPickList() {
+  const list = document.getElementById('pick-list');
+  if (!state.plan) { list.innerHTML = ''; return; }
+  if (!state.tourRooms.length) { list.innerHTML = '<li class="pick-empty">No rooms yet — click rooms on the plan.</li>'; renderTourStats(); return; }
+  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
+  const stops = new Map(state.waypoints.filter(w => w.stop).map(w => [w.stop.room_id, w.stop]));
+  list.innerHTML = state.tourRooms.map((id, i) => {
+    const r = byId.get(id), stop = stops.get(id), name = r?.name || 'Room';
+    return `<li draggable="true" data-id="${esc(id)}">
+      <span class="pick-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
+      <span class="pick-n">${i + 1}</span>
+      <span class="pick-body"><span class="pick-name">${esc(name)}</span><span class="pick-meta">${r ? `${r.area_m2.toFixed(1)} m²` : ''}</span></span>
+      <button type="button" class="pick-tag${stop?.pan ? ' on' : ''}" aria-pressed="${!!stop?.pan}" ${stop ? '' : 'disabled'}
+        title="Switch between a walk-by look and stopping to look around (max ${MAX_PANS} per video)"
+        onclick="toggleStopPan(${esc(JSON.stringify(id))})">${stop?.pan ? 'Stand &amp; look' : 'Look'}</button>
+      <button type="button" class="pick-x" aria-label="Remove ${esc(name)} from the tour" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button>
+    </li>`;
+  }).join('');
+  list.querySelectorAll('li[draggable]').forEach(li => {
+    li.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', li.dataset.id); li.classList.add('dragging'); });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('dragover', e => { e.preventDefault(); li.classList.add('drop-target'); });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-target'));
+    li.addEventListener('drop', e => { e.preventDefault(); li.classList.remove('drop-target'); movePick(e.dataTransfer.getData('text/plain'), li.dataset.id); });
+  });
+  renderTourWarnings(byId);
+  renderTourStats();
+}
+
+function renderTourWarnings(byId) {
+  const warned = new Map();
+  state.tourRooms.map(id => byId.get(id)).filter(r => r?.stop?.warning).forEach(r =>
+    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
+  const box = document.getElementById('tour-warn');
+  box.hidden = !warned.size;
+  box.textContent = [...warned].map(([w, names]) => `${names.join(', ')}: ${w}`).join(' · ');
+}
+
+const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+function routeLengthM() {
+  const w = state.waypoints, u = state.unitsToMetres || 1;
+  return w.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - w[i].x, p.y - w[i].y) * u, 0);
+}
+
+function renderTourStats() {
+  const len = routeLengthM(), has = state.waypoints.length >= 2;
+  document.getElementById('st-rooms').textContent = state.tourRooms.length;
+  document.getElementById('st-walk').textContent = has ? `${Math.round(len)} m` : '–';
+  document.getElementById('st-len').textContent = has ? fmtTime(cam.dur) : '–';
+  document.getElementById('st-pace').textContent = has ? `${(len / cam.dur).toFixed(1)} m/s` : '–';
+}
+
+function onDurationInput(v) { syncSlider('dur', v); state.durationTouched = true; renderDurSuggest(); }
+
+function useSuggested() {
+  if (state.suggestedS) setVideoLength(state.suggestedS);
+  state.durationTouched = false;
+  renderDurSuggest();
+}
+
+/* Offer the tour's suggested length once the user has picked their own. */
+function renderDurSuggest() {
+  const show = state.durationTouched && state.suggestedS && Math.abs(cam.dur - state.suggestedS) >= 1;
+  document.getElementById('dur-suggest').hidden = !show;
+  if (show) document.getElementById('dur-suggest-val').textContent = fmtTime(state.suggestedS);
+  renderTourStats();
+}
+
+function previewInStep3() { state.step3Preview = true; loadPreviewFrames(); }
+
+function renderCamWarnings(warnings) {
+  const list = document.getElementById('cam-warnings');
+  list.hidden = !warnings.length;
+  list.innerHTML = warnings.map(w => `<li>${esc(w)}</li>`).join('');
+}
+
+function onHandEditToggle() {
+  if (document.getElementById('hand-edit').open && state.mode === 'autopath') setMode('waypoint');
+  renderTourSelection();
+}
+
+/* Picked rooms: tint + numbered badge in the zoomed plan, plus the start marker for a tour route (step 2 only). */
 function renderTourSelection() {
   d3.select('#tour-selection').remove();
+  d3.select('#start-pin').remove();
   const layer = d3.select('#plan-layer');
-  if (layer.empty() || !tourPicking()) return;
+  if (layer.empty() || state.step !== 2) return;
   const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
   const sel = state.tourRooms.map((id, i) => ({ r: byId.get(id), n: i + 1 })).filter(d => d.r);
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9), rad = 30 * scale;
   const g = layer.append('g').attr('id', 'tour-selection');
   g.selectAll('path').data(sel).join('path').attr('class', 'tour-sel-room')
     .attr('d', d => 'M' + d.r.polygon.map(p => p.join(',')).join('L') + 'Z');
-  const badges = g.selectAll('g').data(sel).join('g').attr('class', 'tour-badge')
+  const badges = g.selectAll('g.tour-badge').data(sel).join('g').attr('class', 'tour-badge')
     .attr('transform', d => `translate(${d.r.label_point[0]},${d.r.label_point[1] - 2.2 * rad})`);
   badges.append('circle').attr('r', rad);
   badges.append('text').attr('font-size', rad * 1.2).text(d => d.n);
+  const first = state.waypoints[0];
+  const at = first && state.tourRooms.length ? (state.routeHandEdited ? null : [first.x, first.y]) : (state.entrance || state.plan.entrance);
+  if (at) {
+    const start = { x: at[0], y: at[1] };
+    const w = rad * 9, h = rad * 2.4;
+    // above the route so its dots never cover the pin, except while those dots are being hand-edited
+    const editing = document.getElementById('hand-edit')?.open;
+    const m = (editing ? g : d3.select(gRoot)).append('g').attr('id', 'start-pin').attr('class', 'start-marker').attr('transform', `translate(${start.x},${start.y + 2.4 * rad})`)
+      .on('mousedown', e => entranceDragStart(e, at));
+    m.append('title').text('Drag to move where the tour starts');
+    if (!state.waypoints.length) m.append('circle').attr('cy', -2.4 * rad).attr('r', rad * 0.5);
+    m.append('rect').attr('x', -w / 2).attr('y', -h / 2).attr('width', w).attr('height', h).attr('rx', h / 4);
+    m.append('text').attr('font-size', rad * 1.05).text('Start · Entrance');
+  }
+}
+
+/* Drag the Start pin: it follows the pointer, and dropping it moves the entrance there. */
+function entranceDragStart(e, at) {
+  if (e.button !== 0) return;
+  e.stopPropagation(); e.preventDefault();
+  const marker = e.currentTarget, base = marker.getAttribute('transform'), grab = s2m(e);
+  let moved = false, pt = at;
+  const onMove = ev => {
+    moved ||= Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) > 4;
+    if (!moved) return;
+    const m = s2m(ev), dx = m.x - grab.x, dy = m.y - grab.y;
+    pt = [at[0] + dx, at[1] + dy];
+    marker.classList.add('dragging');
+    marker.setAttribute('transform', `translate(${dx},${dy}) ${base}`);
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    marker.classList.remove('dragging');
+    if (moved) setEntrance(pt);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+/* ── Main entrance: where the tour starts ── */
+function startEntrancePick() {
+  state.pickingEntrance = true;
+  document.body.classList.add('picking-entrance');
+  toast('Click the plan where the tour should start', 'inf');
+}
+
+function endEntrancePick() {
+  state.pickingEntrance = false;
+  document.body.classList.remove('picking-entrance');
+}
+
+/* Move the tour's start to pt (display units); the server snaps it into the corridor. */
+function setEntrance(pt) {
+  endEntrancePick();
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) return;
+  state.entrance = pt;
+  renderEntranceRow(); renderTourSelection();
+  if (state.tourRooms.length) scheduleRebuild();
+}
+
+function resetEntrance() {
+  if (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION)) return;
+  state.entrance = null;
+  renderEntranceRow(); renderTourSelection();
+  if (state.tourRooms.length) scheduleRebuild();
+}
+
+function renderEntranceRow() {
+  document.getElementById('entrance-sub').textContent = (state.entrance ? 'Moved by you' : 'From the plan') + ' · drag Start on the plan to move it';
+  document.getElementById('reset-entrance').hidden = !state.entrance;
 }
 
 function showRoomTip(e, r) {
@@ -1008,13 +1549,6 @@ function showRoomTip(e, r) {
 
 function hideRoomTip() { document.getElementById('room-tip').hidden = true; }
 
-function toggleLabels() {
-  state.showLabels = !state.showLabels;
-  document.getElementById('btn-labels').classList.toggle('active', state.showLabels);
-  d3.select('#plan-layer').classed('labels-off', !state.showLabels);
-  build3DLabels();
-}
-
 function updateInsertCursor(e) {
   if (state.mode !== 'waypoint' || !state.loaded || state.waypoints.length < 2) return;
   const m = s2m(e);
@@ -1027,7 +1561,6 @@ function s2m(ev) {
   return { x: (ev.clientX - r.left - t.x) / t.k, y: (ev.clientY - r.top - t.y) / t.k };
 }
 
-function zoomBy(f) { if (zoom) d3.select(svgEl).transition().duration(200).call(zoom.scaleBy, f); }
 
 function fitView() {
   if (!svgEl || !state.bounds) return;
@@ -1040,9 +1573,30 @@ function fitView() {
     .call(zoom.transform, d3.zoomIdentity.translate(r.width/2 - cx*k, r.height/2 - cy*k).scale(k));
 }
 
+const CLICK_DELAY_MS = 250;
+let _pendingClicks = [];
+
+/* Plan clicks act after a short wait, so the two clicks of a double-click never pick or draw. */
 function handleClick(e) {
-  if (!state.loaded || e.button !== 0) return;
-  if (e.target?.classList.contains('wp-dot')) return;
+  if (!state.loaded || e.button !== 0 || e.detail > 1) return;
+  if (state.step !== 2 && !(state.step === 4 && state.fadePick)) return;
+  if (e.target?.classList.contains('wp-dot') && !state.fadePick) return;
+  if (e.target?.closest?.('.start-marker')) return;
+  const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
+  const id = setTimeout(() => { _pendingClicks = _pendingClicks.filter(p => p !== id); actOnClick(ev); }, CLICK_DELAY_MS);
+  _pendingClicks.push(id);
+}
+
+function onCanvasDblClick(e) {
+  e.preventDefault();
+  _pendingClicks.forEach(clearTimeout);
+  _pendingClicks = [];
+  fitView();
+}
+
+function actOnClick(e) {
+  if (state.pickingEntrance) { const m = s2m(e); setEntrance([m.x, m.y]); return; }
+  if (state.fadePick) { fadePickClick(e); return; }
   if (tourPicking()) { toggleTourRoom(e); return; }
   if (state.mode === 'autopath') { autopathClick(e); return; }
   if (state.mode !== 'waypoint') return;
@@ -1050,7 +1604,7 @@ function handleClick(e) {
 }
 
 /* ── Freehand ── */
-function fhStart(e) { if (state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhStart(e) { if (state.step!==2||state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
 function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
 function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
 function drawFHPreview() {
@@ -1067,6 +1621,7 @@ function finishFreehand() {
   if (s[s.length-1] !== state.freePts[state.freePts.length-1]) s.push(state.freePts[state.freePts.length-1]);
   state.waypoints.push(...s.map(p => ({x:p.x, y:p.y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null})));
   state.freePts = [];
+  markHandEdited();
   renderRoute(); updateWpList(); enableExport();
 }
 
@@ -1093,16 +1648,22 @@ function findInsertIndex(x, y) {
 function addWaypoint(x, y) {
   const idx = findInsertIndex(x, y);
   state.waypoints.splice(idx, 0, {x, y, yawOffset:0, timeOfDay:'', cutAfter:false, stop:null});
+  markHandEdited();
   renderRoute(); updateWpList(); enableExport();
 }
-function clearWaypoints()   { state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
-function undoLast()         { if (!state.waypoints.length) return; state.waypoints.pop(); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+function clearWaypoints()   { markHandEdited(); state.waypoints=[]; state.splineSegments=[]; state.selectedWp=null; renderRoute(); updateWpList(); disableExport(); }
+function undoLast()         { if (!state.waypoints.length) return; markHandEdited(); state.waypoints.pop(); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
 
-function deleteWp(i)        { state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
-function setWpYaw(i, val)   { if (state.waypoints[i]) state.waypoints[i].yawOffset = parseFloat(val)||0; }
+function deleteWp(i)        { markHandEdited(); state.waypoints.splice(i,1); renderRoute(); updateWpList(); if (!state.waypoints.length) disableExport(); }
+function setWpYaw(i, val)   { if (state.waypoints[i]) { state.waypoints[i].yawOffset = parseFloat(val)||0; markHandEdited(); } }
 const wpWire = w => [w.x, w.y, w.yawOffset || 0, w.timeOfDay || '', w.stop || null];
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function setWpPan(i, on) { const w = state.waypoints[i]; if (w && w.stop) w.stop.pan = !!on; }
+function setWpPan(i, on) {
+  const w = state.waypoints[i]; if (!w || !w.stop) return;
+  if (!canSetPan(state.waypoints, i, on)) toast(`Stand & look is limited to ${MAX_PANS} per video`, 'inf');
+  else w.stop.pan = !!on;
+  updateWpList(); renderPickList();
+}
 function setWpDwell(i, v) { const w = state.waypoints[i]; if (w && w.stop) w.stop.dwell_s = Math.min(10, Math.max(0.5, parseFloat(v) || 0.5)); }
 function cleanStop(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
@@ -1112,10 +1673,11 @@ function cleanStop(s) {
   return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d,
            pan: s.pan === true };
 }
-function setWpTod(i, val)   { if (state.waypoints[i]) state.waypoints[i].timeOfDay = val||''; }
+function setWpTod(i, val)   { if (state.waypoints[i]) { state.waypoints[i].timeOfDay = val||''; markHandEdited(); } }
 function toggleCut(i) {
   const wp = state.waypoints[i]; if (!wp) return;
   wp.cutAfter = !wp.cutAfter;
+  markHandEdited();
   renderRoute(); updateWpList(); refreshSpline();
 }
 
@@ -1199,11 +1761,16 @@ function updateWpList() {
    Each segment (a run of waypoints with no cut between them) is smoothed
    independently — no curve bridges a cut, so a "jump" reads as an actual gap
    on the canvas rather than a stretched-out S-curve across the whole plan. */
+let _splineSeq = 0;
+const splineKey = () => JSON.stringify([state.waypoints.map(w => [w.x, w.y, w.cutAfter]), cam.smo, cam.utr]);
+
 async function refreshSpline() {
-  if (state.waypoints.length < 2) { state.splineSegments=[]; renderRoute(); return; }
+  if (state.waypoints.length < 2) { state.splineSegments=[]; drawRoute(); return; }
+  const seq = ++_splineSeq, key = splineKey();
   const bounds = computeSegments();
+  let segments;
   try {
-    state.splineSegments = await Promise.all(bounds.map(async ([s, e]) => {
+    segments = await Promise.all(bounds.map(async ([s, e]) => {
       const slice = state.waypoints.slice(s, e+1).map(w => [w.x, w.y]);
       if (slice.length < 2) return slice;
       const r = await fetch(`${API}/api/smooth-preview`, {
@@ -1213,11 +1780,22 @@ async function refreshSpline() {
       });
       return (await r.json()).spline || slice;
     }));
-  } catch { state.splineSegments = bounds.map(([s,e]) => state.waypoints.slice(s,e+1).map(w=>[w.x,w.y])); }
-  renderRoute();
+  } catch { segments = bounds.map(([s,e]) => state.waypoints.slice(s,e+1).map(w=>[w.x,w.y])); }
+  if (seq !== _splineSeq || key !== splineKey()) return;
+  state.splineSegments = segments;
+  _splineKey = key;
+  drawRoute();
 }
 
+let _splineKey = null;
+
+/* Draw the route, then fetch a fresh curve only if the route or curve settings changed. */
 function renderRoute() {
+  drawRoute();
+  if (splineKey() !== _splineKey) debounceSpline();
+}
+
+function drawRoute() {
   const ov = document.getElementById('route-overlay'); if (!ov) return;
   ov.innerHTML = '';
   const wpts = state.waypoints; if (!wpts.length) return;
@@ -1304,7 +1882,6 @@ function renderRoute() {
     g.appendChild(lbl);
     ov.appendChild(g);
   });
-  debounceSpline();
 }
 
 function circleR() {
@@ -1318,6 +1895,7 @@ function debounceSpline() { clearTimeout(_st); _st = setTimeout(refreshSpline, 2
 
 /* ── Drag waypoint / click to select ── */
 function wpDragStart(e) {
+  if (state.step !== 2) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.index, 10);
   const startX = e.clientX, startY = e.clientY;
@@ -1341,6 +1919,7 @@ function wpDragStart(e) {
       renderRoute();
     } else {
       state.dragging = null;
+      markHandEdited();
       refreshSpline();
     }
   };
@@ -1350,6 +1929,7 @@ function wpDragStart(e) {
 
 /* ── Drag heading handle ── */
 function yawHandleDragStart(e) {
+  if (state.step !== 2) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.wpindex, 10);
   const wp = state.waypoints[idx];
@@ -1364,6 +1944,7 @@ function yawHandleDragStart(e) {
     while (offset >  180) offset -= 360;
     while (offset < -180) offset += 360;
     wp.yawOffset = Math.round(offset);
+    state.routeHandEdited = true;
     renderRoute(); updateWpList();
   };
   const onUp = () => {
@@ -1385,7 +1966,6 @@ function handleCanvasClick(e) {
 function setMode(m) {
   state.mode = m;
   state.autopathPoints = [];
-  if (m === 'autopath' && tourPicking()) toggleTourPanel();
   document.querySelectorAll('.autopath-marker').forEach(el => el.remove());
   document.getElementById('mode-wp').classList.toggle('active', m==='waypoint');
   document.getElementById('mode-fh').classList.toggle('active', m==='freehand');
@@ -1447,52 +2027,12 @@ function applyRouteResult(data) {
   if (data.warning) toast(data.warning, 'inf', 6000);
 }
 
-function toggleTourPanel() {
-  const panel = document.getElementById('tour-panel');
-  if (panel.hidden) renderTourPanel();
-  panel.hidden = !panel.hidden;
-  renderTourSelection();
-}
-
-function renderTourPanel() {
-  document.getElementById('tour-msg').textContent = '';
-  const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
-  document.getElementById('tour-list').innerHTML = state.tourRooms.map((id, i) =>
-    `<div class="tour-pick"><span class="tour-pick-n">${i + 1}.</span>${esc(byId.get(id)?.name)}
-     <button class="tour-pick-x" title="Remove" onclick="removeTourRoom(${esc(JSON.stringify(id))})">&times;</button></div>`).join('');
-  document.getElementById('btn-gen-tour').disabled = !state.tourRooms.length;
-  const warned = new Map();
-  state.plan.rooms.filter(r => r.stop?.warning).forEach(r =>
-    warned.set(r.stop.warning, [...(warned.get(r.stop.warning) || []), r.name]));
-  document.getElementById('tour-warn').textContent =
-    [...warned].map(([w, names]) => `${w}: ${names.join(', ')}`).join(' · ');
-}
-
 function setVideoLength(s) {
   const input = document.getElementById('s-dur');
   if (s > parseFloat(input.max)) input.max = Math.ceil(s);
   input.value = s;
   updateSliderFill(input);
   syncSlider('dur', s);
-}
-
-async function generateTour() {
-  if (!state.tourRooms.length) { toast('Click at least one room on the plan', 'inf'); return; }
-  showLoading('Planning the tour through the corridor…');
-  try {
-    const res = await fetch(`${API}/api/auto-tour`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_ids: state.tourRooms, smoothing: cam.smo }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
-    applyRouteResult(data);
-    setVideoLength(data.suggested_duration_s);
-    document.getElementById('tour-msg').textContent = data.unreachable.length
-      ? `Couldn't reach from the entrance: ${data.unreachable.join(', ')}` : '';
-    toast(`Tour: ${data.stops.length} rooms, ${data.suggested_duration_s}s`, 'ok');
-  } catch (e) { toast('Auto tour error: ' + e.message, 'err'); }
-  finally { hideLoading(); }
 }
 
 async function autopathClick(e) {
@@ -1543,6 +2083,7 @@ async function autopathClick(e) {
     const pts = data.waypoints;
     if (!pts || pts.length < 2) { toast('No path found through those points', 'inf'); return; }
     applyRouteResult(data);
+    markHandEdited();
     toast(`Smart Path: ${state.waypoints.length} waypoints`, 'ok');
   } catch (err) {
     toast('Smart Path error: ' + err.message, 'err');
@@ -1585,6 +2126,14 @@ function importFromJSON(text, filename) {
     const kept = rows.filter(Boolean);
     if (!kept.length) { toast('No valid waypoints found in JSON', 'err'); return; }
     state.waypoints = kept;
+    state.video = cleanVideo(data.meta?.video);
+    const e = data.meta?.entrance;
+    state.entrance = Array.isArray(e) && e.length === 2 && e.every(Number.isFinite) ? [e[0], e[1]] : null;
+    renderEntranceRow();
+    state.fadesRouteKey = null;
+    state.fadeNotice = false;
+    renderVideoPanel();
+    adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const skipped = rows.length - kept.length;
     toast(`Loaded ${kept.length} waypoints from ${filename}${skipped ? ` (${skipped} invalid skipped)` : ''}`, 'ok');
@@ -1613,17 +2162,23 @@ function importFromXML(text, filename) {
     const keyframes = doc.querySelectorAll('Keyframe');
     if (!keyframes.length) { toast('No keyframes found in XML', 'err'); return; }
     const u = state.unitsToMetres || 1.0;
+    const [ox, oz] = state.plan?.enscape_offset || [0, 0];
     const wpts = [];
     keyframes.forEach(kf => {
       const pos = kf.querySelector('Position');
       if (!pos) return;
-      // Reverse of export: svg.x = enscape.x / u,  svg.y = enscape.z / u
-      const x = parseFloat(pos.getAttribute('x')) / u, y = parseFloat(pos.getAttribute('z')) / u;
+      // Reverse of export: svg.x = (enscape.x - ox) / u,  svg.y = (enscape.z - oz) / u
+      const x = (parseFloat(pos.getAttribute('x')) - ox) / u, y = (parseFloat(pos.getAttribute('z')) - oz) / u;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       wpts.push({ x, y, yawOffset: 0, timeOfDay: '', cutAfter: false, stop: null });
     });
     if (!wpts.length) { toast('No positions found in XML', 'err'); return; }
     state.waypoints = wpts;
+    state.video = { ...defaultVideo(), theme: state.brand.theme };
+    state.fadesRouteKey = null;
+    state.fadeNotice = false;
+    renderVideoPanel();
+    adoptLoadedRoute();
     renderRoute(); updateWpList(); enableExport();
     const hint = !state.loaded ? ' — load a floor plan to see them on the canvas' : '';
     toast(`Loaded ${wpts.length} keyframes from ${filename}${hint}`, 'ok');
@@ -1875,16 +2430,20 @@ function applyFloorPlan(data) {
   } else if (state.geometry && savedMeshes?.length && !state.geometry.meshes?.length) {
     state.geometry.meshes = savedMeshes;
   }
-  document.getElementById('h-level').textContent = data.level;
   state.plan = data.plan || null;
   state.tourRooms = [];
-  document.getElementById('btn-autotour').hidden = !state.plan;
-  document.getElementById('btn-labels').hidden = !state.plan;
-  document.getElementById('tour-panel').hidden = true;
-  initD3(data.svg); clearWaypoints();
+  initD3(data.svg); resetRoute();
+  state.routeHandEdited = false;
+  state.entrance = null;
+  endEntrancePick();
+  renderEntranceRow();
+  renderPickList();
+  showPlanName();
+  goStep(2);
   toast(`Plan loaded — ${data.level}`, 'ok');
   if (document.getElementById('preview-3d').classList.contains('visible')) {
     build3DGeometry();
+    state.sceneGeometry = state.geometry;
   } else {
     build3DLabels();
   }
@@ -1897,15 +2456,80 @@ function showHeaderHint(msg, type) {
 }
 
 /* ── Export ── */
-function enableExport()  { const ok = state.waypoints.length>=2; document.getElementById('btn-json').disabled=!ok; document.getElementById('btn-xml').disabled=!ok; }
-function disableExport() { document.getElementById('btn-json').disabled=true; document.getElementById('btn-xml').disabled=true; }
+function enableExport()  { document.getElementById('btn-json').disabled = state.waypoints.length < 2; renderDock(); }
+function disableExport() { document.getElementById('btn-json').disabled = true; renderDock(); }
+
+/* ── Guided steps ── */
+const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoints.length, busy: !!state.rebuildPending });
+
+/* Open step n when its precondition holds; step 4 shows the 3D preview in place of the plan. */
+function goStep(n) {
+  if (n < 1 || n > STEPS.length || !canEnterStep(n, stepState())) return;
+  state.step = n;
+  document.body.dataset.step = n;
+  if (n < 3) state.step3Preview = false;
+  const want3D = n === 4 || (n === 3 && state.step3Preview);
+  if (want3D !== document.getElementById('preview-3d').classList.contains('visible')) toggle3DPanel();
+  renderDock();
+  renderTourSelection();
+  if (n === 4) {
+    if (window.AudioContext) { musicPlayer().prime(); musicPlayer().setTheme(state.video.theme); }
+    if (!p3.frames.length || p3.framesSig !== previewSig()) loadPreviewFrames();
+    else rebuildTimeline();
+  } else {
+    _music?.stop();
+    if (state.fadePick) endFadePick();
+    if (p3.loading && !(n === 3 && state.step3Preview)) { p3.loadSeq++; p3.loading = false; hideLoading(); }
+    if (n === 3 && p3.frames.length) rebuildTimeline();
+  }
+  if (n >= 3) requestAnimationFrame(resize3D);
+  if (n !== 4 && state.loaded) requestAnimationFrame(fitView);
+}
+
+const DOCK_ARROW = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+
+function renderDock() {
+  const n = state.step, s = stepState();
+  document.getElementById('dock-eyebrow').textContent = `Step ${n} of ${STEPS.length}`;
+  document.getElementById('dock-name').textContent = STEPS[n - 1];
+  const back = document.getElementById('dock-back');
+  back.disabled = n === 1;
+  back.setAttribute('aria-label', n > 1 ? `Previous step: ${STEPS[n - 2]}` : 'Previous step');
+  const next = document.getElementById('dock-next');
+  if (n < STEPS.length) {
+    next.innerHTML = `${esc(STEPS[n])}${DOCK_ARROW}`;
+    next.disabled = !canEnterStep(n + 1, s);
+    next.onclick = () => goStep(n + 1);
+  } else {
+    next.textContent = 'Export Enscape XML';
+    next.disabled = s.waypointCount < 2 || s.busy || !!state.exporting;
+    next.onclick = () => exportRoute('xml');
+  }
+  document.getElementById('dock-dots').innerHTML = STEPS.map((name, i) =>
+    `<button type="button" class="dock-dot${i + 1 < n ? ' done' : ''}${i + 1 === n ? ' now' : ''}" aria-label="${esc(name)}"
+      ${canEnterStep(i + 1, s) ? '' : 'disabled'} onclick="goStep(${i + 1})"></button>`).join('');
+}
+
+/* Header and step-1 summary for the loaded plan. */
+function showPlanName() {
+  const rooms = state.plan?.rooms.length ?? 0;
+  document.getElementById('h-level').textContent = `${state.level}${rooms ? ` · ${rooms} rooms` : ''}`;
+  document.getElementById('sum-floor').textContent = state.level;
+  document.getElementById('sum-rooms').textContent = rooms;
+  document.getElementById('plan-summary').hidden = false;
+  document.getElementById('import-path-wrap').classList.remove('disabled');
+  document.getElementById('import-path-input').disabled = false;
+}
 
 async function exportRoute(fmt) {
-  if (state.waypoints.length < 2) return;
+  if (state.waypoints.length < 2 || state.exporting) return;
+  state.exporting = true;
+  renderDock();
   const settings = {
     level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
+    ...(fmt === 'json' ? { video: state.video, ...(state.entrance ? { entrance: state.entrance } : {}) } : {}),
   };
   showLoading('Building your path…');
   try {
@@ -1918,7 +2542,7 @@ async function exportRoute(fmt) {
     download(blob, `walkthrough_${state.level}.${fmt==='xml'?'xml':'json'}`);
     toast('File saved successfully!', 'ok');
   } catch(e) { toast(e.message,'err'); }
-  finally { hideLoading(); }
+  finally { hideLoading(); state.exporting = false; renderDock(); }
 }
 
 function download(blob, name) {
@@ -1956,6 +2580,8 @@ function applyPreset(name) {
     syncSlider(key, p[key]);
   }
   _applyingPreset = false;
+  state.durationTouched = true;
+  renderDurSuggest();
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === name));
   debounceSpline();
 }
@@ -1978,50 +2604,105 @@ function mkPath(cls) { const p=document.createElementNS('http://www.w3.org/2000/
 
 /* ── Keyboard ── */
 document.addEventListener('keydown', e => {
-  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); }
+  if (e.key==='Escape')                    { state.freeDrawing=false; clearFHPreview(); if (state.pickingEntrance) endEntrancePick(); if (state.fadePick) endFadePick(); }
+  if (e.target.matches('input, textarea, select, [contenteditable], [contenteditable] *')) return;
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.key === 'ArrowRight') goStep(state.step + 1);
+    if (e.key === 'ArrowLeft')  goStep(state.step - 1);
+  }
+  if (e.key === ' ' && state.step === 4 && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
+  if (state.step !== 2) return;
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
   if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
-  if (e.key==='Delete'||(e.key==='Backspace'&&!e.target.matches('input'))) undoLast();
+  if (e.key==='Delete'||e.key==='Backspace') undoLast();
 });
 
 setMode('waypoint');
+document.body.dataset.step = state.step;
+renderDock();
 
 // ── 3D Preview (Three.js) ────────────────────────────────────────────────────
 
-let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null;
+let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null, p3dReflections = null;
 let threeLabels = [];
 const P3D_BG = 0xeef1f4;
 const P3D_GROUND = 0xe4e2dd;
-// Per-type defaults for a bright viewport; mesh.color/opacity/roughness/metalness override these.
-const P3D_TYPE_STYLE = {
-  floor:     { color: 0xe9e7e2 },
-  slab:      { color: 0xd8d5cf },
-  wall:      { color: 0xf2f1ee },
-  column:    { color: 0xecebe8 },
-  beam:      { color: 0xcfcac2 },
-  stair:     { color: 0xc8b08a },
-  roof:      { color: 0x9aa0a6 },
-  door:      { color: 0xb88a5a, roughness: 0.7 },
-  window:    { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
-  glass:     { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
-  frame:     { color: 0x3a3f45, roughness: 0.45, metalness: 0.4 },
-  furniture: { color: 0xc9c6c0 },
-  ceiling:   { color: 0xf7f7f5, roughness: 0.95 },
-  light:     { color: 0xfff6e0 },
-  other:     { color: 0xc9c9c9 },
+// Per-type colours for meshes that bring none; the surface itself comes from the mesh's finish (materials3d.js).
+const P3D_TYPE_COLOUR = {
+  floor: 0xe9e7e2, slab: 0xd8d5cf, wall: 0xf2f1ee, column: 0xecebe8, beam: 0xcfcac2, stair: 0xc8b08a, roof: 0x9aa0a6,
+  door: 0xb88a5a, window: 0xa9c7d6, glass: 0xa9c7d6, frame: 0x3a3f45, furniture: 0xc9c6c0, ceiling: 0xf7f7f5,
+  light: 0xfff6e0, other: 0xc9c9c9,
 };
-const P3D_TRANSPARENT_TYPES = new Set(['glass', 'window']);
 const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab', 'ceiling']);
 const P3D_CEILING_TYPES = new Set(['ceiling', 'light']);
 const P3D_CEILING_HEIGHT = 3.0;   // metres; ceiling and light panels hide when the camera is above it
+
+/* Build the 3D scene, or rebuild it if a different plan was loaded since. */
+function ensureScene() {
+  if (!threeScene) init3DScene();
+  else if (state.sceneGeometry !== state.geometry) build3DGeometry();
+  state.sceneGeometry = state.geometry;
+}
+
+/* three.js arrives as an ES module after this script: build whatever was asked for before it loaded. */
+window.threeReady.then(() => {
+  if (document.getElementById('preview-3d').classList.contains('visible')) { ensureScene(); resize3D(); }
+  scheduleCameraStrip();
+});
+
+const STRIP_EYE_M = 1.57, STRIP_LOOK_Y_M = 1.2, STRIP_W = 480, STRIP_H = 270;
+let _stripTimer = null;
+function scheduleCameraStrip() { clearTimeout(_stripTimer); _stripTimer = setTimeout(renderCameraStrip, 600); }
+
+/* Walkthrough time at a waypoint, from the last preview frames if they belong to this route. */
+function stopTimeS(w) {
+  if (!p3.frames.length || p3.framesKey !== routeKey()) return null;
+  const best = p3.frames.reduce((b, f) => { const d = Math.hypot(f.x - w.x, f.y - w.y); return d < b.d ? { d, t: f.t } : b; }, { d: Infinity, t: 0 });
+  return best.t * p3.duration;
+}
+const routeKey = () => state.waypoints.map(w => `${Math.round(w.x)},${Math.round(w.y)}`).join(';');
+
+/* One eye-level snapshot per picked room, rendered from its stop towards the room. */
+function renderCameraStrip() {
+  const strip = document.getElementById('camera-strip');
+  const stopOf = new Map(state.waypoints.filter(w => w.stop).map(w => [w.stop.room_id, w]));
+  const shots = state.tourRooms.map((id, i) => ({ n: i + 1, id, w: stopOf.get(id) })).filter(s => s.w);
+  const wasHidden = strip.hidden;
+  strip.hidden = !shots.length || !window.THREE;
+  if (wasHidden !== strip.hidden) requestAnimationFrame(fitView);
+  if (strip.hidden) return;
+  ensureScene();
+  if (!threeRenderer) { strip.hidden = true; return; }
+  const size = threeRenderer.getSize(new THREE.Vector2()), aspect = threeCam.aspect;
+  const pos = threeCam.position.clone(), quat = threeCam.quaternion.clone();
+  threeRenderer.setSize(STRIP_W, STRIP_H, false);
+  threeCam.aspect = STRIP_W / STRIP_H; threeCam.updateProjectionMatrix();
+  threeLabels.forEach(s => { s.visible = false; });
+  const u = state.unitsToMetres || 1, names = new Map(state.plan.rooms.map(r => [r.id, r.name]));
+  const items = shots.map(s => {
+    const la = s.w.stop.look_at;
+    threeCam.position.set(s.w.x * u, STRIP_EYE_M, s.w.y * u);
+    threeCam.lookAt(la[0] * u, STRIP_LOOK_Y_M, la[1] * u);
+    syncCeiling();
+    threeRenderer.render(threeScene, threeCam);
+    return { ...s, name: names.get(s.id) || s.w.stop.room_name, src: threeRenderer.domElement.toDataURL('image/jpeg', 0.8), t: stopTimeS(s.w) };
+  });
+  threeRenderer.setSize(size.x, size.y, false);
+  threeCam.aspect = aspect; threeCam.position.copy(pos); threeCam.quaternion.copy(quat); threeCam.updateProjectionMatrix();
+  threeLabels.forEach(s => { s.visible = !p3.playing; });
+  document.getElementById('strip-row').innerHTML = items.map(it => `<figure>
+      <img src="${it.src}" alt="Camera view of ${esc(it.name)}"/>
+      <figcaption><b>${it.n} · ${esc(it.name)}</b>${it.t == null ? '' : `<span>${fmtTime(it.t)}</span>`}</figcaption>
+    </figure>`).join('');
+}
 
 function syncCeiling() {
   if (!threeScene || !threeCam) return;
   const inside = threeCam.position.y < P3D_CEILING_HEIGHT;
   threeScene.traverse(o => { if (o.userData.ceiling) o.visible = inside; });
 }
-const p3 = { playing: false, speed: 1.0, t: 0, frames: [], lastTime: null, duration: 30, cutTimes: [] };
+const p3 = { playing: false, speed: 1.0, t: 0, tl: 0, frames: [], lastTime: null, duration: 30, cutTimes: [], timeline: null, dists: [], loadSeq: 0 };
 const CUT_FADE_SECONDS = 0.7; // total black-screen time (fade out + jump + fade in) around a cut
 
 function fadeOpacityAt(t) {
@@ -2038,17 +2719,15 @@ function fadeOpacityAt(t) {
 /* Toggle the 3D panel open/closed */
 function toggle3DPanel() {
   const panel  = document.getElementById('preview-3d');
-  const btn    = document.getElementById('btn-3d-toggle');
   const handle = document.getElementById('resize-handle');
   const nowVisible = panel.classList.toggle('visible');
-  btn.classList.toggle('active', nowVisible);
   handle.classList.toggle('active', nowVisible);
 
   if (nowVisible) {
     // Defer init until panel has layout dimensions
     requestAnimationFrame(() => {
-      if (!threeScene) init3DScene();
-      else { resize3D(); }
+      ensureScene();
+      resize3D();
       if (!threeAnimId) render3DLoop();
     });
   } else {
@@ -2098,7 +2777,6 @@ function init3DScene() {
   if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
 
   threeScene = new THREE.Scene();
-  // Background/fog are output-space colours in r128 (clear colour and fog are applied after encoding).
   threeScene.background = new THREE.Color(P3D_BG);
   threeScene.fog = new THREE.Fog(P3D_BG, 200, 1200);
 
@@ -2108,27 +2786,31 @@ function init3DScene() {
 
   threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  threeRenderer.outputEncoding = THREE.sRGBEncoding;
+  threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
   threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
   threeRenderer.toneMappingExposure = 1.0;
   threeRenderer.shadowMap.enabled = true;
-  threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  threeRenderer.shadowMap.type = THREE.PCFShadowMap;   // r186's PCF is the soft one; PCFSoftShadowMap was removed
 
-  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.6));
-  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9);
+  // Physically based light units: × π matches the r128 (legacy-lights) scene; the extra 20 % on the
+  // hemisphere makes up for r186's darker indirect response, measured on before/after screenshots.
+  threeScene.add(new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 0.72 * Math.PI));
+  threeSun = new THREE.DirectionalLight(0xfff1dc, 0.9 * Math.PI);
   threeSun.castShadow = true;
   threeSun.shadow.mapSize.set(2048, 2048);
   threeSun.shadow.bias = -0.0005;
   threeSun.shadow.normalBias = 0.02;
   threeScene.add(threeSun, threeSun.target);
+  // A soft studio for metal and glass to reflect; without one they render as flat dark grey.
+  const pmrem = new THREE.PMREMGenerator(threeRenderer);
+  p3dReflections?.dispose();
+  p3dReflections = pmrem.fromScene(new THREE_ADDONS.RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
 
   build3DGeometry();
   resize3D();
   showP3dEmpty(!state.geometry && p3.frames.length === 0);
 }
-
-/* sRGB hex/'#rrggbb' → linear THREE.Color (r128 treats material colours as linear when outputEncoding is sRGB) */
-const p3dColor = c => new THREE.Color(c).convertSRGBToLinear();
 
 /* Remove and dispose everything build3DGeometry added (geometry AND materials) */
 function clear3DGeometry() {
@@ -2177,9 +2859,29 @@ function fitSunToPlan({ cx, cz, hw, hd }) {
   threeScene.fog.far = r * 6 + 400;
 }
 
+const p3dTextureSets = new Map();
+
+/* The albedo/normal/roughness maps of one texture folder, loaded once and shared by every material using it. */
+function p3dTextures(folder) {
+  if (!p3dTextureSets.has(folder)) {
+    const loader = new THREE.TextureLoader();
+    const anisotropy = Math.min(8, threeRenderer?.capabilities.getMaxAnisotropy() || 1);
+    const load = (name, colorSpace) => loader.loadAsync(`frontend/assets/textures/${folder}/${name}.jpg`).then(t => {
+      Object.assign(t, { wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, anisotropy, colorSpace });
+      return t;
+    });
+    p3dTextureSets.set(folder, Promise.all([load('albedo', THREE.SRGBColorSpace), load('normal', THREE.NoColorSpace), load('roughness', THREE.NoColorSpace)])
+      .then(([map, normalMap, roughnessMap]) => {
+        scheduleCameraStrip();   // snapshots taken before the maps landed showed plain colours
+        return { map, normalMap, roughnessMap };
+      }));
+  }
+  return p3dTextureSets.get(folder);
+}
+
 /* One IFC/qbiq mesh (metres, Z-up) → shaded, shadowed THREE.Mesh */
 function buildContractMesh(mesh) {
-  const geo = new THREE.BufferGeometry();
+  let geo = new THREE.BufferGeometry();
   const rv = mesh.verts;
   const n  = rv.length / 3;
   const pos = new Float32Array(n * 3);
@@ -2192,22 +2894,22 @@ function buildContractMesh(mesh) {
   geo.setIndex(mesh.faces);
   geo.computeVertexNormals();
 
-  const style = P3D_TYPE_STYLE[mesh.type] || P3D_TYPE_STYLE.other;
-  const opacity = mesh.opacity ?? style.opacity ?? 1.0;
-  const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
-  const mat = mesh.type === 'light'
-    ? new THREE.MeshBasicMaterial({ color: p3dColor(mesh.color || style.color), side: THREE.DoubleSide })
-    : new THREE.MeshStandardMaterial({
-    color: p3dColor(mesh.color || style.color),
-    roughness: mesh.roughness ?? style.roughness ?? 0.85,
-    metalness: mesh.metalness ?? style.metalness ?? 0.0,
-    side: THREE.DoubleSide,
-    transparent,
-    opacity,
-    depthWrite: !transparent,
-  });
+  const finish = finishFor(mesh), look = FINISH_LOOKS[finish];
+  if (look.maps) {
+    // Unshared vertices, so each triangle takes the projection of its own face (smooth normals are kept for shading).
+    geo = geo.toNonIndexed();
+    const flat = geo.clone();
+    flat.computeVertexNormals();
+    geo.setAttribute('uv', new THREE.BufferAttribute(boxUV(geo.attributes.position.array, flat.attributes.normal.array, look.tileM), 2));
+    flat.dispose();
+  }
+
+  const mat = makeMaterial({ ...mesh, color: mesh.color || P3D_TYPE_COLOUR[mesh.type] || P3D_TYPE_COLOUR.other }, p3dTextures);
+  if (mat.metalness > 0 || mat.isMeshPhysicalMaterial) mat.envMap = p3dReflections;
+  const transparent = finish === 'glass' || (mesh.opacity ?? 1) < 1;
   const m = new THREE.Mesh(geo, mat);
   m.userData.meshType = mesh.type;
+  m.userData.finish = finish;
   m.userData.ceiling = P3D_CEILING_TYPES.has(mesh.type);
   if (mesh.type === 'light') {
     m.castShadow = m.receiveShadow = false;
@@ -2223,8 +2925,8 @@ function buildContractMesh(mesh) {
 /* DXF fallback: extrude 2D wall/column polylines upward as boxes (capped at 4000 segments) */
 function buildExtrudedWalls(u) {
   const wH = 3.2; // wall height metres
-  const wallMat = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.wall.color), roughness: 0.85 });
-  const colMat  = new THREE.MeshStandardMaterial({ color: p3dColor(P3D_TYPE_STYLE.column.color), roughness: 0.85 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: P3D_TYPE_COLOUR.wall, roughness: 0.85 });
+  const colMat  = new THREE.MeshStandardMaterial({ color: P3D_TYPE_COLOUR.column, roughness: 0.85 });
   const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
   let segCount = 0;
   pairs.forEach(([polys, mat]) => {
@@ -2261,7 +2963,7 @@ function build3DGeometry() {
   const size = Math.max(Math.hypot(frame.hw, frame.hd) * 8, 400);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),
-    new THREE.MeshStandardMaterial({ color: p3dColor(P3D_GROUND), roughness: 1.0 })
+    new THREE.MeshStandardMaterial({ color: P3D_GROUND, roughness: 1.0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(frame.cx, -0.01, frame.cz);
@@ -2280,7 +2982,7 @@ function build3DGeometry() {
 function build3DLabels() {
   threeLabels.forEach(s => { threeScene?.remove(s); s.material.map.dispose(); s.material.dispose(); });
   threeLabels = [];
-  if (!threeScene || !state.plan || !state.showLabels) return;
+  if (!threeScene || !state.plan) return;
   const u = state.unitsToMetres || 1;
   state.plan.rooms.forEach(r => {
     const c = document.createElement('canvas'); c.width = 512; c.height = 128;
@@ -2289,7 +2991,7 @@ function build3DLabels() {
     x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(0, 0, 512, 128);
     x.fillStyle = '#1d2939'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText(r.name, 256, 64, 496);
-    const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     sp.scale.set(2.4, 0.6, 1);
     sp.position.set(r.label_point[0] * u, 3.3, r.label_point[1] * u);
@@ -2312,23 +3014,18 @@ function resize3D() {
 function render3DLoop(now) {
   threeAnimId = requestAnimationFrame(render3DLoop);
 
-  if (p3.playing && p3.frames.length >= 2) {
+  if (p3.playing && p3.timeline && p3.frames.length >= 2) {
     if (p3.lastTime != null) {
-      const dt = (now - p3.lastTime) / 1000;
-      p3.t += dt * p3.speed / p3.duration;
-      if (p3.t > 1) p3.t = 0;
+      p3.tl += (now - p3.lastTime) / 1000 * p3.speed;
+      if (p3.tl >= p3.timeline.total) { p3.tl = 0; syncMusic(); }
     }
     p3.lastTime = now;
-    updateCameraFromT(p3.t);
-    updatePlaybackDisplay();
   } else if (!p3.playing) {
     p3.lastTime = null;
   }
 
   threeLabels.forEach(s => { s.visible = !p3.playing; });
-
-  const fadeEl = document.getElementById('p3d-fade');
-  if (fadeEl) fadeEl.style.opacity = fadeOpacityAt(p3.t);
+  applyTimeline();
 
   if (threeRenderer && threeScene && threeCam) {
     syncCeiling();
@@ -2354,8 +3051,8 @@ function updateCameraFromT(t) {
 
   threeCam.position.set(fx * u, fz, fy * u);
 
-  const yr = THREE.Math.degToRad(yaw);
-  const pr = THREE.Math.degToRad(pit);
+  const yr = THREE.MathUtils.degToRad(yaw);
+  const pr = THREE.MathUtils.degToRad(pit);
   const lx = Math.cos(yr) * Math.cos(pr);
   const ly = Math.sin(pr);
   const lz = Math.sin(yr) * Math.cos(pr);
@@ -2368,12 +3065,280 @@ function updateCameraFromT(t) {
 
 /* Update the time readout */
 function updatePlaybackDisplay() {
-  const el = document.getElementById('p3d-time');
-  if (!el) return;
-  const cur = p3.t * p3.duration;
-  const tot = p3.duration;
-  const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-  el.textContent = `${fmt(cur)} / ${fmt(tot)}`;
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const tot = p3.timeline?.total ?? p3.duration, text = `${fmt(p3.tl)} / ${fmt(tot)}`;
+  document.getElementById('p3d-time').textContent = text;
+  document.getElementById('p3d-hud-time-text').textContent = `Preview · ${text}`;
+  document.getElementById('p3d-hud-theme-text').textContent = THEMES.find(t => t.id === state.video.theme)?.name || '';
+}
+
+/* ── Video timeline (preview only) ── */
+const LANE_LABEL = { intro: 'Intro', outro: 'Outro', fade: 'Fade' };
+const walkOnlyTimeline = walk => ({ total: walk, walkSeconds: walk, blocks: [{ kind: 'walk', start: 0, end: walk, walkFrom: 0, walkTo: walk }] });
+const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w.cutAfter, w.stop?.pan, w.stop?.dwell_s, w.yawOffset, w.timeOfDay]), cam]);
+
+/* Step 4 plays title cards, fades and music around the walk; step 3 plays the walk alone. */
+function rebuildTimeline() {
+  if (!p3.frames.length) return;
+  p3.dists = routeDistances(p3.frames, state.unitsToMetres || 1);
+  if (state.step === 4) checkFadesForRoute();
+  p3.timeline = state.step === 4
+    ? buildTimeline({ dists: p3.dists, walkSeconds: p3.duration, fades: state.video.fades })
+    : walkOnlyTimeline(p3.duration);
+  p3.tl = Math.min(p3.tl, p3.timeline.total);
+  renderTimelineLanes();
+  applyTimeline();
+  syncMusic();
+}
+
+function seekTimeline(s) {
+  if (!p3.timeline) return;
+  p3.tl = Math.min(p3.timeline.total, Math.max(0, s));
+  p3.lastTime = null;
+  applyTimeline();
+  syncMusic();
+}
+
+/* Camera, black fades, title card and readouts for the current timeline second. */
+function applyTimeline() {
+  if (!p3.timeline || p3.frames.length < 2) return;
+  const s = sampleTimeline(p3.timeline, p3.tl);
+  p3.t = p3.timeline.walkSeconds ? s.walkS / p3.timeline.walkSeconds : 0;
+  updateCameraFromT(p3.t);
+  document.getElementById('p3d-fade').style.opacity = Math.max(s.black, fadeOpacityAt(p3.t));
+  showTitleCard(state.step === 4 ? s.card : null);
+  updatePlaybackDisplay();
+  placePlayhead();
+}
+
+/* ── Video panel (step 4) ── */
+const cardColour = () => CARD_COLOURS.find(c => c.id === state.brand.colour) || CARD_COLOURS[0];
+const saveBrand = () => saveBrandPrefs(safeStorage(), state.brand);
+
+function renderVideoPanel() {
+  state.cardVersion++;
+  const v = state.video, b = state.brand, c = cardColour();
+  for (const [id, key] of [['v-name', 'name'], ['v-tagline', 'tagline'], ['v-outro', 'outro']]) {
+    const el = document.getElementById(id);
+    if (el.value !== v[key]) el.value = v[key];
+  }
+  renderCardPreview();
+  document.getElementById('logo-thumb').hidden = !b.logo;
+  if (b.logo) document.getElementById('logo-thumb').src = b.logo;
+  document.getElementById('logo-name').textContent = b.logo ? (b.logoName || 'Logo') : 'Add logo (PNG or SVG)';
+  document.getElementById('logo-action').textContent = b.logo ? 'Replace' : 'Upload';
+  document.getElementById('swatches').innerHTML = CARD_COLOURS.map(s =>
+    `<button type="button" class="swatch" role="radio" aria-checked="${s.id === c.id}" aria-label="${esc(s.name)}"
+      style="background:${s.hex}" onclick="setCardColour('${s.id}')"></button>`).join('');
+  document.getElementById('themes').innerHTML = THEMES.map(t =>
+    `<div class="theme-card" role="radio" tabindex="0" aria-checked="${t.id === v.theme}" data-theme="${t.id}" onclick="selectTheme('${t.id}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectTheme('${t.id}')}">
+      <button type="button" class="theme-play" aria-label="Play a sample of ${esc(t.name)}" onclick="event.stopPropagation();sampleTheme('${t.id}')">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg></button>
+      <span class="theme-txt"><b>${esc(t.name)}</b><span>${esc(t.sub)}</span></span></div>`).join('');
+  document.getElementById('v-volume').value = Math.round(v.volume * 100);
+  document.getElementById('vol-label').textContent = `Volume ${Math.round(v.volume * 100)}%`;
+  renderFadeList();
+}
+
+function renderCardPreview() {
+  const v = state.video, b = state.brand, c = cardColour();
+  const card = document.getElementById('card-preview');
+  card.style.background = c.hex;
+  card.style.color = c.id === 'sand' ? '#1f2733' : '#ffffff';
+  const img = document.getElementById('cp-logo');
+  img.src = b.logo || 'frontend/img/qbiq-logo.svg';
+  img.classList.toggle('invert', !b.logo && c.id !== 'sand');
+  document.getElementById('cp-name').textContent = v.name;
+  document.getElementById('cp-line').textContent = v.tagline;
+}
+
+function setVideoText(key, value) { state.video[key] = value.slice(0, 120); state.cardVersion++; renderCardPreview(); }
+function setCardColour(id) { state.brand.colour = id; saveBrand(); renderVideoPanel(); }
+
+function selectTheme(id) {
+  state.video.theme = id;
+  state.brand.theme = id;
+  saveBrand();
+  renderVideoPanel(); renderTimelineLanes(); updatePlaybackDisplay(); syncMusic();
+}
+
+function sampleTheme(id) {
+  if (!window.AudioContext) return;
+  p3.playing = false; updatePlayBtn();
+  musicPlayer().sample(id).catch(() => toast('Couldn\'t load that track', 'err'));
+}
+
+function setMusicVolume(pct) {
+  state.video.volume = Math.min(1, Math.max(0, pct / 100));
+  document.getElementById('vol-label').textContent = `Volume ${Math.round(pct)}%`;
+  _music?.setVolume(state.video.volume);
+}
+
+function onLogoPicked(input) {
+  const f = input.files[0]; input.value = '';
+  if (!f) return;
+  const err = acceptLogo(f);
+  if (err) { toast(err, 'err'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.brand.logo = reader.result;
+    state.brand.logoName = f.name;
+    saveBrand();
+    renderVideoPanel();
+  };
+  reader.readAsDataURL(f);
+}
+
+/* Route point at d metres along the preview frames. */
+function routePointAt(d) {
+  const i = Math.max(1, p3.dists.findIndex(x => x >= d));
+  const a = p3.frames[i - 1], b = p3.frames[i] || a, span = p3.dists[i] - p3.dists[i - 1];
+  const s = span > 0 ? Math.min(1, Math.max(0, (d - p3.dists[i - 1]) / span)) : 0;
+  return { x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s };
+}
+
+function placeName(p) {
+  const room = state.plan?.rooms.filter(r => pointInPolygon(p.x, p.y, r.polygon))
+    .reduce((best, r) => (!best || r.area_m2 < best.area_m2 ? r : best), null);
+  return room?.name || 'Corridor';
+}
+
+const nearestWaypoint = p => state.waypoints.reduce((b, w, i) => {
+  const d = Math.hypot(w.x - p.x, w.y - p.y); return d < b.d ? { d, i } : b;
+}, { d: Infinity, i: 0 }).i + 1;
+
+function renderFadeList() {
+  const fades = state.video.fades, ready = p3.frames.length > 1 && p3.dists.length;
+  document.getElementById('fade-notice').hidden = !state.fadeNotice;
+  document.getElementById('fade-list').innerHTML = fades.map((f, i) => {
+    const a = ready ? routePointAt(f.outM) : null, b = ready ? routePointAt(f.inM) : null;
+    return `<li>
+      <span class="fade-pts"><i>${a ? nearestWaypoint(a) : '·'}</i>→<i>${b ? nearestWaypoint(b) : '·'}</i></span>
+      <span class="fade-txt"><b>${a ? `${esc(placeName(a))} → ${esc(placeName(b))}` : 'Fade'}</b>
+        <span>Skips ${Math.round(f.inM - f.outM)} m · 0.8 s fade to black</span></span>
+      <button type="button" class="pick-x" aria-label="Remove this fade" onclick="removeFade(${i})">&times;</button>
+    </li>`;
+  }).join('');
+  document.getElementById('fade-help').textContent = !state.fadePick
+    ? 'Click + Add fade, then click where the camera fades out and where it fades back in on the plan.'
+    : state.fadePick.outM == null ? 'Click the plan where the camera should fade out. Esc cancels.'
+    : 'Now click where it fades back in, further along the path.';
+}
+
+function removeFade(i) {
+  state.video.fades = state.video.fades.filter((_, j) => j !== i);
+  state.fadeNotice = false;
+  rebuildTimeline(); renderVideoPanel();
+}
+
+function startFadePick() {
+  if (p3.frames.length < 2) { toast('Wait for the preview to load first', 'inf'); return; }
+  p3.playing = false; updatePlayBtn(); syncMusic();
+  state.fadePick = {};
+  document.body.classList.add('picking-fade');
+  renderFadeList();
+  requestAnimationFrame(fitView);
+}
+
+function endFadePick() {
+  state.fadePick = null;
+  document.body.classList.remove('picking-fade');
+  renderFadeList();
+  requestAnimationFrame(resize3D);
+}
+
+function fadePickClick(e) {
+  const m = s2m(e), d = projectToRoute(p3.frames, p3.dists, state.unitsToMetres || 1, m.x, m.y);
+  if (state.fadePick.outM == null) { state.fadePick.outM = d; renderFadeList(); return; }
+  const r = makeFade(state.fadePick.outM, d, state.video.fades, p3.dists.at(-1));
+  if (r.error) { toast(r.error, 'inf'); state.fadePick = {}; renderFadeList(); return; }
+  state.video.fades = [...state.video.fades, r.fade].sort((a, b) => a.outM - b.outM);
+  state.fadesRouteKey = p3.framesKey;
+  state.fadeNotice = false;
+  endFadePick();
+  rebuildTimeline();
+  renderVideoPanel();
+}
+
+/* Keep fades on the current route: drop any past its end, and flag a route change. */
+function checkFadesForRoute() {
+  const fades = state.video.fades;
+  if (fades.length) {
+    const kept = pruneFades(fades, p3.dists.at(-1) || 0);
+    if (kept.length !== fades.length || (state.fadesRouteKey != null && state.fadesRouteKey !== p3.framesKey)) state.fadeNotice = true;
+    state.video.fades = kept;
+  }
+  state.fadesRouteKey = p3.framesKey;
+  renderFadeList();
+}
+
+function showTitleCard(kind) {
+  const el = document.getElementById('title-card');
+  el.classList.toggle('show', !!kind);
+  if (!kind) return;
+  const v = state.video, b = state.brand, colour = CARD_COLOURS.find(c => c.id === b.colour) || CARD_COLOURS[0];
+  const sig = `${kind}|${state.cardVersion}`;
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.style.background = colour.hex;
+  el.style.color = colour.id === 'sand' ? '#1f2733' : '#ffffff';
+  const img = document.getElementById('tc-logo');
+  img.src = b.logo || 'frontend/img/qbiq-logo.svg';
+  img.classList.toggle('invert', !b.logo && colour.id !== 'sand');
+  document.getElementById('tc-name').textContent = v.name;
+  document.getElementById('tc-line').textContent = kind === 'outro' ? v.outro : v.tagline;
+}
+
+function renderTimelineLanes() {
+  const tl = p3.timeline; if (!tl) return;
+  document.getElementById('vtl-video').innerHTML = tl.blocks.map(b =>
+    `<div class="vtl-block ${b.kind}" data-kind="${b.kind}" style="flex:${(b.end - b.start).toFixed(3)} 0 0">${LANE_LABEL[b.kind] || ''}</div>`).join('');
+  const N = 120, amp = [...Array(N + 1)].map((_, i) => {
+    const t = (i / N) * tl.total;
+    return musicGain(t, tl.total) * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.37)));
+  });
+  const top = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 - a * 13).toFixed(2)}`);
+  const bottom = amp.map((a, i) => `${(i / N * 1000).toFixed(1)},${(15 + a * 13).toFixed(2)}`).reverse();
+  document.getElementById('vtl-music').innerHTML = `<svg viewBox="0 0 1000 30" preserveAspectRatio="none" role="img" aria-label="Music level over the video">
+    <polygon points="${top.concat(bottom).join(' ')}" fill="var(--blue)" fill-opacity=".22" stroke="var(--blue)" stroke-opacity=".5" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function placePlayhead() {
+  const tl = p3.timeline, ph = document.getElementById('vtl-playhead');
+  if (!tl || state.step !== 4) return;
+  const sec = document.getElementById('video-timeline').getBoundingClientRect();
+  const track = document.getElementById('vtl-video').getBoundingClientRect();
+  const music = document.getElementById('vtl-music').getBoundingClientRect();
+  ph.style.left = `${track.left - sec.left + track.width * (p3.tl / tl.total)}px`;
+  ph.style.top = `${track.top - sec.top - 4}px`;
+  ph.style.height = `${music.bottom - track.top + 8}px`;
+}
+
+/* Click or drag on the lanes to scrub. */
+['vtl-video', 'vtl-music'].forEach(id => {
+  const el = document.getElementById(id);
+  const seekAt = e => {
+    if (!p3.timeline) return;
+    const r = el.getBoundingClientRect();
+    seekTimeline(((e.clientX - r.left) / r.width) * p3.timeline.total);
+  };
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); seekAt(e); });
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) seekAt(e); });
+});
+
+let _music = null;
+const musicPlayer = () => (_music ||= createMusicPlayer());
+renderVideoPanel();
+
+/* Music plays in step 4 at normal speed, in time with the preview. */
+function syncMusic() {
+  const on = state.step === 4 && p3.playing && p3.timeline && p3.speed === 1 && !!window.AudioContext;
+  if (!on) { _music?.stop(); return; }
+  const m = musicPlayer();
+  m.setTheme(state.video.theme);
+  m.setVolume(state.video.volume);
+  m.start(p3.tl, p3.timeline.total);
 }
 
 /* Fetch camera frames from server and start animation */
@@ -2384,6 +3349,8 @@ async function loadPreviewFrames() {
   const panel = document.getElementById('preview-3d');
   if (!panel.classList.contains('visible')) toggle3DPanel();
 
+  const seq = ++p3.loadSeq, key = routeKey(), sig = previewSig(), dur = cam.dur;
+  p3.loading = true;
   showLoading('Building 3D preview…');
   try {
     const res = await fetch(`${API}/api/process-route`, {
@@ -2402,24 +3369,29 @@ async function loadPreviewFrames() {
       }),
     });
     const data = await res.json();
+    if (seq !== p3.loadSeq || sig !== previewSig()) return;
     if (!res.ok) throw new Error(data.error || 'Failed');
 
     (data.warnings || []).forEach(w => toast(w, 'inf'));
+    renderCamWarnings(data.warnings || []);
     p3.frames   = data.frames;
-    p3.duration = cam.dur;
+    p3.framesKey = key;
+    p3.framesSig = sig;
+    p3.duration = dur;
     p3.t        = 0;
+    p3.tl       = 0;
     p3.playing  = true;
     p3.lastTime = null;
     p3.cutTimes = data.frames.filter(f => f.cut).map(f => f.t);
+    rebuildTimeline();
 
     document.getElementById('p3d-play').disabled = false;
     updatePlayBtn();
     showP3dEmpty(false);
-    // Make sure render loop is running
-    if (!threeAnimId) render3DLoop();
+    if (!threeAnimId && panel.classList.contains('visible')) render3DLoop();
     toast('3D preview ready', 'ok');
   } catch(e) { toast(e.message, 'err'); }
-  finally { hideLoading(); }
+  finally { if (seq === p3.loadSeq) { p3.loading = false; hideLoading(); } }
 }
 
 /* Play / pause */
@@ -2428,6 +3400,7 @@ function togglePlay3D() {
   p3.playing = !p3.playing;
   p3.lastTime = null;
   updatePlayBtn();
+  syncMusic();
 }
 
 function updatePlayBtn() {
@@ -2443,6 +3416,7 @@ function setPreviewSpeed(v) {
   // Update slider fill
   const inp = document.getElementById('p3d-speed-inp');
   if (inp) updateSliderFill(inp);
+  syncMusic();
 }
 
 /* Show/hide empty-state overlay in 3D panel */

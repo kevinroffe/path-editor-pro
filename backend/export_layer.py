@@ -79,6 +79,7 @@ def _look_at(yaw_deg: float, pitch_deg: float = 0.0) -> tuple:
 def to_enscape_xml(plan: KeyframePlan, meta: Dict[str, Any]) -> str:
     """Enscape VideoPath XML with exactly the planned house-style keyframes."""
     u = plan.units_to_metres
+    ox, oz = meta.get("enscape_offset") or (0.0, 0.0)
     root = ET.Element("VideoPath", {"version": "1", "easingInOut": "1", "shakyCam": "0",
                                     "walkMode": str(int(bool(meta.get("walk_mode", True))))})
     kfs_el = ET.SubElement(root, "Keyframes", {"count": str(len(plan.keyframes))})
@@ -87,8 +88,8 @@ def to_enscape_xml(plan: KeyframePlan, meta: Dict[str, Any]) -> str:
         if k.hour is not None:
             kf.set("hour", f"{k.hour:.4f}")
         kf.set("timestampSeconds", f"{k.t_s:.4f}")
-        # SVG x = model_x, SVG y = -model_y  ->  Enscape X = model X, Enscape Z = SVG y
-        ET.SubElement(kf, "Position", {"x": f"{k.x * u:.6f}", "y": f"{EYE_HEIGHT_M:.6f}", "z": f"{k.y * u:.6f}"})
+        # SVG x = model_x, SVG y = -model_y  ->  Enscape X = model X, Enscape Z = SVG y, moved onto the Revit model
+        ET.SubElement(kf, "Position", {"x": f"{k.x * u + ox:.6f}", "y": f"{EYE_HEIGHT_M:.6f}", "z": f"{k.y * u + oz:.6f}"})
         lx, ly, lz = _look_at(k.yaw)
         ET.SubElement(kf, "LookAt", {"x": f"{lx:.6f}", "y": f"{ly:.6f}", "z": f"{lz:.6f}"})
     pretty = minidom.parseString(ET.tostring(root, encoding="unicode")).toprettyxml(indent="    ")

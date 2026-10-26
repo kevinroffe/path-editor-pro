@@ -113,7 +113,7 @@ def test_no_circulation_returns_none():
 
 def test_plan_to_json_shape(plan):
     js = pm.plan_to_json(plan)
-    assert set(js) == {"corridor", "rooms", "entrance", "default_tour_types"}
+    assert set(js) == {"corridor", "rooms", "entrance", "enscape_offset", "default_tour_types"}
     r = js["rooms"][0]
     assert {"id", "name", "type", "area_m2", "head_count", "assigned_hc",
             "department_id", "polygon", "label_point", "is_open", "stop"} <= set(r)

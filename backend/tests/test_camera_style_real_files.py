@@ -37,11 +37,13 @@ def _tour(client, path):
 
 
 def _xml_keyframes(xml: bytes, u: float) -> list:
+    """Keyframes back in plan display units: undo the move onto qbiq's Revit model, then the metre scale."""
+    ox, oz = app_module._LAST_PLAN.enscape_offset
     out = []
     for k in ET.fromstring(xml).find("Keyframes").findall("Keyframe"):
         p, look = k.find("Position"), k.find("LookAt")
         yaw = math.degrees(math.atan2(float(look.get("z")), float(look.get("x"))))
-        out.append((cs.Keyframe(float(k.get("timestampSeconds")), float(p.get("x")) / u, float(p.get("z")) / u, yaw),
+        out.append((cs.Keyframe(float(k.get("timestampSeconds")), (float(p.get("x")) - ox) / u, (float(p.get("z")) - oz) / u, yaw),
                     float(p.get("y"))))
     kfs = [k for k, _ in out]
     yaws = [k.yaw for k in kfs]

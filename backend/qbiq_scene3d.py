@@ -30,42 +30,42 @@ from shapely.ops import unary_union
 
 log = logging.getLogger(__name__)
 
-Mat = namedtuple("Mat", "type color opacity roughness metalness smooth", defaults=(False,))
+Mat = namedtuple("Mat", "type color opacity roughness metalness smooth finish", defaults=(False, "plain"))
 Bounds = namedtuple("Bounds", "x0 x1 y0 y1")
 
 
 def _mat(kind: str, color: str, opacity: float = 1.0, roughness: float = 0.85, metalness: float = 0.0,
-         smooth: bool = False) -> Mat:
+         smooth: bool = False, finish: str = "plain") -> Mat:
     """A material key; faces with equal keys are merged into one mesh (smooth ones share side vertices)."""
-    return Mat(kind, color, opacity, roughness, metalness, smooth)
+    return Mat(kind, color, opacity, roughness, metalness, smooth, finish)
 
 
-PLATE = _mat("floor", "#e9e7e2", roughness=0.9)
-WALL = _mat("wall", "#f4f4f2", roughness=0.9)
-WINDOW = _mat("window", "#a9c7d6", 0.35, 0.05)
-GLASS = _mat("glass", "#bcd6e0", 0.28, 0.05)
-FRAME = _mat("frame", "#3a3f45", roughness=0.4, metalness=0.6)
-TRIM = _mat("frame", "#f4f4f2", roughness=0.9)
-COLUMN = _mat("column", "#f2f2f0", roughness=0.9)
+PLATE = _mat("floor", "#e9e7e2", roughness=0.9, finish="concrete")
+WALL = _mat("wall", "#f4f4f2", roughness=0.9, finish="plaster")
+WINDOW = _mat("window", "#a9c7d6", 0.35, 0.05, finish="glass")
+GLASS = _mat("glass", "#bcd6e0", 0.28, 0.05, finish="glass")
+FRAME = _mat("frame", "#3a3f45", roughness=0.4, metalness=0.6, finish="metal")
+TRIM = _mat("frame", "#f4f4f2", roughness=0.9, finish="plaster")
+COLUMN = _mat("column", "#f2f2f0", roughness=0.9, finish="plaster")
 BOOTH = _mat("furniture", "#e2e5ea", roughness=0.7)
 NEUTRAL = _mat("furniture", "#c9c6c0", roughness=0.8)
 
-FABRIC_CHARCOAL = _mat("furniture", "#3b3f46", roughness=0.95, smooth=True)
-FABRIC_GREY = _mat("furniture", "#8a8f96", roughness=0.95, smooth=True)
-FABRIC_SAND = _mat("furniture", "#c9b79c", roughness=0.95, smooth=True)
-FABRIC_TEAL = _mat("furniture", "#5b8a8c", roughness=0.95, smooth=True)
-OAK_LIGHT = _mat("furniture", "#c49a6c", roughness=0.6)
-LAMINATE = _mat("furniture", "#f3f3f1", roughness=0.55)
-METAL = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7)
-METAL_SMOOTH = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7, smooth=True)
-PLASTIC_BLACK = _mat("furniture", "#25282c", roughness=0.5)
-PLASTIC_BLACK_SMOOTH = _mat("furniture", "#25282c", roughness=0.5, smooth=True)
-STAINLESS = _mat("furniture", "#c9cdd2", roughness=0.25, metalness=0.8)
-FRIDGE = _mat("furniture", "#eef0f2", roughness=0.4)
-FOLIAGE = _mat("furniture", "#4f7d4a", roughness=0.9, smooth=True)
-FOLIAGE_LIGHT = _mat("furniture", "#5f9558", roughness=0.9, smooth=True)
-TERRACOTTA = _mat("furniture", "#b5674d", roughness=0.85, smooth=True)
-SCREEN = _mat("furniture", "#15171a", roughness=0.2, metalness=0.2)
+FABRIC_CHARCOAL = _mat("furniture", "#3b3f46", roughness=0.95, smooth=True, finish="fabric")
+FABRIC_GREY = _mat("furniture", "#8a8f96", roughness=0.95, smooth=True, finish="fabric")
+FABRIC_SAND = _mat("furniture", "#c9b79c", roughness=0.95, smooth=True, finish="fabric")
+FABRIC_TEAL = _mat("furniture", "#5b8a8c", roughness=0.95, smooth=True, finish="fabric")
+OAK_LIGHT = _mat("furniture", "#c49a6c", roughness=0.6, finish="oak")
+LAMINATE = _mat("furniture", "#f3f3f1", roughness=0.55, finish="laminate")
+METAL = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7, finish="metal")
+METAL_SMOOTH = _mat("furniture", "#b8bcc2", roughness=0.35, metalness=0.7, smooth=True, finish="metal")
+PLASTIC_BLACK = _mat("furniture", "#25282c", roughness=0.5, finish="plastic")
+PLASTIC_BLACK_SMOOTH = _mat("furniture", "#25282c", roughness=0.5, smooth=True, finish="plastic")
+STAINLESS = _mat("furniture", "#c9cdd2", roughness=0.25, metalness=0.8, finish="steel")
+FRIDGE = _mat("furniture", "#eef0f2", roughness=0.4, finish="metal")
+FOLIAGE = _mat("furniture", "#4f7d4a", roughness=0.9, smooth=True, finish="foliage")
+FOLIAGE_LIGHT = _mat("furniture", "#5f9558", roughness=0.9, smooth=True, finish="foliage")
+TERRACOTTA = _mat("furniture", "#b5674d", roughness=0.85, smooth=True, finish="ceramic")
+SCREEN = _mat("furniture", "#15171a", roughness=0.2, metalness=0.2, finish="screen")
 
 _ROOM_COLOURS = (
     (("open space", "workstation"), "#dcdcdc"),
@@ -79,8 +79,8 @@ _DEFAULT_ROOM_COLOUR = "#dddad4"
 
 CEILING = 3.0
 CEILING_TOP = 3.05
-CEILING_MAT = _mat("ceiling", "#f7f7f5", roughness=0.95)
-LIGHT_MAT = _mat("light", "#fff6e0", roughness=1.0)
+CEILING_MAT = _mat("ceiling", "#f7f7f5", roughness=0.95, finish="ceiling")
+LIGHT_MAT = _mat("light", "#fff6e0", roughness=1.0, finish="light")
 PANEL_W, PANEL_L, PANEL_PITCH = 0.6, 1.2, 2.4
 PANEL_Z0, PANEL_Z1 = 2.99, 2.995
 WALL_THICK = 0.25
@@ -317,15 +317,27 @@ def _partition(seg, doors: list, k: float) -> list:
 
 # ── floors, columns, cores ──────────────────────────────────────────────────
 
+_FLOOR_FINISHES = (
+    (("office", "conference", "meeting", "board", "focus", "open space", "work"), "carpet"),
+    (("kitchen", "pantry", "cafe", "comfort", "lounge", "reception", "wellness"), "wood"),
+)
+
+
 def room_colour(space_type) -> str:
     """The floor tint for a room's space_type."""
     name = str(space_type or "").lower()
     return next((c for keys, c in _ROOM_COLOURS if any(key in name for key in keys)), _DEFAULT_ROOM_COLOUR)
 
 
+def floor_finish(space_type) -> str:
+    """The floor surface name (carpet / wood / concrete) for a room's space_type."""
+    name = str(space_type or "").lower()
+    return next((f for keys, f in _FLOOR_FINISHES if any(key in name for key in keys)), "concrete")
+
+
 def _room_slab(rings: list, space_type) -> list:
     """A 0.02–0.03 m slab per room ring, tinted by space type."""
-    mat = _mat("floor", room_colour(space_type), roughness=0.85)
+    mat = _mat("floor", room_colour(space_type), roughness=0.85, finish=floor_finish(space_type))
     return [f for ring in rings for f in _solid(mat, Polygon(ring), 0.02, 0.03)]
 
 
@@ -693,8 +705,8 @@ _PART_BUILDERS.update({"C_C": _chair_part, "C_K": _chair_part, "C_G": _chair_par
 # ── tables, desks, storage, kitchen, accessories ────────────────────────────
 
 DESK_H, TOP_T = 0.74, 0.025
-STORAGE_BODY = _mat("furniture", "#ecebe7", roughness=0.55)
-PRINTER = _mat("furniture", "#d9dbde", roughness=0.5)
+STORAGE_BODY = _mat("furniture", "#ecebe7", roughness=0.55, finish="laminate")
+PRINTER = _mat("furniture", "#d9dbde", roughness=0.5, finish="plastic")
 _TABLE_H = {"T_C": 0.74, "T_DT": 0.74, "T_CF": 0.42, "T_BR": 1.05, "CO_H": 0.74}
 _TABLE_TOP = {"T_C": OAK_LIGHT, "T_DT": OAK_LIGHT, "T_CF": OAK_LIGHT, "T_BR": LAMINATE, "CO_H": LAMINATE}
 
@@ -919,13 +931,24 @@ def _canonical_box(comp: dict) -> Bounds:
     """
     The component's footprint in its own unmirrored frame. Real exports store
     geom_box with original_matrix3d (the in-group offset/mirror) already
-    applied, while matrix3d = group matrix @ original_matrix3d — so undoing
-    original_matrix3d first puts the box back where matrix3d expects it, with
+    applied, while the placement is group matrix @ original_matrix3d — so undoing
+    original_matrix3d first puts the box back where _placement expects it, with
     chair backs and desk tops on the local +y side.
     """
     inv = np.linalg.inv(_affine(comp.get("original_matrix3d") or np.eye(3)))
     x0, y0, x1, y1 = affine_transform(wkt.loads(comp["geom_box"]), [*inv[0, :2], *inv[1, :2], inv[0, 2], inv[1, 2]]).bounds
     return Bounds(x0, x1, y0, y1)
+
+
+def _placement(comp: dict) -> np.ndarray:
+    """
+    Where the component's canonical box sits in the plan: matrix @ original_matrix3d. Real exports
+    can carry a stale matrix3d (the first placement of a stencil reused in other rooms), so it is
+    only used when `matrix` is missing.
+    """
+    if comp.get("matrix") is None:
+        return _affine(comp["matrix3d"])
+    return _affine(comp["matrix"]) @ _affine(comp.get("original_matrix3d") or np.eye(3))
 
 
 def _component(comp: dict, k: float) -> tuple:
@@ -934,7 +957,7 @@ def _component(comp: dict, k: float) -> tuple:
         return "hidden", []
     full = str(comp.get("name") or "")
     bom = str(comp.get("bom_data") or "")
-    m = _affine(comp["matrix3d"])
+    m = _placement(comp)
     kind, build = classify_furniture(full.split("#")[0], bom)
     frame = tuple(float(v) for v in (m[0, 0], m[0, 1], m[1, 0], m[1, 1], m[0, 2], m[1, 2]))
     pieces = build(_canonical_box(comp), k, full.lower(), bom)
@@ -977,7 +1000,7 @@ def _merge(faces: list, u: float) -> list:
     if dropped:
         log.warning("qbiq scene: vertex cap %d reached — dropped %d faces", _MAX_VERTS, dropped)
     return [{"type": m.type, "verts": v, "faces": f, "color": m.color, "opacity": m.opacity,
-             "roughness": m.roughness, "metalness": m.metalness, "smooth": m.smooth} for m, (v, f, _) in groups.items()]
+             "roughness": m.roughness, "metalness": m.metalness, "smooth": m.smooth, "finish": m.finish} for m, (v, f, _) in groups.items()]
 
 
 def _vertex(verts: list, shared: dict | None, p: tuple) -> int:

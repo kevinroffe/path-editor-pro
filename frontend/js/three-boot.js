@@ -9,7 +9,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 window.THREE = THREE;
-window.THREE_ADDONS = { EffectComposer, RenderPass, GTAOPass, UnrealBloomPass, OutputPass, SMAAPass, HDRLoader, RectAreaLightUniformsLib };
+window.THREE_ADDONS = { EffectComposer, RenderPass, GTAOPass, UnrealBloomPass, OutputPass, SMAAPass, HDRLoader, RectAreaLightUniformsLib, RoomEnvironment };
 window.dispatchEvent(new Event('three-ready'));

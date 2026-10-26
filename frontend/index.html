@@ -28,6 +28,7 @@
 <script src="frontend/js/video-settings.js"></script>
 <script src="frontend/js/music.js"></script>
 <script src="frontend/js/room-colours.js"></script>
+<script src="frontend/js/materials3d.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2623,29 +2624,16 @@ renderDock();
 
 // ── 3D Preview (Three.js) ────────────────────────────────────────────────────
 
-let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null;
+let threeRenderer = null, threeScene = null, threeCam = null, threeAnimId = null, threeSun = null, p3dReflections = null;
 let threeLabels = [];
 const P3D_BG = 0xeef1f4;
 const P3D_GROUND = 0xe4e2dd;
-// Per-type defaults for a bright viewport; mesh.color/opacity/roughness/metalness override these.
-const P3D_TYPE_STYLE = {
-  floor:     { color: 0xe9e7e2 },
-  slab:      { color: 0xd8d5cf },
-  wall:      { color: 0xf2f1ee },
-  column:    { color: 0xecebe8 },
-  beam:      { color: 0xcfcac2 },
-  stair:     { color: 0xc8b08a },
-  roof:      { color: 0x9aa0a6 },
-  door:      { color: 0xb88a5a, roughness: 0.7 },
-  window:    { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
-  glass:     { color: 0xa9c7d6, opacity: 0.3, roughness: 0.05 },
-  frame:     { color: 0x3a3f45, roughness: 0.45, metalness: 0.4 },
-  furniture: { color: 0xc9c6c0 },
-  ceiling:   { color: 0xf7f7f5, roughness: 0.95 },
-  light:     { color: 0xfff6e0 },
-  other:     { color: 0xc9c9c9 },
+// Per-type colours for meshes that bring none; the surface itself comes from the mesh's finish (materials3d.js).
+const P3D_TYPE_COLOUR = {
+  floor: 0xe9e7e2, slab: 0xd8d5cf, wall: 0xf2f1ee, column: 0xecebe8, beam: 0xcfcac2, stair: 0xc8b08a, roof: 0x9aa0a6,
+  door: 0xb88a5a, window: 0xa9c7d6, glass: 0xa9c7d6, frame: 0x3a3f45, furniture: 0xc9c6c0, ceiling: 0xf7f7f5,
+  light: 0xfff6e0, other: 0xc9c9c9,
 };
-const P3D_TRANSPARENT_TYPES = new Set(['glass', 'window']);
 const P3D_RECEIVE_ONLY_TYPES = new Set(['floor', 'slab', 'ceiling']);
 const P3D_CEILING_TYPES = new Set(['ceiling', 'light']);
 const P3D_CEILING_HEIGHT = 3.0;   // metres; ceiling and light panels hide when the camera is above it
@@ -2813,6 +2801,11 @@ function init3DScene() {
   threeSun.shadow.bias = -0.0005;
   threeSun.shadow.normalBias = 0.02;
   threeScene.add(threeSun, threeSun.target);
+  // A soft studio for metal and glass to reflect; without one they render as flat dark grey.
+  const pmrem = new THREE.PMREMGenerator(threeRenderer);
+  p3dReflections?.dispose();
+  p3dReflections = pmrem.fromScene(new THREE_ADDONS.RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
 
   build3DGeometry();
   resize3D();
@@ -2866,9 +2859,29 @@ function fitSunToPlan({ cx, cz, hw, hd }) {
   threeScene.fog.far = r * 6 + 400;
 }
 
+const p3dTextureSets = new Map();
+
+/* The albedo/normal/roughness maps of one texture folder, loaded once and shared by every material using it. */
+function p3dTextures(folder) {
+  if (!p3dTextureSets.has(folder)) {
+    const loader = new THREE.TextureLoader();
+    const anisotropy = Math.min(8, threeRenderer?.capabilities.getMaxAnisotropy() || 1);
+    const load = (name, colorSpace) => loader.loadAsync(`frontend/assets/textures/${folder}/${name}.jpg`).then(t => {
+      Object.assign(t, { wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, anisotropy, colorSpace });
+      return t;
+    });
+    p3dTextureSets.set(folder, Promise.all([load('albedo', THREE.SRGBColorSpace), load('normal', THREE.NoColorSpace), load('roughness', THREE.NoColorSpace)])
+      .then(([map, normalMap, roughnessMap]) => {
+        scheduleCameraStrip();   // snapshots taken before the maps landed showed plain colours
+        return { map, normalMap, roughnessMap };
+      }));
+  }
+  return p3dTextureSets.get(folder);
+}
+
 /* One IFC/qbiq mesh (metres, Z-up) → shaded, shadowed THREE.Mesh */
 function buildContractMesh(mesh) {
-  const geo = new THREE.BufferGeometry();
+  let geo = new THREE.BufferGeometry();
   const rv = mesh.verts;
   const n  = rv.length / 3;
   const pos = new Float32Array(n * 3);
@@ -2881,22 +2894,22 @@ function buildContractMesh(mesh) {
   geo.setIndex(mesh.faces);
   geo.computeVertexNormals();
 
-  const style = P3D_TYPE_STYLE[mesh.type] || P3D_TYPE_STYLE.other;
-  const opacity = mesh.opacity ?? style.opacity ?? 1.0;
-  const transparent = P3D_TRANSPARENT_TYPES.has(mesh.type) || opacity < 1.0;
-  const mat = mesh.type === 'light'
-    ? new THREE.MeshBasicMaterial({ color: mesh.color || style.color, side: THREE.DoubleSide })
-    : new THREE.MeshStandardMaterial({
-    color: mesh.color || style.color,
-    roughness: mesh.roughness ?? style.roughness ?? 0.85,
-    metalness: mesh.metalness ?? style.metalness ?? 0.0,
-    side: THREE.DoubleSide,
-    transparent,
-    opacity,
-    depthWrite: !transparent,
-  });
+  const finish = finishFor(mesh), look = FINISH_LOOKS[finish];
+  if (look.maps) {
+    // Unshared vertices, so each triangle takes the projection of its own face (smooth normals are kept for shading).
+    geo = geo.toNonIndexed();
+    const flat = geo.clone();
+    flat.computeVertexNormals();
+    geo.setAttribute('uv', new THREE.BufferAttribute(boxUV(geo.attributes.position.array, flat.attributes.normal.array, look.tileM), 2));
+    flat.dispose();
+  }
+
+  const mat = makeMaterial({ ...mesh, color: mesh.color || P3D_TYPE_COLOUR[mesh.type] || P3D_TYPE_COLOUR.other }, p3dTextures);
+  if (mat.metalness > 0 || mat.isMeshPhysicalMaterial) mat.envMap = p3dReflections;
+  const transparent = finish === 'glass' || (mesh.opacity ?? 1) < 1;
   const m = new THREE.Mesh(geo, mat);
   m.userData.meshType = mesh.type;
+  m.userData.finish = finish;
   m.userData.ceiling = P3D_CEILING_TYPES.has(mesh.type);
   if (mesh.type === 'light') {
     m.castShadow = m.receiveShadow = false;
@@ -2912,8 +2925,8 @@ function buildContractMesh(mesh) {
 /* DXF fallback: extrude 2D wall/column polylines upward as boxes (capped at 4000 segments) */
 function buildExtrudedWalls(u) {
   const wH = 3.2; // wall height metres
-  const wallMat = new THREE.MeshStandardMaterial({ color: P3D_TYPE_STYLE.wall.color, roughness: 0.85 });
-  const colMat  = new THREE.MeshStandardMaterial({ color: P3D_TYPE_STYLE.column.color, roughness: 0.85 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: P3D_TYPE_COLOUR.wall, roughness: 0.85 });
+  const colMat  = new THREE.MeshStandardMaterial({ color: P3D_TYPE_COLOUR.column, roughness: 0.85 });
   const pairs = [[state.geometry.walls || [], wallMat], [state.geometry.columns || [], colMat]];
   let segCount = 0;
   pairs.forEach(([polys, mat]) => {

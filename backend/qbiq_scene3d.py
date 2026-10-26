@@ -931,13 +931,24 @@ def _canonical_box(comp: dict) -> Bounds:
     """
     The component's footprint in its own unmirrored frame. Real exports store
     geom_box with original_matrix3d (the in-group offset/mirror) already
-    applied, while matrix3d = group matrix @ original_matrix3d — so undoing
-    original_matrix3d first puts the box back where matrix3d expects it, with
+    applied, while the placement is group matrix @ original_matrix3d — so undoing
+    original_matrix3d first puts the box back where _placement expects it, with
     chair backs and desk tops on the local +y side.
     """
     inv = np.linalg.inv(_affine(comp.get("original_matrix3d") or np.eye(3)))
     x0, y0, x1, y1 = affine_transform(wkt.loads(comp["geom_box"]), [*inv[0, :2], *inv[1, :2], inv[0, 2], inv[1, 2]]).bounds
     return Bounds(x0, x1, y0, y1)
+
+
+def _placement(comp: dict) -> np.ndarray:
+    """
+    Where the component's canonical box sits in the plan: matrix @ original_matrix3d. Real exports
+    can carry a stale matrix3d (the first placement of a stencil reused in other rooms), so it is
+    only used when `matrix` is missing.
+    """
+    if comp.get("matrix") is None:
+        return _affine(comp["matrix3d"])
+    return _affine(comp["matrix"]) @ _affine(comp.get("original_matrix3d") or np.eye(3))
 
 
 def _component(comp: dict, k: float) -> tuple:
@@ -946,7 +957,7 @@ def _component(comp: dict, k: float) -> tuple:
         return "hidden", []
     full = str(comp.get("name") or "")
     bom = str(comp.get("bom_data") or "")
-    m = _affine(comp["matrix3d"])
+    m = _placement(comp)
     kind, build = classify_furniture(full.split("#")[0], bom)
     frame = tuple(float(v) for v in (m[0, 0], m[0, 1], m[1, 0], m[1, 1], m[0, 2], m[1, 2]))
     pieces = build(_canonical_box(comp), k, full.lower(), bom)

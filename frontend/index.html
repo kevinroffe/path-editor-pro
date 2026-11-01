@@ -643,6 +643,9 @@ body[data-step="4"] .preview-3d.visible { flex: 1; width: auto; }
   background: var(--surface); color: var(--text); font: 500 13px/1 inherit; cursor: pointer;
 }
 .pill:hover { border-color: var(--blue); color: var(--blue-dk); }
+.pill-suggest { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+.pill-suggest:hover { background: var(--blue-dk); border-color: var(--blue-dk); color: #fff; }
+.pill:disabled { opacity: .6; cursor: progress; }
 .pick-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .pick-list li {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px;
@@ -860,6 +863,8 @@ body.picking-entrance .canvas-area { cursor: crosshair; }
       <p class="sp-help">Click rooms on the plan in the order you want to visit them. The walk starts at the main entrance and follows the corridors.</p>
     </div>
     <div class="quick-add" role="group" aria-label="Quick add">
+      <button type="button" class="pill pill-suggest" data-quick="suggest" onclick="suggestTour()"
+        title="Pick the rooms a designer would show: open areas walked into, rooms glanced at on the way, about 100 s">Suggest a tour</button>
       <button type="button" class="pill" data-quick="offices" onclick="quickAddGroup('offices')">+ All offices</button>
       <button type="button" class="pill" data-quick="meeting" onclick="quickAddGroup('meeting')">+ Meeting rooms</button>
       <button type="button" class="pill" data-quick="amenities" onclick="quickAddGroup('amenities')">+ Amenities</button>
@@ -1281,6 +1286,28 @@ function toggleTourRoom(e) {
 
 function removeTourRoom(id) { changePicks(state.tourRooms.filter(r => r !== id)); }
 function quickAddGroup(group) { if (state.plan) changePicks(quickAdd(state.plan.rooms, state.tourRooms, group)); }
+
+/* Replace the picks with a designer-like tour (learned from qbiq's hand-made paths); the route builds as usual. */
+async function suggestTour() {
+  if (!state.plan || (state.routeHandEdited && state.waypoints.length && !confirm(REBUILD_QUESTION))) return;
+  const btn = document.querySelector('[data-quick="suggest"]'), msg = document.getElementById('tour-msg');
+  btn.disabled = true; msg.textContent = 'Suggesting a tour…';
+  try {
+    const res = await fetch(`${API}/api/auto-tour`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggest: true, smoothing: cam.smo, ...(state.entrance ? { entrance: state.entrance } : {}) }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    state.routeHandEdited = false;
+    changePicks(data.room_ids);
+  } catch (e) {
+    msg.textContent = '';
+    toast('Couldn\'t suggest a tour: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 /* Move picked room `id` to just before `beforeId` (or to the end). */
 function movePick(id, beforeId) {

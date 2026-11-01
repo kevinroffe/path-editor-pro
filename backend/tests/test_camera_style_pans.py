@@ -26,7 +26,7 @@ def _pan_pairs(plan):
 def test_stop_pan_two_keyframes():
     plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3000, 400, pan=True)), (6000, 0, 0, "", None)], 65)
     (a, b), = _pan_pairs(plan)
-    assert b.t_s - a.t_s == pytest.approx(cs.PAN_DURATION_S, abs=0.05)
+    assert b.t_s - a.t_s == pytest.approx(4.0, abs=0.05)
     assert 0 < abs(b.yaw - a.yaw) <= cs.PAN_MAX_DEG
     assert abs(b.yaw) > abs(a.yaw)                 # swept further toward the room (left, +y)
     assert abs(b.yaw - a.yaw) / (b.t_s - a.t_s) <= cs.MAX_YAW_RATE_DPS
@@ -37,7 +37,7 @@ def test_start_pan():
     plan = _plan([(0, 0), (6000, 0)], 60, start_pan=True)
     k0, k1, k2 = plan.keyframes[:3]
     assert (k0.x, k0.y) == pytest.approx((k1.x, k1.y))
-    assert k1.t_s - k0.t_s == pytest.approx(cs.PAN_DURATION_S, abs=0.05)
+    assert k1.t_s - k0.t_s == pytest.approx(4.0, abs=0.05)
     assert k2.x > k1.x
     assert plan.pans == 1
 

@@ -94,6 +94,15 @@ def test_room_looks_do_not_crowd_keyframes():
 
 
 def test_suggest_duration():
-    assert cs.suggest_duration_s(110) == 100
+    assert cs.suggest_duration_s(95) == 100            # designers walk 0.95 m/s (312-path median)
     assert cs.suggest_duration_s(5) == 10
-    assert cs.suggest_duration_s(110, n_pans=2) == 110
+    assert cs.suggest_duration_s(95, n_pans=2) == 110
+
+
+def test_slow_designer_walk_does_not_warn():
+    assert _plan([(0, 0), (7000, 0)], 100).warnings == []     # 0.7 m/s
+
+
+def test_too_long_video_warns():
+    plan = _plan([(0, 0), (5000, 0)], 100)                    # 0.5 m/s
+    assert len(plan.warnings) == 1 and "too long" in plan.warnings[0]

@@ -26,7 +26,6 @@ MAX_SPEED_MPS = 1.45
 MAX_YAW_RATE_DPS = 25.0
 MAX_REVERSALS_PER_MIN = 6
 ROOM_LOOK_MAX_DEG = 60.0
-LOOK_MIN_DIST_M = 1.5
 MIN_LOOK_SPEED_MPS = 0.8
 TURN_LEAD_S = 1.5
 PAN_DURATION_S = 4.0
@@ -311,8 +310,8 @@ def _drafts_for_leg(leg: _Leg, seg: int, wps: list, important: set, u: float, sp
 def _route(waypoints: list, smoothing: float, uturn_radius_m: float, cuts, u: float, duration: float) -> tuple:
     """Legs and draft keyframes for the whole route, plus per-waypoint stops and yaw offsets."""
     stops = _clean_stops([p[4] if len(p) > 4 else None for p in waypoints])
-    stops = [None if s and not s["pan"] and math.dist(s["look_at"], p[:2]) * u < LOOK_MIN_DIST_M else s
-             for s, p in zip(stops, waypoints)]    # standing in the room already: walking in is the look
+    look_s = sum(s["dwell_s"] for s in stops if s)
+    stops = [None if s and s["walk_in"] and not s["pan"] else s for s in stops]   # inside the room: walking in is the look
     offsets = [float(p[2]) if len(p) > 2 else 0.0 for p in waypoints]
     hours = [_parse_hour(p[3]) if len(p) > 3 else None for p in waypoints]
     important = {i for i in range(len(waypoints)) if stops[i] or offsets[i] != 0.0 or hours[i] is not None}
@@ -330,15 +329,19 @@ def _route(waypoints: list, smoothing: float, uturn_radius_m: float, cuts, u: fl
         drafts += _drafts_for_leg(leg, seg, list(range(a, b + 1)), important, u, spacing)
     for d in drafts:
         d.hour = hours[d.wp] if d.wp is not None else None
-    return legs, drafts, stops, offsets, spacing
+    return legs, drafts, stops, offsets, spacing, look_s
 
 
-def _speed_warning(v: float, length_m: float, pans: int) -> list:
-    """House-style speed warning with a suggested video length, or none."""
-    if v > MAX_SPEED_MPS:
-        return [f"Video too short — walking at {v:.1f} m/s; try {suggest_duration_s(length_m, pans)} s"]
-    if 0 < v < MIN_SPEED_MPS:
-        return [f"Video too long — walking at {v:.1f} m/s; try {suggest_duration_s(length_m, pans)} s"]
+def _speed_warning(v: float, length_m: float, pans: int, look_s: float) -> list:
+    """House-style speed warning with a suggested video length, or none; room looks get their time as in
+    suggest_duration_s, so the walking pace is judged without it."""
+    if v <= 0:
+        return []
+    pace = length_m / max(length_m / v - look_s, 1e-9)
+    if pace > MAX_SPEED_MPS:
+        return [f"Video too short — walking at {v:.1f} m/s; try {suggest_duration_s(length_m, pans, look_s)} s"]
+    if pace < MIN_SPEED_MPS:
+        return [f"Video too long — walking at {v:.1f} m/s; try {suggest_duration_s(length_m, pans, look_s)} s"]
     return []
 
 
@@ -704,7 +707,7 @@ def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: f
     if not (math.isfinite(units_to_metres) and units_to_metres > 0):
         raise ValueError("units_to_metres must be positive")
     u = units_to_metres
-    legs, drafts, stops, offsets, spacing = _route(waypoints, smoothing, uturn_radius_m, cuts, u, total_duration)
+    legs, drafts, stops, offsets, spacing, look_s = _route(waypoints, smoothing, uturn_radius_m, cuts, u, total_duration)
     chosen, warnings = _choose_pans(drafts, stops, start_pan)
     drafts = _insert_pans(drafts, chosen)
     v, _ = _assign_times(drafts, total_duration)
@@ -720,5 +723,5 @@ def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: f
         d.yaw = b + r + (1 - w) * (d.yaw - b) + o
     _apply_pan_yaws(drafts, base, stops)
     drafts = _drop_look_anchors(drafts, stops, offsets, u)
-    warnings = _speed_warning(v, length_m, len(chosen)) + warnings + _limit_turn_rate(drafts)
+    warnings = _speed_warning(v, length_m, len(chosen), look_s) + warnings + _limit_turn_rate(drafts)
     return KeyframePlan(_to_keyframes(drafts), u, warnings, len(chosen))

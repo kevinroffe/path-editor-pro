@@ -37,6 +37,16 @@ function canSetPan(waypoints, i, on) {
   return !on || waypoints.filter((w, j) => j !== i && w.stop?.pan).length < MAX_PANS;
 }
 
+/* Where waypoint i's room snapshot looks: the room, or - standing inside a walk-in area right by its label - on along the walk. */
+function stripTarget(waypoints, i, minDist) {
+  const w = waypoints[i], la = w.stop.look_at, far = p => Math.hypot(p.x - w.x, p.y - w.y) >= minDist;
+  if (!w.stop.walk_in || Math.hypot(la[0] - w.x, la[1] - w.y) >= minDist) return la;
+  const next = waypoints.slice(i + 1).find(far);
+  if (next) return [next.x, next.y];
+  const prev = waypoints.slice(0, i).reverse().find(far);
+  return prev ? [2 * w.x - prev.x, 2 * w.y - prev.y] : la;
+}
+
 if (typeof module === 'object') {
-  module.exports = { MAX_PANS, QUICK_ADD, carryStopSettings, pickListFromWaypoints, quickAdd, canSetPan };
+  module.exports = { MAX_PANS, QUICK_ADD, carryStopSettings, pickListFromWaypoints, quickAdd, canSetPan, stripTarget };
 }

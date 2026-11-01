@@ -220,7 +220,18 @@ def test_look_held_into_a_turn_the_same_way(end):
     assert all(b - a >= -3 for a, b in zip(yaws, yaws[1:])), yaws
 
 
-def test_look_target_where_the_camera_stands_is_no_look():
-    # an open area's stop sits inside it, next to its label point: walking in is the look, no spin
-    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3050, 20)), (6000, 0, 0, "", None)], cs.suggest_duration_s(60))
+def test_walk_in_stop_is_no_glance():
+    # standing inside an open area: walking in is the look, the head does not turn to its label point
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3000, 400, walk_in=True)), (6000, 0, 0, "", None)],
+                 cs.suggest_duration_s(60))
     assert max(abs(k.yaw) for k in plan.keyframes) <= 1
+
+
+def test_small_room_close_to_its_stop_still_gets_a_glance():
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3000, 100)), (6000, 0, 0, "", None)], cs.suggest_duration_s(60))
+    assert max(k.yaw for k in plan.keyframes) >= 30
+
+
+def test_stand_and_look_in_a_walk_in_area_pans_toward_the_room():
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3000, 400, walk_in=True, pan=True)), (6000, 0, 0, "", None)], 65)
+    assert plan.pans == 1 and max(k.yaw for k in plan.keyframes) >= 30

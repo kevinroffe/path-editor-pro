@@ -72,7 +72,9 @@ def test_enclosed_room_stop_in_corridor_in_front_of_door(plan):
 def test_open_area_stop_is_inside_its_free_floor(plan):
     b = _by_id(plan, "B")
     assert b.polygon.buffer(-100).covers(Point(b.stop.point))        # walked into, at least 1 m from its edges
-    assert plan.walkable.covers(Point(b.stop.point)) and b.stop.look_at == b.stop.point
+    assert plan.walkable.covers(Point(b.stop.point)) and b.stop.walk_in
+    assert b.stop.look_at == b.label_point                           # pans and snapshots still aim into the room
+    assert not _by_id(plan, "A").stop.walk_in
 
 
 def test_open_area_too_small_to_walk_keeps_its_edge_stop():

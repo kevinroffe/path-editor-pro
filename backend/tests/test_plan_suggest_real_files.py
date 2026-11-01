@@ -53,7 +53,7 @@ def test_suggested_tour_walks_like_the_designer(client, pid, design, xml_path):
     closed = [r.polygon.buffer(-0.3 / u) for r in plan.rooms if not r.is_open]
     samples = [route.interpolate(t, normalized=True) for t in np.linspace(0, 1, 300)]
     assert not any(g.covers(s) for g in closed for s in samples), "the tour walks into a closed room"
-    assert any(s["look_at"] == tour["waypoints"][s["index"]][:2] for s in tour["stops"]), "no open area walked into"
+    assert any(s["walk_in"] for s in tour["stops"]), "no open area walked into"
     designer = _designer_points(xml_path, plan)
     cover = np.mean([route.distance(Point(p)) * u <= 2.0 for p in designer])
     assert cover >= FLOORS[pid], (pid, round(float(cover), 2))

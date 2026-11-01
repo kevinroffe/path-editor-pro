@@ -71,6 +71,14 @@ def test_component_footprint_uses_matrix_placement():
     assert s3.component_footprint(comp | {"is_remove": True}) is None
 
 
+def test_furniture_geometry_failure_falls_back_to_the_corridor(monkeypatch):
+    def boom(*a):
+        raise ValueError("bad furniture")
+    monkeypatch.setattr(pm, "_walkable", boom)
+    plan = pm.build_plan_model(DATA, U)
+    assert plan is not None and plan.walkable.equals(plan.corridor)
+
+
 def test_flipped_plan_flips_walkable():
     assert pm.flipped(pm.build_plan_model(DATA, U)).walkable.covers(Point(1200, -900))
 

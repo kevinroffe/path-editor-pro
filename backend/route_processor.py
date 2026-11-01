@@ -61,7 +61,7 @@ def process_route(
 # ── room stops ────────────────────────────────────────────────────────────────
 
 def _clean_stop(raw):
-    """Normalised {look_at, dwell_s, pan} for a well-formed stop dict, else None."""
+    """Normalised {look_at, dwell_s, pan, walk_in} for a well-formed stop dict, else None."""
     if not isinstance(raw, dict) or not isinstance(look := raw.get("look_at"), (list, tuple)) or len(look) < 2:
         return None
     try:
@@ -70,7 +70,7 @@ def _clean_stop(raw):
         return None
     if not (all(map(math.isfinite, (*xy, dwell))) and dwell >= 0):
         return None
-    return {"look_at": xy, "dwell_s": dwell, "pan": raw.get("pan") is True}
+    return {"look_at": xy, "dwell_s": dwell, "pan": raw.get("pan") is True, "walk_in": raw.get("walk_in") is True}
 
 
 def _clean_stops(raws: list) -> list:

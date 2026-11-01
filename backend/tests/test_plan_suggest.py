@@ -71,3 +71,17 @@ def test_nothing_to_show_raises():
     data["rooms"] = [r for r in data["rooms"] if r["space_type"] == "Storage Room"]
     with pytest.raises(ValueError, match="no rooms"):
         _suggest(data, 60)
+
+
+def test_start_on_a_door_shared_by_two_facing_offices():
+    # an office below O0 with its door straight opposite: both doors' walking-line points coincide with the start
+    data = copy.deepcopy(LONG)
+    data["rooms"] = [r for r in data["rooms"] if r["id"] != "S"] + [_room(
+        "P", "Office - Receiving Guests", "POLYGON ((0 0, 450 0, 450 400, 0 400, 0 0))",
+        [_door("LINESTRING (0 400, 450 400)",
+               geom="GEOMETRYCOLLECTION (LINESTRING (200 400, 200 390), LINESTRING (290 400, 290 390))")])]
+    plan = pm.flipped(pm.build_plan_model(data, U))
+    polygon, graph = pr.corridor_graph_for(plan, 0.2)
+    o0 = next(t for t in ps._targets(plan, graph) if t.room.id == "O0")
+    ids = ps.suggest_room_ids(plan, graph, polygon, o0.go, 30)
+    assert "O0" in ids                      # no crash on the zero-length walk; P is thinned (same spot as O0)

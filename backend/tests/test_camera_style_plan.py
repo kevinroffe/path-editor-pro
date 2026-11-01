@@ -107,3 +107,19 @@ def test_slow_designer_walk_does_not_warn():
 def test_too_long_video_warns():
     plan = _plan([(0, 0), (5000, 0)], 100)                    # 0.5 m/s
     assert len(plan.warnings) == 1 and "too long" in plan.warnings[0]
+
+
+def _office_row(n=20, gap=200):
+    """A straight 40 m walk past n offices, each with a 2 s look."""
+    stop = {"room_id": "r", "room_name": "Office", "dwell_s": 2.0}
+    return [(0, 0, 0, "", None)] + [(gap * i, 0, 0, "", stop | {"look_at": [gap * i, 400]}) for i in range(1, n)] \
+        + [(gap * n, 0, 0, "", None)]
+
+
+def test_suggested_length_of_a_room_dense_route_does_not_warn():
+    assert _plan(_office_row(), cs.suggest_duration_s(40, look_s=38)).warnings == []
+
+
+def test_too_long_warning_suggests_walking_plus_looking_time():
+    (w,) = _plan(_office_row(), 200).warnings
+    assert "too long" in w and f"try {cs.suggest_duration_s(40, look_s=38)} s" in w

@@ -39,7 +39,7 @@ def _wire(tour) -> list:
     """Tour waypoints in the frontend's wire format, with stop metadata."""
     wire = [[p[0], p[1], 0, "", None] for p in tour["waypoints"]]
     for s in tour["stops"]:
-        wire[s["index"]][4] = {k: s[k] for k in ("room_id", "room_name", "look_at", "dwell_s")}
+        wire[s["index"]][4] = {k: s[k] for k in ("room_id", "room_name", "look_at", "dwell_s", "walk_in")}
     return wire
 
 

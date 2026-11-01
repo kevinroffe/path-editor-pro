@@ -63,7 +63,7 @@ def _prune_outside(graph, polygon):
 def stop_meta(room) -> dict:
     """Waypoint stop metadata for a room."""
     return {"room_id": room.id, "room_name": room.space_type or "Room",
-            "look_at": list(room.stop.look_at), "dwell_s": room.stop.dwell_s}
+            "look_at": list(room.stop.look_at), "dwell_s": room.stop.dwell_s, "walk_in": room.stop.walk_in}
 
 
 def snap_points(plan, points) -> tuple:

@@ -32,3 +32,13 @@ test('third pan refused, unpan always allowed', () => {
   assert.equal(P.canSetPan(w, 2, true), false);
   assert.equal(P.canSetPan(w, 0, false), true);
 });
+
+test('a snapshot looks at the room, or on along the walk when standing inside a walk-in area next to its label', () => {
+  const room = { x: 0, y: 0, stop: { look_at: [0, 300], walk_in: false } };
+  const near = { x: 0, y: 0, stop: { look_at: [20, 30], walk_in: true } };
+  const far = { x: 0, y: 0, stop: { look_at: [0, 400], walk_in: true } };
+  assert.deepEqual(P.stripTarget([room, { x: 500, y: 0 }], 0, 150), [0, 300]);
+  assert.deepEqual(P.stripTarget([near, { x: 10, y: 0 }, { x: 500, y: 0 }], 0, 150), [500, 0]);
+  assert.deepEqual(P.stripTarget([far, { x: 500, y: 0 }], 0, 150), [0, 400]);
+  assert.deepEqual(P.stripTarget([{ x: -500, y: 0 }, near], 1, 150), [500, 0]);   // last point: keep walking the same way
+});

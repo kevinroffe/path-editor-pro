@@ -55,7 +55,7 @@ def _targets(plan, graph) -> list:
     for r in plan.rooms:
         if weight(r) <= 0:
             continue
-        if r.stop.look_at == r.stop.point:                 # walk-in area (plan_model._inside_stop)
+        if r.stop.walk_in:
             out.append(_Target(r, r.stop.point, r.stop.point, SEE_OPEN_M))
         else:
             go = _centre_line_point(graph, r.stop.point, reach) if not r.is_open else r.stop.point
@@ -132,7 +132,8 @@ def _in_route_order(seq: list, legs: _Legs, targets: list, u: float) -> list:
         line = legs.line(a, b)
         for k in sorted(legs.seen(a, b) - done - {b - 1}):
             if line.distance(Point(targets[k].go)) * u <= PASS_PICK_M:
-                out.append((s0 + line.project(Point(targets[k].see)) * u, k, False))
+                along = line.project(Point(targets[k].see)) * u if line.length else 0.0
+                out.append((s0 + along, k, False))
                 done.add(k)
         if b - 1 not in done:
             out.append((s0 + line.length * u, b - 1, True))

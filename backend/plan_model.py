@@ -32,6 +32,7 @@ class Stop:
     look_at: tuple
     dwell_s: float
     warning: str | None = None
+    walk_in: bool = False   # inside an open area: walking in is the look; look_at stays the room's label point
 
 
 @dataclass(frozen=True)
@@ -197,13 +198,12 @@ def _walkable(corridor, rooms: list, furniture: list, u: float):
 
 
 def _inside_stop(room: PlanRoom, walkable, u: float) -> PlanRoom:
-    """A walk-in area's stop moved to the middle of its largest free floor piece, when that is big enough;
-    walking in is the look, so the look target is the stop itself."""
+    """A walk-in area's stop moved to the middle of its largest free floor piece, when that is big enough."""
     pieces = [p for p in _parts(room.polygon.intersection(walkable)) if p.geom_type == "Polygon"] if _walk_in(room) else []
     if not pieces or (piece := max(pieces, key=lambda p: p.area)).area * u * u < INSIDE_STOP_MIN_M2:
         return room
     p = polylabel(piece, tolerance=0.05 / u)
-    return replace(room, stop=replace(room.stop, point=(p.x, p.y), look_at=(p.x, p.y), warning=None))
+    return replace(room, stop=replace(room.stop, point=(p.x, p.y), walk_in=True, warning=None))
 
 
 def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
@@ -221,7 +221,11 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     columns = [pl for g in qe._wkt_many(nfp.get("columns")) for pl in qe._polylines(g)]
     fill = qe._wkt(nfp.get("fill"))
     offset = enscape_offset(fill.bounds, u) if fill is not None and not fill.is_empty else None
-    walkable = _walkable(corridor, rooms, _furniture(data), u)
+    try:
+        walkable = _walkable(corridor, rooms, _furniture(data), u)
+    except Exception:  # noqa: BLE001 — bad furniture geometry must not cost the plan its corridor routing
+        log.exception("plan model: walkable area failed - routing stays in the corridor")
+        walkable = corridor
     rooms = [_inside_stop(r, walkable, u) for r in rooms]
     return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u, offset, walkable)
 
@@ -272,6 +276,6 @@ def plan_to_json(plan: PlanModel) -> dict:
             "department_id": r.department_id, "polygon": _rings(r.polygon)[0],
             "label_point": list(r.label_point), "is_open": r.is_open,
             "stop": {"point": list(r.stop.point), "look_at": list(r.stop.look_at),
-                     "dwell_s": r.stop.dwell_s, "warning": r.stop.warning},
+                     "dwell_s": r.stop.dwell_s, "warning": r.stop.warning, "walk_in": r.stop.walk_in},
         } for r in plan.rooms],
     }

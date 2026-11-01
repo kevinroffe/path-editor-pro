@@ -1698,7 +1698,7 @@ function cleanStop(s) {
   if (!Array.isArray(la) || la.length < 2 || !la.slice(0, 2).every(Number.isFinite)) return null;
   if (!Number.isFinite(d) || d < 0) return null;
   return { room_id: String(s.room_id ?? ''), room_name: String(s.room_name ?? ''), look_at: [la[0], la[1]], dwell_s: d,
-           pan: s.pan === true };
+           pan: s.pan === true, walk_in: s.walk_in === true };
 }
 function setWpTod(i, val)   { if (state.waypoints[i]) { state.waypoints[i].timeOfDay = val||''; markHandEdited(); } }
 function toggleCut(i) {
@@ -2695,6 +2695,7 @@ function renderCameraStrip() {
   const strip = document.getElementById('camera-strip');
   const stopOf = new Map(state.waypoints.filter(w => w.stop).map(w => [w.stop.room_id, w]));
   const shots = state.tourRooms.map((id, i) => ({ n: i + 1, id, w: stopOf.get(id) })).filter(s => s.w);
+  const metre = 1 / (state.unitsToMetres || 1);
   const wasHidden = strip.hidden;
   strip.hidden = !shots.length || !window.THREE;
   if (wasHidden !== strip.hidden) requestAnimationFrame(fitView);
@@ -2708,7 +2709,7 @@ function renderCameraStrip() {
   threeLabels.forEach(s => { s.visible = false; });
   const u = state.unitsToMetres || 1, names = new Map(state.plan.rooms.map(r => [r.id, r.name]));
   const items = shots.map(s => {
-    const la = s.w.stop.look_at;
+    const la = stripTarget(state.waypoints, state.waypoints.indexOf(s.w), 1.5 * metre);
     threeCam.position.set(s.w.x * u, STRIP_EYE_M, s.w.y * u);
     threeCam.lookAt(la[0] * u, STRIP_LOOK_Y_M, la[1] * u);
     syncCeiling();

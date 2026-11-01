@@ -37,6 +37,11 @@ def test_snap_corridor_point_unchanged(plan):
     assert pts == [(100, -500)] and metas == [None]
 
 
+def test_stop_meta_marks_walk_in_areas(plan):
+    assert pr.stop_meta(next(r for r in plan.rooms if r.id == "B"))["walk_in"] is True
+    assert pr.stop_meta(next(r for r in plan.rooms if r.id == "A"))["walk_in"] is False
+
+
 def test_snap_room_click_goes_to_its_stop(plan):
     pts, metas = pr.snap_points(plan, [(100, -900)])           # inside room A
     a = next(r for r in plan.rooms if r.id == "A")

@@ -32,7 +32,7 @@ def _tour(client, path):
     tour = client.post("/api/auto-tour", json={"room_ids": ids}).get_json()
     wire = [[p[0], p[1], 0, "", None] for p in tour["waypoints"]]
     for s in tour["stops"]:
-        wire[s["index"]][4] = {k: s[k] for k in ("room_id", "room_name", "look_at", "dwell_s")}
+        wire[s["index"]][4] = {k: s[k] for k in ("room_id", "room_name", "look_at", "dwell_s", "walk_in")}
     return tour, wire, app_module._LAST_PLAN.units_to_metres
 
 
@@ -81,7 +81,7 @@ def test_real_file_every_room_gets_a_look(client, path):
     kfs, _ = _xml_keyframes(_export(client, wire, tour["suggested_duration_s"], u), u)
     for s in tour["stops"]:
         sx, sy = tour["waypoints"][s["index"]]
-        if math.dist(s["look_at"], (sx, sy)) * u < cs.LOOK_MIN_DIST_M:
+        if s["walk_in"]:
             continue                                  # a walk-in area: walking in is the look
         near = [(a, b) for a, b in zip(kfs, kfs[1:]) if math.hypot(a.x - sx, a.y - sy) * u <= 3.0]
         assert near, s["room_name"]

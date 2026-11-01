@@ -69,12 +69,12 @@ def test_auto_tour_starts_at_a_chosen_entrance(client):
     assert body["waypoints"][0][:2] == pytest.approx(list(d), abs=1.0)
 
 
-def test_entrance_outside_the_corridor_snaps_into_it(client):
+def test_entrance_outside_the_floor_snaps_onto_it(client):
     from shapely.geometry import Point
     _upload(client)
     r = client.post("/api/auto-tour", json={"room_ids": ["A"], "entrance": [5000, 5000]})
     assert r.status_code == 200
-    assert app_module._LAST_PLAN.corridor.covers(Point(r.get_json()["start"]))
+    assert app_module._LAST_PLAN.walkable.covers(Point(r.get_json()["start"]))
 
 
 @pytest.mark.parametrize("bad", ["x", [1], [1, "a"], [float("nan"), 0], [1, 2, 3]])

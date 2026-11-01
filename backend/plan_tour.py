@@ -8,7 +8,7 @@ import networkx as nx
 
 from camera_style import suggest_duration_s
 from corridor_graph import _snap_to_nearest_edge
-from plan_model import BACK_OF_HOUSE, snap_to_corridor
+from plan_model import BACK_OF_HOUSE, snap_to_walkable
 from plan_routing import route_on_plan, stop_meta
 
 log = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: fl
         types = set(room_types) if room_types else {r.space_type for r in plan.rooms} - BACK_OF_HOUSE
         if not (rooms := [r for r in plan.rooms if r.space_type in types]):
             raise ValueError("no rooms of the selected types")
-    start = snap_to_corridor(plan, entrance) if entrance is not None else plan.entrance or rooms[0].stop.point
+    start = snap_to_walkable(plan, entrance) if entrance is not None else plan.entrance or rooms[0].stop.point
     visit, unreachable = (_visit_clicked if room_ids is not None else _visit_by_type)(graph, start, rooms)
     metas = [None] + [stop_meta(r) for r in visit]
     routed = route_on_plan(plan, [start] + [r.stop.point for r in visit], get_graph,

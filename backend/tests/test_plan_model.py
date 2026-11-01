@@ -69,11 +69,17 @@ def test_enclosed_room_stop_in_corridor_in_front_of_door(plan):
     assert c.stop.point == pytest.approx((545.0, 460.0))
 
 
-def test_open_area_stop_on_shared_edge_pushed_into_corridor(plan):
+def test_open_area_stop_is_inside_its_free_floor(plan):
     b = _by_id(plan, "B")
-    assert b.stop.point[0] == pytest.approx(1500.0, abs=1.0)
+    assert b.polygon.buffer(-100).covers(Point(b.stop.point))        # walked into, at least 1 m from its edges
+    assert plan.walkable.covers(Point(b.stop.point)) and b.stop.look_at == b.stop.point
+
+
+def test_open_area_too_small_to_walk_keeps_its_edge_stop():
+    data = {**DATA, "rooms": [dict(r, geometry="POLYGON ((1000 600, 1250 600, 1250 900, 1000 900, 1000 600))")
+                              if r["id"] == "B" else r for r in DATA["rooms"]]}
+    b = _by_id(pm.build_plan_model(data, U), "B")
     assert b.stop.point[1] == pytest.approx(540.0, abs=1.0)
-    assert plan.corridor.covers(Point(b.stop.point))
 
 
 def test_entrance_snapped_into_corridor(plan):
@@ -122,7 +128,7 @@ def test_plan_to_json_shape(plan):
 
 def test_open_area_slightly_off_corridor_still_uses_shared_edge():
     data = {**DATA, "rooms": [_room(
-        "E", "Open Space WorkStation", "POLYGON ((1000 600.2, 2000 600.2, 2000 1000, 1000 1000, 1000 600.2))",
+        "E", "Storage Room", "POLYGON ((1000 600.2, 2000 600.2, 2000 1000, 1000 1000, 1000 600.2))",
         [_door("LINESTRING (1000 600.2, 2000 600.2)", shown=False)])]}
     e = pm.build_plan_model(data, U).rooms[0]
     assert e.stop.warning is None

@@ -29,7 +29,7 @@ A_WALK_POINT = [350, -500]   # A's door stop (350, -540) moved onto the corridor
 
 
 def _inside(plan, pt):
-    return plan.corridor.buffer(1e-6).covers(Point(pt))
+    return plan.walkable.buffer(1e-6).covers(Point(pt))
 
 
 def test_snap_corridor_point_unchanged(plan):

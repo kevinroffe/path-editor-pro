@@ -81,6 +81,8 @@ def test_real_file_every_room_gets_a_look(client, path):
     kfs, _ = _xml_keyframes(_export(client, wire, tour["suggested_duration_s"], u), u)
     for s in tour["stops"]:
         sx, sy = tour["waypoints"][s["index"]]
+        if math.dist(s["look_at"], (sx, sy)) * u < cs.LOOK_MIN_DIST_M:
+            continue                                  # a walk-in area: walking in is the look
         near = [(a, b) for a, b in zip(kfs, kfs[1:]) if math.hypot(a.x - sx, a.y - sy) * u <= 3.0]
         assert near, s["room_name"]
         looks = [abs(_wrap(a.yaw - math.degrees(math.atan2(s["look_at"][1] - a.y, s["look_at"][0] - a.x))))

@@ -15,6 +15,7 @@ from qbiq_scene3d import component_footprint
 log = logging.getLogger(__name__)
 
 WALKABLE_MIN_M2 = 8.0
+INSIDE_STOP_MIN_M2 = 4.0
 FURNITURE_CLEARANCE_M = 0.35
 STOP_OFFSET_M = 0.6
 FRONT_TOL_M = 0.5
@@ -176,16 +177,30 @@ def _furniture(data: dict) -> list:
             if (fp := component_footprint(comp)) is not None]
 
 
+def _walk_in(room: PlanRoom) -> bool:
+    """Open front-of-house areas big enough to walk into."""
+    return room.is_open and room.space_type not in BACK_OF_HOUSE and room.area_m2 >= WALKABLE_MIN_M2
+
+
 def _walkable(corridor, rooms: list, furniture: list, u: float):
     """Corridor plus the furniture-free floor of open front-of-house areas that connects to it."""
-    open_floor = [r.polygon for r in rooms
-                  if r.is_open and r.space_type not in BACK_OF_HOUSE and r.area_m2 >= WALKABLE_MIN_M2]
+    open_floor = [r.polygon for r in rooms if _walk_in(r)]
     if not open_floor:
         return corridor
     blocked = unary_union([f.buffer(FURNITURE_CLEARANCE_M / u) for f in furniture])
     seam = 0.02 / u                                # closes hairline gaps between the corridor and room outlines
     merged = unary_union([corridor, unary_union(open_floor).difference(blocked)]).buffer(seam).buffer(-seam)
     return unary_union([p for p in _parts(merged) if p.intersection(corridor).area > 0])
+
+
+def _inside_stop(room: PlanRoom, walkable, u: float) -> PlanRoom:
+    """A walk-in area's stop moved to the middle of its largest free floor piece, when that is big enough;
+    walking in is the look, so the look target is the stop itself."""
+    pieces = [p for p in _parts(room.polygon.intersection(walkable)) if p.geom_type == "Polygon"] if _walk_in(room) else []
+    if not pieces or (piece := max(pieces, key=lambda p: p.area)).area * u * u < INSIDE_STOP_MIN_M2:
+        return room
+    p = polylabel(piece, tolerance=0.05 / u)
+    return replace(room, stop=replace(room.stop, point=(p.x, p.y), look_at=(p.x, p.y), warning=None))
 
 
 def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
@@ -204,12 +219,13 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     fill = qe._wkt(nfp.get("fill"))
     offset = enscape_offset(fill.bounds, u) if fill is not None and not fill.is_empty else None
     walkable = _walkable(corridor, rooms, _furniture(data), u)
+    rooms = [_inside_stop(r, walkable, u) for r in rooms]
     return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u, offset, walkable)
 
 
-def snap_to_corridor(plan: PlanModel, pt) -> tuple:
-    """pt if it is in the corridor, else the nearest point a stop's offset inside it."""
-    return _into(_inner(plan.corridor, STOP_OFFSET_M / plan.units_to_metres), plan.corridor, pt)
+def snap_to_walkable(plan: PlanModel, pt) -> tuple:
+    """pt if it is walkable, else the nearest point a stop's offset inside the walkable area."""
+    return _into(_inner(plan.walkable, STOP_OFFSET_M / plan.units_to_metres), plan.walkable, pt)
 
 
 def _fy(pt) -> tuple:

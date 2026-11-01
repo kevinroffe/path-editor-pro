@@ -219,3 +219,8 @@ def test_look_held_into_a_turn_the_same_way(end):
     yaws = [k.yaw for k in plan.keyframes if k.t_s >= min(plan.keyframes, key=lambda k: abs(k.x - 3000)).t_s]
     assert all(b - a >= -3 for a, b in zip(yaws, yaws[1:])), yaws
 
+
+def test_look_target_where_the_camera_stands_is_no_look():
+    # an open area's stop sits inside it, next to its label point: walking in is the look, no spin
+    plan = _plan([(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3050, 20)), (6000, 0, 0, "", None)], cs.suggest_duration_s(60))
+    assert max(abs(k.yaw) for k in plan.keyframes) <= 1

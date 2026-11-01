@@ -26,6 +26,7 @@ MAX_SPEED_MPS = 1.45
 MAX_YAW_RATE_DPS = 25.0
 MAX_REVERSALS_PER_MIN = 6
 ROOM_LOOK_MAX_DEG = 60.0
+LOOK_MIN_DIST_M = 1.5
 MIN_LOOK_SPEED_MPS = 0.8
 TURN_LEAD_S = 1.5
 PAN_DURATION_S = 4.0
@@ -310,6 +311,8 @@ def _drafts_for_leg(leg: _Leg, seg: int, wps: list, important: set, u: float, sp
 def _route(waypoints: list, smoothing: float, uturn_radius_m: float, cuts, u: float, duration: float) -> tuple:
     """Legs and draft keyframes for the whole route, plus per-waypoint stops and yaw offsets."""
     stops = _clean_stops([p[4] if len(p) > 4 else None for p in waypoints])
+    stops = [None if s and not s["pan"] and math.dist(s["look_at"], p[:2]) * u < LOOK_MIN_DIST_M else s
+             for s, p in zip(stops, waypoints)]    # standing in the room already: walking in is the look
     offsets = [float(p[2]) if len(p) > 2 else 0.0 for p in waypoints]
     hours = [_parse_hour(p[3]) if len(p) > 3 else None for p in waypoints]
     important = {i for i in range(len(waypoints)) if stops[i] or offsets[i] != 0.0 or hours[i] is not None}

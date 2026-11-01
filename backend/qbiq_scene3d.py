@@ -964,6 +964,17 @@ def _component(comp: dict, k: float) -> tuple:
     return kind, [f for mat, ring, z0, z1, *shift in pieces for f in _framed(mat, frame, ring, z0, z1, *shift)]
 
 
+def component_footprint(comp: dict) -> Polygon | None:
+    """Plan footprint (design units) of a shown stencil component; None when hidden, removed or malformed."""
+    if _flag(comp.get("is_remove"), False) or not _flag(comp.get("show"), True):
+        return None
+    try:
+        b, m = _canonical_box(comp), _placement(comp)
+    except Exception:  # noqa: BLE001 — a malformed component has no footprint
+        return None
+    return affine_transform(box(b.x0, b.y0, b.x1, b.y1), [m[0, 0], m[0, 1], m[1, 0], m[1, 1], m[0, 2], m[1, 2]])
+
+
 # ── assembly ────────────────────────────────────────────────────────────────
 
 def _safe(build, *args) -> list:

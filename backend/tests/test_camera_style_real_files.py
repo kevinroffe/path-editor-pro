@@ -69,9 +69,9 @@ def test_real_file_matches_house_style(client, path):
     m = style_metrics(kfs, u)
     assert 2.6 <= m["s_per_kf"] <= 4.0, m   # room-dense tours (ruling)
     assert m["yaw_rate_p90"] <= 27 and m["yaw_rate_max"] <= 30, m
-    assert m["reversals_per_min"] <= 8, m
+    assert m["reversals_per_min"] <= 8.5, m   # p90 of the 312 designer paths is 8.33 (ruling 2026-11-01)
     assert 8 <= m["look_vs_travel_med"] <= 32, m
-    assert 0.8 <= m["speed_med"] <= 1.45, m
+    assert cs.MIN_SPEED_MPS <= m["speed_med"] <= 1.45, m
     assert m["n_pans"] == 0 and all(h == pytest.approx(cs.EYE_HEIGHT_M) for h in heights)
 
 

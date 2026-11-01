@@ -186,9 +186,9 @@ class _Leg:
     s0_m: float
 
 
-def suggest_duration_s(length_m: float, n_pans: int = 0) -> int:
-    """House-style video length: walking at WALK_SPEED_MPS plus pans, rounded up to 5 s, min 10 s."""
-    return max(10, 5 * math.ceil((length_m / WALK_SPEED_MPS + PAN_DURATION_S * n_pans) / 5 - 1e-9))
+def suggest_duration_s(length_m: float, n_pans: int = 0, look_s: float = 0.0) -> int:
+    """House-style video length: walking at WALK_SPEED_MPS plus pans and room looks, rounded up to 5 s, min 10 s."""
+    return max(10, 5 * math.ceil((length_m / WALK_SPEED_MPS + PAN_DURATION_S * n_pans + look_s) / 5 - 1e-9))
 
 
 def _parse_hour(raw) -> float | None:
@@ -495,6 +495,43 @@ def _room_look_offsets(drafts: list, base: list, stops: list, v: float) -> list:
     return out
 
 
+LOOK_BRIDGE_S = 4.0
+
+
+def _look_offset(d: _Draft, base: float, stop: dict) -> float:
+    """Clamped gaze offset from base toward a stop's look target."""
+    bearing = math.degrees(math.atan2(stop["look_at"][1] - d.y, stop["look_at"][0] - d.x))
+    return max(-ROOM_LOOK_MAX_DEG, min(ROOM_LOOK_MAX_DEG, _wrap(bearing - base)))
+
+
+def _look_runs(drafts: list, base: list, stops: list, v: float) -> list:
+    """Runs of look anchors (draft indices) on one side of the walk, each under LOOK_BRIDGE_S from the next."""
+    anchors = [i for i, d in enumerate(drafts) if d.wp is not None and stops[d.wp]]
+    runs = [[a] for a in anchors[:1]]
+    for a, b in zip(anchors, anchors[1:]):
+        da, db = drafts[a], drafts[b]
+        gap_m = db.s_m - da.s_m - v * (stops[da.wp]["dwell_s"] + stops[db.wp]["dwell_s"]) / 2
+        same_side = _look_offset(da, base[a], stops[da.wp]) * _look_offset(db, base[b], stops[db.wp]) > 0
+        if da.seg == db.seg and db.s_m > da.s_m and gap_m <= v * LOOK_BRIDGE_S and same_side:
+            runs[-1].append(b)
+        else:
+            runs.append([b])
+    return [r for r in runs if len(r) > 1]
+
+
+def _bridge_looks(drafts: list, base: list, stops: list, v: float, looks: list) -> list:
+    """A run of close looks to one side becomes one steady sweep from its first room to its last."""
+    out = list(looks)
+    for run in _look_runs(drafts, base, stops, v):
+        a, b = run[0], run[-1]
+        ya = base[a] + _look_offset(drafts[a], base[a], stops[drafts[a].wp])
+        yb = base[b] + _look_offset(drafts[b], base[b], stops[drafts[b].wp])
+        for i in range(a, b + 1):
+            f = (drafts[i].s_m - drafts[a].s_m) / (drafts[b].s_m - drafts[a].s_m)
+            out[i] = (ya + (yb - ya) * f - base[i], 1.0)
+    return out
+
+
 def _user_offsets(drafts: list, offsets: list) -> list:
     """User heading offsets at their waypoint keyframe, half on each neighbour (short way round)."""
     out = [0.0] * len(drafts)
@@ -674,7 +711,8 @@ def plan_keyframes(waypoints: list, *, units_to_metres: float, total_duration: f
     for d, b, drift in zip(drafts, base, _interest_offsets(drafts, base, interests, u)):
         d.yaw = b + drift
     _limit_reversals(drafts)                        # background gaze only: deliberate looks and pans are exempt
-    looks, user = _room_look_offsets(drafts, base, stops, v), _user_offsets(drafts, offsets)
+    looks = _bridge_looks(drafts, base, stops, v, _room_look_offsets(drafts, base, stops, v))
+    user = _user_offsets(drafts, offsets)
     for d, b, (r, w), o in zip(drafts, base, looks, user):
         d.yaw = b + r + (1 - w) * (d.yaw - b) + o
     _apply_pan_yaws(drafts, base, stops)

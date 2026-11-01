@@ -99,5 +99,6 @@ def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: fl
                            clearance_m=clearance_m, smoothing=smoothing, metas=metas)
     if unreachable:
         log.warning("auto tour: %d room(s) unreachable from the entrance: %s", len(unreachable), unreachable)
-    duration = suggest_duration_s(_route_length_m(routed["waypoints"], plan.units_to_metres))
+    duration = suggest_duration_s(_route_length_m(routed["waypoints"], plan.units_to_metres),
+                                  look_s=sum(s["dwell_s"] for s in routed["stops"]))
     return {**routed, "suggested_duration_s": duration, "unreachable": unreachable, "start": list(start)}

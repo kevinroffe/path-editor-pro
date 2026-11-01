@@ -1,3 +1,4 @@
+import math
 import os
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import pytest
 from shapely.geometry import Point
 
 import app as app_module
+import plan_routing as pr
 from route_processor import smooth_preview
 
 FILES = [Path(os.environ.get("QBIQ_DESIGN_JSON", r"C:\Users\kevin\Downloads\121937120410001.json")),
@@ -42,11 +44,11 @@ def _wire(tour) -> list:
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
-def test_real_file_auto_tour_stays_in_corridor(client, path):
+def test_real_file_auto_tour_stays_walkable(client, path):
     tour = _tour(client, path)
     plan = app_module._LAST_PLAN
     assert plan is not None
-    covered = plan.corridor.buffer(1e-6)
+    covered = plan.walkable.buffer(1e-6)
     wps = tour["waypoints"]
     assert len(tour["stops"]) >= 5
     assert all(covered.covers(Point(p)) for p in wps)
@@ -56,7 +58,8 @@ def test_real_file_auto_tour_stays_in_corridor(client, path):
     by_id = {room.id: room for room in plan.rooms}
     for s in tour["stops"]:
         room = by_id[s["room_id"]]
-        assert wps[s["index"]] == pytest.approx(list(room.stop.point), abs=60)
+        reach = 60 if room.is_open else pr.CENTRE_LINE_MAX_M / plan.units_to_metres + 1
+        assert math.dist(wps[s["index"]], room.stop.point) <= reach
 
     frames = client.post("/api/process-route", json={"waypoints": _wire(tour),
                          "duration": tour["suggested_duration_s"], "fps": FPS}).get_json()

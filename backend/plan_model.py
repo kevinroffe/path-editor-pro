@@ -10,9 +10,12 @@ from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import nearest_points, polylabel, unary_union
 
 import qbiq_extractor as qe
+from qbiq_scene3d import component_footprint
 
 log = logging.getLogger(__name__)
 
+WALKABLE_MIN_M2 = 8.0
+FURNITURE_CLEARANCE_M = 0.35
 STOP_OFFSET_M = 0.6
 FRONT_TOL_M = 0.5
 DEFAULT_DWELL_S = 1.5
@@ -52,6 +55,7 @@ class PlanModel:
     entrance: tuple | None
     units_to_metres: float
     enscape_offset: tuple | None = None  # metres added to (x·u, y_display·u) to land on qbiq's Revit model
+    walkable: Polygon | MultiPolygon | None = None  # corridor plus open areas clear of furniture; routes use this
 
 
 # qbiq's Revit models put the floor outline's (max x, min y) corner 2 m / 1.7 m from the origin
@@ -161,6 +165,29 @@ def _unique_ids(rooms: list) -> list:
     return out
 
 
+def _parts(geom) -> list:
+    return list(geom.geoms) if hasattr(geom, "geoms") else [geom]
+
+
+def _furniture(data: dict) -> list:
+    """Footprints of every shown stencil component."""
+    return [fp for raw in data.get("rooms") or [] if isinstance(raw, dict)
+            for comp in raw.get("stencil_geometry_components") or [] if isinstance(comp, dict)
+            if (fp := component_footprint(comp)) is not None]
+
+
+def _walkable(corridor, rooms: list, furniture: list, u: float):
+    """Corridor plus the furniture-free floor of open front-of-house areas that connects to it."""
+    open_floor = [r.polygon for r in rooms
+                  if r.is_open and r.space_type not in BACK_OF_HOUSE and r.area_m2 >= WALKABLE_MIN_M2]
+    if not open_floor:
+        return corridor
+    blocked = unary_union([f.buffer(FURNITURE_CLEARANCE_M / u) for f in furniture])
+    seam = 0.02 / u                                # closes hairline gaps between the corridor and room outlines
+    merged = unary_union([corridor, unary_union(open_floor).difference(blocked)]).buffer(seam).buffer(-seam)
+    return unary_union([p for p in _parts(merged) if p.intersection(corridor).area > 0])
+
+
 def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     """Semantic plan model from a design JSON; None when it has no circulation."""
     if (corridor := _corridor(data)) is None:
@@ -176,7 +203,8 @@ def build_plan_model(data: dict, units_to_metres: float) -> PlanModel | None:
     columns = [pl for g in qe._wkt_many(nfp.get("columns")) for pl in qe._polylines(g)]
     fill = qe._wkt(nfp.get("fill"))
     offset = enscape_offset(fill.bounds, u) if fill is not None and not fill.is_empty else None
-    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u, offset)
+    walkable = _walkable(corridor, rooms, _furniture(data), u)
+    return PlanModel(corridor, columns, tuple(_unique_ids(rooms)), entrance, u, offset, walkable)
 
 
 def snap_to_corridor(plan: PlanModel, pt) -> tuple:
@@ -194,7 +222,7 @@ def flipped(plan: PlanModel) -> PlanModel:
     rooms = tuple(replace(r, polygon=flip(r.polygon), label_point=_fy(r.label_point),
                           stop=replace(r.stop, point=_fy(r.stop.point), look_at=_fy(r.stop.look_at)))
                   for r in plan.rooms)
-    return replace(plan, corridor=flip(plan.corridor),
+    return replace(plan, corridor=flip(plan.corridor), walkable=flip(plan.walkable),
                    columns=[[_fy(p) for p in pl] for pl in plan.columns], rooms=rooms,
                    entrance=_fy(plan.entrance) if plan.entrance else None)
 

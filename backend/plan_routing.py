@@ -10,7 +10,7 @@ from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 from shapely.prepared import prep
 
-from corridor_graph import build_corridor_graph, build_walkable_polygon, compute_bounds, route_multi
+from corridor_graph import _project_point_onto_segment, build_corridor_graph, build_walkable_polygon, compute_bounds, route_multi
 from plan_model import room_at
 from qbiq_extractor import _to_segments
 from route_processor import _centripetal_cr, smooth_preview
@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 _COVER_TOL = 1e-6
 _VIDEO_SAMPLES = 20
 _STOP_TOL = 1.0
+CENTRE_LINE_MAX_M = 2.0
 UNCONTAINED_WARNING = "The smoothed path may cut slightly outside the corridor in places - try less smoothing"
 
 
@@ -32,8 +33,8 @@ def _polys(geom) -> list:
 
 
 def corridor_graph_for(plan, clearance_m: float):
-    """(walkable polygon, corridor graph) for the corridor shrunk by clearance."""
-    polys = _polys(plan.corridor)
+    """(walkable polygon, route graph) for the plan's walkable area shrunk by clearance."""
+    polys = _polys(plan.walkable)
     exteriors = [list(p.exterior.coords) for p in polys]
     holes = [list(r.coords) for p in polys for r in p.interiors]
     walls = _to_segments(exteriors + holes)
@@ -78,7 +79,7 @@ def snap_points(plan, points) -> tuple:
             snapped.append(tuple(room.stop.point))
             metas.append(stop_meta(room))
         else:
-            q = nearest_points(plan.corridor, Point(p))[0]
+            q = nearest_points(plan.walkable, Point(p))[0]
             snapped.append((q.x, q.y))
             metas.append(None)
     return snapped, metas
@@ -165,6 +166,19 @@ def _attach(waypoints: list, snapped: list, metas: list) -> list:
     return stops
 
 
+def _centre_line_point(graph, pt, max_units: float) -> tuple:
+    """The nearest point of the route graph when within max_units, else pt."""
+    proj, dist = min((_project_point_onto_segment(pt, a, b) for a, b in graph.edges), key=lambda pd: pd[1])
+    return tuple(proj) if dist <= max_units else tuple(pt)
+
+
+def _walk_points(plan, graph, snapped: list, metas: list) -> list:
+    """Closed rooms' door stops moved onto the walking line, so the route glances at them instead of zig-zagging."""
+    closed = {r.id for r in plan.rooms if not r.is_open}
+    reach = CENTRE_LINE_MAX_M / plan.units_to_metres
+    return [_centre_line_point(graph, p, reach) if m and m.get("room_id") in closed else p for p, m in zip(snapped, metas)]
+
+
 def _blocked_leg(snapped: list, get_graph) -> str:
     """Message naming the first consecutive pair the corridor graph cannot connect."""
     polygon, graph = get_graph(0.05)
@@ -196,8 +210,9 @@ def route_on_plan(plan, points, get_graph, clearance_m: float = 0.2, smoothing: 
         polygon, graph = get_graph(round(c, 3))
         if graph is None:
             continue
-        if wps := route_multi(snapped, graph, polygon, max_pts=max_pts):
-            wps, contained = contain_spline(_pin_stops(_pin_ends(wps, snapped), snapped, metas), plan.corridor, smoothing)
-            out = {"waypoints": wps, "stops": _attach(wps, snapped, metas)}
+        pts = _walk_points(plan, graph, snapped, metas)
+        if wps := route_multi(pts, graph, polygon, max_pts=max_pts):
+            wps, contained = contain_spline(_pin_stops(_pin_ends(wps, pts), pts, metas), plan.walkable, smoothing)
+            out = {"waypoints": wps, "stops": _attach(wps, pts, metas)}
             return out if contained else {**out, "warning": UNCONTAINED_WARNING}
     raise CorridorBlocked(_blocked_leg(snapped, get_graph))

@@ -97,6 +97,7 @@ def test_suggest_duration():
     assert cs.suggest_duration_s(95) == 100            # designers walk 0.95 m/s (312-path median)
     assert cs.suggest_duration_s(5) == 10
     assert cs.suggest_duration_s(95, n_pans=2) == 110
+    assert cs.suggest_duration_s(95, look_s=12) == 115      # 82 m + glances = the designers' 104 s median
 
 
 def test_slow_designer_walk_does_not_warn():

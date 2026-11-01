@@ -190,3 +190,32 @@ def test_reversal_limit_never_reaches_across_a_cut():
     assert plan.keyframes[i].yaw >= 30          # segment A still ends looking into room A
     after = [k for k in plan.keyframes[i + 1:] if abs(k.x - 9200) <= 250]
     assert min(k.yaw for k in after) <= -30     # segment B still looks into room B
+
+
+def test_close_looks_to_one_side_sweep_smoothly():
+    # a slightly wobbly walk past three offices on the left, 4 m apart: one smooth sweep, no head wobble
+    offices = [(x, (-25, 25, -25)[i], 0, "", _stop(x + 100, 300 + 60 * i, dwell=1.5))
+               for i, x in enumerate((2000, 2400, 2800))]
+    wps = [(0, 0, 0, "", None), (1000, 25, 0, "", None), *offices, (3800, 25, 0, "", None), (5000, 0, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(50))
+    run = [k.yaw for k in plan.keyframes if 2000 <= k.x <= 2800]
+    steps = [b - a for a, b in zip(run, run[1:]) if abs(b - a) > 3]
+    assert min(run) >= 20 and all(x * y > 0 for x, y in zip(steps, steps[1:])), run
+
+
+def test_far_apart_looks_return_to_the_walk_direction():
+    wps = [(0, 0, 0, "", None), (1000, 0, 0, "", _stop(1000, 300, dwell=1.5)),
+           (4000, 0, 0, "", _stop(4000, 300, dwell=1.5)), (5000, 0, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(50))
+    assert abs(min(plan.keyframes, key=lambda k: abs(k.x - 2500)).yaw) <= 10
+
+
+@pytest.mark.parametrize("end", [(3400, 3000), (0, 150)], ids=["turn", "uturn"])
+def test_look_held_into_a_turn_the_same_way(end):
+    # look left at a room, then the walk turns left 4 m later: keep looking left until the walk catches up
+    wps = [(0, 0, 0, "", None), (3000, 0, 0, "", _stop(3000, 400, dwell=2.0)), (3400, 0, 0, "", None),
+           (3400, 150, 0, "", None), (*end, 0, "", None)]
+    plan = _plan(wps, cs.suggest_duration_s(64))
+    yaws = [k.yaw for k in plan.keyframes if k.t_s >= min(plan.keyframes, key=lambda k: abs(k.x - 3000)).t_s]
+    assert all(b - a >= -3 for a, b in zip(yaws, yaws[1:])), yaws
+

@@ -118,3 +118,10 @@ def test_tour_room_ids_falsy_unknown_raises(plan, get_graph, bad):
     polygon, graph = get_graph(0.2)
     with pytest.raises(ValueError, match="unknown room id"):
         pt.build_tour(plan, graph, polygon, get_graph, room_ids=[bad])
+
+
+def test_suggested_tour_is_a_room_ids_tour_of_the_suggestion(plan, get_graph):
+    polygon, graph = get_graph(0.2)
+    tour = pt.suggest_tour(plan, graph, polygon, get_graph)
+    assert tour["room_ids"] and [s["room_id"] for s in tour["stops"]] == tour["room_ids"]
+    assert tour["waypoints"][0] == pytest.approx(list(plan.entrance), abs=1.0)

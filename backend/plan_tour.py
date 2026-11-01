@@ -10,6 +10,7 @@ from camera_style import suggest_duration_s
 from corridor_graph import _snap_to_nearest_edge
 from plan_model import BACK_OF_HOUSE, snap_to_walkable
 from plan_routing import route_on_plan, stop_meta
+from plan_suggest import suggest_room_ids
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +83,20 @@ def _visit_by_type(graph, start, rooms: list) -> tuple[list, list]:
             [r.space_type or r.id for j, r in enumerate(rooms, 1) if j not in order])
 
 
+def _start(plan, entrance, rooms: list) -> tuple:
+    """The chosen entrance snapped onto the walkable area, else the plan's entrance, else the first room's stop."""
+    return snap_to_walkable(plan, entrance) if entrance is not None else plan.entrance or rooms[0].stop.point
+
+
+def suggest_tour(plan, graph, polygon, get_graph, clearance_m: float = 0.2, smoothing: float = 1.0,
+                 entrance=None) -> dict:
+    """A designer-like tour: the suggested rooms, toured in their route order, plus their ids."""
+    ids = suggest_room_ids(plan, graph, polygon, _start(plan, entrance, list(plan.rooms)))
+    tour = build_tour(plan, graph, polygon, get_graph, clearance_m=clearance_m, smoothing=smoothing,
+                      room_ids=ids, entrance=entrance)
+    return {**tour, "room_ids": ids}
+
+
 def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: float = 0.2,
                smoothing: float = 1.0, room_ids: list | None = None, entrance=None) -> dict:
     """Tour from the entrance (or a chosen start, snapped into the corridor) through the chosen rooms:
@@ -92,7 +107,7 @@ def build_tour(plan, graph, polygon, get_graph, room_types=None, clearance_m: fl
         types = set(room_types) if room_types else {r.space_type for r in plan.rooms} - BACK_OF_HOUSE
         if not (rooms := [r for r in plan.rooms if r.space_type in types]):
             raise ValueError("no rooms of the selected types")
-    start = snap_to_walkable(plan, entrance) if entrance is not None else plan.entrance or rooms[0].stop.point
+    start = _start(plan, entrance, rooms)
     visit, unreachable = (_visit_clicked if room_ids is not None else _visit_by_type)(graph, start, rooms)
     metas = [None] + [stop_meta(r) for r in visit]
     routed = route_on_plan(plan, [start] + [r.stop.point for r in visit], get_graph,

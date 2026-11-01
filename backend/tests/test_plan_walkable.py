@@ -80,3 +80,10 @@ def test_route_graph_reaches_into_open_rooms():
     _, graph = pr.corridor_graph_for(plan, 0.2)
     b = next(r for r in plan.rooms if r.id == "B").polygon.buffer(-50)
     assert any(b.covers(Point(n)) for n in graph.nodes)
+
+
+def test_gap_between_furniture_narrower_than_a_person_is_not_walked():
+    # desks along B's corridor edge leave a 1.1 m slot; minus 0.35 m clearance each side = 0.4 m < 0.6 m walk width
+    desks = [_desk(1000 + 90 * i, 610, w=90, d=40) for i in range(5)] + [_desk(1560 + 88 * i, 610, w=88, d=40) for i in range(5)]
+    w = _walk(_data(B={"stencil_geometry_components": desks}))
+    assert not w.covers(Point(1500, 900))

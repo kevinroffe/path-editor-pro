@@ -606,6 +606,16 @@ def route_multi(points: list, graph, walkable_polygon, max_pts: int = 12):
     except ValueError:
         return None
 
+    # Consecutive via-points in plain sight of each other are joined directly: a
+    # coarse skeleton can put two points a few metres apart on different
+    # branches that only meet far away. Sight is checked between the points the
+    # path will actually hold (the literal click when walkable, see below).
+    clear = prep(walkable_polygon.buffer(1e-6))
+    held = [tuple(p) if walkable_polygon.covers(Point(p)) else s for p, s in zip(points, snapped)]
+    g.add_weighted_edges_from(
+        (a, b, math.dist(a, b)) for a, b, ha, hb in zip(snapped, snapped[1:], held, held[1:])
+        if a != b and clear.contains(LineString([a, b])) and clear.contains(LineString([ha, hb])))
+
     combined = [snapped[0]]
     boundary_indices = [0]
     for i in range(len(snapped) - 1):

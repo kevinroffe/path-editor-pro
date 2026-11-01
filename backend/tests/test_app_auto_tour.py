@@ -83,3 +83,11 @@ def test_auto_tour_bad_entrance_is_400(client, bad):
     r = client.post("/api/auto-tour", json={"room_ids": ["A"], "entrance": bad})
     assert r.status_code == 400
     assert r.get_json()["error"] == "entrance must be [x, y]"
+
+
+def test_suggested_tour_returns_its_rooms_in_route_order(client):
+    _upload(client)
+    body = client.post("/api/auto-tour", json={"suggest": True}).get_json()
+    assert body["room_ids"] and "C" not in body["room_ids"]                  # never the storage room
+    assert [s["room_id"] for s in body["stops"]] == body["room_ids"]
+    assert body["suggested_duration_s"] >= 10

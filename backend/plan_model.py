@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 WALKABLE_MIN_M2 = 8.0
 INSIDE_STOP_MIN_M2 = 4.0
 FURNITURE_CLEARANCE_M = 0.35
+WALK_WIDTH_M = 0.6           # free floor narrower than a person is not walked
 STOP_OFFSET_M = 0.6
 FRONT_TOL_M = 0.5
 DEFAULT_DWELL_S = 1.5
@@ -189,7 +190,9 @@ def _walkable(corridor, rooms: list, furniture: list, u: float):
         return corridor
     blocked = unary_union([f.buffer(FURNITURE_CLEARANCE_M / u) for f in furniture])
     seam = 0.02 / u                                # closes hairline gaps between the corridor and room outlines
-    merged = unary_union([corridor, unary_union(open_floor).difference(blocked)]).buffer(seam).buffer(-seam)
+    half = WALK_WIDTH_M / 2 / u
+    free = unary_union(open_floor).difference(blocked).buffer(-half).buffer(half)
+    merged = unary_union([corridor, free]).buffer(seam).buffer(-seam)
     return unary_union([p for p in _parts(merged) if p.intersection(corridor).area > 0])
 
 

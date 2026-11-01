@@ -41,7 +41,7 @@ from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import flipped, plan_to_json
 from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
-from plan_tour import build_tour
+from plan_tour import build_tour, suggest_tour
 
 try:
     from dxf_extractor import extract_dxf
@@ -477,6 +477,9 @@ def auto_tour():
         polygon, graph = first_graph(get_graph, clearance_m)
         if graph is None:
             return _err("The corridor is too narrow to route at this clearance")
+        if data.get("suggest"):
+            return jsonify(suggest_tour(plan, graph, polygon, get_graph, clearance_m=clearance_m,
+                                        smoothing=smoothing, entrance=entrance))
         return jsonify(build_tour(plan, graph, polygon, get_graph, room_types=data.get("room_types"),
                                   room_ids=room_ids, entrance=entrance,
                                   clearance_m=clearance_m, smoothing=smoothing))

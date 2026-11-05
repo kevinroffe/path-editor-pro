@@ -23,6 +23,8 @@ namespace Qbiq.PathTool.Addin
         readonly Task<EngineEndpoint> engine;
         readonly ExternalEvent readEvent;
         readonly ReadModelEvent handler;
+        readonly CameraEvent camera;
+        readonly ExternalEvent cameraEvent;
         readonly WebView2 web = new WebView2();
         readonly TextBlock status = new TextBlock
         {
@@ -32,8 +34,10 @@ namespace Qbiq.PathTool.Addin
         EngineEndpoint endpoint;
         bool firstLoadRequested;
 
-        public PathToolWindow(IntPtr revitWindow, Task<EngineEndpoint> engine, ExternalEvent readEvent, ReadModelEvent handler)
+        public PathToolWindow(IntPtr revitWindow, Task<EngineEndpoint> engine, ExternalEvent readEvent, ReadModelEvent handler, ExternalEvent cameraEvent, CameraEvent camera)
         {
+            this.cameraEvent = cameraEvent;
+            this.camera = camera;
             this.engine = engine;
             this.readEvent = readEvent;
             this.handler = handler;
@@ -47,6 +51,7 @@ namespace Qbiq.PathTool.Addin
             Content = grid;
             new WindowInteropHelper(this) { Owner = revitWindow };   // floats above Revit, closes with it
             handler.Done = OnModelRead;
+            camera.Failed = OnCameraFailed;
             Loaded += async (s, e) => await InitAsync();
         }
 
@@ -74,6 +79,12 @@ namespace Qbiq.PathTool.Addin
             }
             web.CoreWebView2.WebMessageReceived += (s, e) =>
             {
+                if (CameraMessage.TryParse(e.WebMessageAsJson, out var cameraMessage))
+                {
+                    camera.Set(cameraMessage);
+                    cameraEvent.Raise();                                  // the latest pose wins: raises that pile up become one move
+                    return;
+                }
                 ReadRequest request;
                 try { request = ReadRequest.Parse(e.WebMessageAsJson); }
                 catch (ArgumentException) { return; }                // not one of our messages: ignore it
@@ -92,6 +103,13 @@ namespace Qbiq.PathTool.Addin
         void Post(string json)
         {
             if (web.CoreWebView2 != null) web.CoreWebView2.PostWebMessageAsJson(json);
+        }
+
+        /// <summary>On Revit's thread: the camera preview could not start or stopped itself. The page turns its button off.</summary>
+        void OnCameraFailed(string message)
+        {
+            if (Session.Window != this) return;
+            Post(new JObject { ["type"] = "cameraError", ["message"] = message }.ToString(Newtonsoft.Json.Formatting.None));
         }
 
         void RequestRead(ReadRequest request)
@@ -161,6 +179,9 @@ namespace Qbiq.PathTool.Addin
         protected override void OnClosed(EventArgs e)
         {
             Session.Window = null;
+            camera.Failed = null;
+            camera.Set(new CameraMessage { Type = "cameraStop" });        // put the Revit view back the way it was
+            cameraEvent.Raise();
             web.Dispose();
             base.OnClosed(e);
         }

@@ -62,6 +62,8 @@
     '<button type="button" class="rv-btn" id="rv-area">Change area</button>' +
     '<span class="rv-chip" id="rv-sync">Synced with Revit ✓</span>' +
     '<button type="button" class="rv-btn" id="rv-json">Load JSON instead</button>' +
+    '<button type="button" class="rv-btn" id="rv-cam" aria-pressed="false" hidden title="Experimental: moves the active Revit 3D view along the path while you play">Revit camera</button>' +
+    '<span class="rv-chip" id="rv-cam-note" hidden></span>' +
     '<button type="button" class="rv-btn" id="rv-refresh">Refresh model</button>' +
     '<button type="button" class="rv-btn primary" id="rv-save" disabled>Save path (XML)</button>');
   header.insertAdjacentHTML('afterend', '<div class="rv-banner" id="rv-banner" hidden></div>');
@@ -407,15 +409,47 @@
     const g = hereLayer();
     if (!g) return;
     if (!p3.frames || p3.frames.length < 2 || !state.bounds) { g.innerHTML = ''; return; }
-    const n = p3.frames.length, raw = Math.min(1, Math.max(0, t)) * (n - 1);
-    const i = Math.min(Math.floor(raw), n - 2), k = raw - i, a = p3.frames[i], b = p3.frames[i + 1];
-    const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k, yaw = lerpYaw(a.yaw, b.yaw, k);
+    const here = frameAt(p3.frames, t), x = here.x, y = here.y, yaw = here.yaw;
     const r = circleR() * 1.3, [apex, c1, c2] = viewCone(x, y, yaw, cam.fov, r * 6);
     g.innerHTML =
       `<polygon points="${apex} ${c1} ${c2}" fill="#d64545" fill-opacity=".22" stroke="#d64545" stroke-opacity=".6" stroke-width="${r * 0.12}"/>` +
       `<circle cx="${x}" cy="${y}" r="${r}" fill="#d64545" stroke="#fff" stroke-width="${r * 0.3}"/>`;
   }
   wrap('updateCameraFromT', drawHere);
+
+  /* ── EXPERIMENTAL Revit camera: the active Revit 3D view follows the play head (about 15 poses a second) ── */
+  const FEET_M = 0.3048;
+  let camOn = false;
+  const camThrottle = makeThrottle(66, () => performance.now());
+  let camTimer = null;
+  const sendCamera = pose => { if (pose) Host.postToHost(pose); };
+  function setCamera(on, note) {
+    camOn = on;
+    el('rv-cam').classList.toggle('primary', on);
+    el('rv-cam').setAttribute('aria-pressed', String(on));
+    const n = el('rv-cam-note');
+    n.textContent = note || '';
+    n.hidden = !note;
+    if (on && !camTimer) camTimer = setInterval(() => sendCamera(camThrottle.take()), 33);   // sends the held pose once its time comes
+    if (!on && camTimer) { clearInterval(camTimer); camTimer = null; }
+  }
+  function followInRevit(t) {
+    if (!camOn || !p3.frames || !p3.frames.length) return;
+    const f = frameAt(p3.frames, t);
+    const u = (state.unitsToMetres || 1) / FEET_M;                  // plan units -> Revit feet
+    sendCamera(camThrottle.push(cameraMessage({ x: f.x * u, y: f.y * u, yaw: f.yaw }, levelElevationM() / FEET_M)));
+  }
+  wrap('updateCameraFromT', followInRevit);
+  if (inRevit()) {
+    el('rv-cam').hidden = false;
+    el('rv-cam').onclick = () => {
+      if (camOn) { Host.postToHost({ type: 'cameraStop' }); setCamera(false); return; }
+      Host.postToHost({ type: 'cameraStart' });
+      setCamera(true, 'Revit camera on: press play');
+    };
+    // Revit could not start or keep going (no 3D view, locked, isometric, ...): switch it off and say why
+    Host.handlers.cameraError = msg => setCamera(false, String(msg.message || 'The Revit camera stopped.'));
+  }
 
   /* ── selection shared with the page's own plan selection ── */
   sel.subscribe(id => {

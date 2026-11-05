@@ -17,7 +17,8 @@ namespace Qbiq.PathTool.Addin
             {
                 var engine = Session.EnsureEngineAsync();      // not awaited: the window opens now and shows "starting"
                 var handler = new ReadModelEvent();
-                var window = new PathToolWindow(data.Application.MainWindowHandle, engine, ExternalEvent.Create(handler), handler);
+                var camera = new CameraEvent();
+                var window = new PathToolWindow(data.Application.MainWindowHandle, engine, ExternalEvent.Create(handler), handler, ExternalEvent.Create(camera), camera);
                 Session.Window = window;
                 window.Show();
                 return Result.Succeeded;

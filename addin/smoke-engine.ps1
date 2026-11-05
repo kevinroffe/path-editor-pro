@@ -31,6 +31,15 @@ try {
         $body = [Text.Encoding]::UTF8.GetBytes((Get-Content $fixture -Raw -Encoding UTF8))
         $r = Invoke-RestMethod "$base/api/upload-revit" -Method Post -Headers $h -ContentType 'application/json; charset=utf-8' -Body $body
         Check 'Revit level loads as source revit with a plan' ($r.source -eq 'revit' -and $null -ne $r.plan)
+
+        # What the window loads first: the levels, the 3D view's name, the default frame and the overview flag come back.
+        $text = Get-Content $fixture -Raw -Encoding UTF8
+        $extra = ',"levels":["Level 1","Level 2"],"current_level":"Level 1","view_name":"{3D}","overview":true,"crop_default":{"xmin":0,"ymin":0,"xmax":60,"ymax":40}}'
+        $overview = Invoke-RestMethod "$base/api/upload-revit" -Method Post -Headers $h -ContentType 'application/json; charset=utf-8' `
+            -Body ([Text.Encoding]::UTF8.GetBytes($text.Substring(0, $text.LastIndexOf('}')) + $extra))
+        Check 'overview payload echoes levels, view name, frame' ($overview.levels.Count -eq 2 -and $overview.view_name -eq '{3D}' -and $overview.overview -and $overview.crop_default.xmax -eq 60)
+        Check '/api/revit/current serves the last load' ((Invoke-RestMethod "$base/api/revit/current" -Headers $h).overview -eq $true)
+        $null = Invoke-RestMethod "$base/api/upload-revit" -Method Post -Headers $h -ContentType 'application/json; charset=utf-8' -Body $body     # back to the full level
         $route = Invoke-RestMethod "$base/api/autopath" -Method Post -Headers $h -ContentType 'application/json' -Body '{"start":[5,-20],"end":[55,-20]}'
         Check 'Auto-path returns a route' ($route.waypoints.Count -ge 2)
         $xml = (Invoke-WebRequest "$base/api/export/xml" -Method Post -Headers $h -ContentType 'application/json' -UseBasicParsing `

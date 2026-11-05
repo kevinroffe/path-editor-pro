@@ -40,13 +40,10 @@
     else loadCurrent(true);
   };
 
-  function showIssues(issues) {
-    const banner = el('rv-banner');
-    if (!issues || !issues.length) { banner.hidden = true; return; }
-    const counts = issues.reduce((m, i) => ((m[i.problem] = (m[i.problem] || 0) + 1), m), {});
-    const parts = Object.entries(counts).map(([k, n]) => `${n} ${k.replace('_', ' ')}`).join(', ');
-    banner.innerHTML = `<span><b>${issues.length} Revit room${issues.length > 1 ? 's' : ''} look broken</b> (${esc(parts)}). ` +
-      'Auto-path still works, but tours may miss them.</span><button type="button" class="rv-btn" id="rv-json2">Load JSON instead</button>';
+  function showIssues(issues, notices) {
+    const banner = el('rv-banner'), message = bannerMessage(issues, notices);
+    if (!message) { banner.hidden = true; return; }
+    banner.innerHTML = `<span>${esc(message)}</span><button type="button" class="rv-btn" id="rv-json2">Load JSON instead</button>`;
     banner.hidden = false;
     el('rv-json2').onclick = () => el('file-folder-input').click();
   }
@@ -71,20 +68,24 @@
     const r = await fetch(`${API}/api/revit/current`);
     if (!r.ok) { toast('No Revit model has been loaded yet', 'err'); return; }
     const data = await r.json();
-    const kept = refresh ? state.waypoints : [];
+    const snap = refresh ? captureSession(state) : null;     // applyFloorPlan resets the route, tour picks, entrance and step
     applyFloorPlan(data);
     fitted = false;
-    if (kept.length) {
-      state.waypoints = kept;
-      await flagInvalid();
-      renderRoute(); updateWpList();
+    if (snap) {
+      const step = restoreSession(state, snap);
+      if (step !== state.step) goStep(step);
+      if (state.waypoints.length) {
+        await flagInvalid();
+        renderRoute(); updateWpList();
+      }
     }
-    showIssues(data.room_issues);
+    showIssues(data.room_issues, data.level_notices);
     ensure3D();
   }
 
-  Host.handlers.modelLoaded = () => loadCurrent(false);
-  Host.handlers.modelRefreshed = () => loadCurrent(true);
+  Host.handlers.modelReading = () => showLoading('Reading the Revit model…');
+  Host.handlers.modelLoaded = () => loadCurrent(false).finally(hideLoading);
+  Host.handlers.modelRefreshed = () => loadCurrent(true).finally(hideLoading);
 
   if (new URLSearchParams(window.location.search).get('demo') === '1') {
     loadDemo().then(() => { ensure3D(); });            // development without Revit: the demo plan stands in for a model
@@ -104,8 +105,9 @@
   function fit() {
     const f = planFrame();
     const r = Math.max(f.hw, f.hd);
-    overview.position.set(f.cx, r * 1.5, f.cz + r * 1.3);
-    controls.target.set(f.cx, 0, f.cz);
+    const base = levelElevationM();                    // look at the loaded level, not at storey 0
+    overview.position.set(f.cx, base + r * 1.5, f.cz + r * 1.3);
+    controls.target.set(f.cx, base, f.cz);
     controls.update();
     fitted = true;
   }
@@ -131,13 +133,13 @@
     group = new THREE.Group();
     const segs = (state.splineSegments || []).filter(s => s.length > 1);
     const line = (segs.length ? segs.flat() : wps.map(w => [w.x, w.y]));
-    const pts = routeToWorld(line, U(), EYE).map(toThree);
+    const pts = routeToWorld(line, U(), EYE, levelElevationM()).map(toThree);
     if (pts.length > 1) {
       const curve = new THREE.CatmullRomCurve3(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 1e-6), false, 'centripetal');
       group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(600, pts.length * 2), 0.07, 5, false),
         new THREE.MeshBasicMaterial({ color: 0x2f6bff })));
     }
-    const world = routeToWorld(wps.map(w => [w.x, w.y]), U(), EYE);
+    const world = routeToWorld(wps.map(w => [w.x, w.y]), U(), EYE, levelElevationM());
     const selected = state.selectedWp;
     world.forEach((wp, i) => {
       const colour = i === selected ? 0xd99000 : wps[i].invalid ? 0xf0b429 : i === 0 ? 0x31a354 : i === wps.length - 1 ? 0xd64545 : 0x2f6bff;
@@ -213,7 +215,7 @@
     }, true);
     canvas.addEventListener('pointermove', e => {
       if (dragging == null) return;
-      const r = ray(e), hit = floorHit([r.origin.x, -r.origin.z, r.origin.y], [r.direction.x, -r.direction.z, r.direction.y], EYE);
+      const r = ray(e), hit = floorHit([r.origin.x, -r.origin.z, r.origin.y], [r.direction.x, -r.direction.z, r.direction.y], EYE + levelElevationM());
       if (!hit) return;
       const w = state.waypoints[dragging];
       w.x = hit[0] / U(); w.y = -hit[1] / U();

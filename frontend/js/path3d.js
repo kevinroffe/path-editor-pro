@@ -5,6 +5,13 @@
 const RAD = Math.PI / 180;
 const FRAME_ASPECT = 16 / 9;
 
+/* Height of the loaded level in metres. Revit meshes carry absolute model Z, so everything placed on the level
+   (route, camera, floor-drag plane, XML) sits this much above storey 0; other sources have no such offset. */
+function levelElevationMetres(source, elevation, unitsToMetres) {
+  if (source !== 'revit' || !Number.isFinite(elevation)) return 0;
+  return elevation * unitsToMetres;
+}
+
 /* Route waypoints ([x, y, ...] in display units) as world points at eye height above the level's elevation. */
 function routeToWorld(waypoints, unitsToMetres, eyeHeightM, elevationM = 0) {
   return waypoints.map(w => [w[0] * unitsToMetres, -w[1] * unitsToMetres, elevationM + eyeHeightM]);
@@ -57,4 +64,4 @@ function floorHit(origin, dir, floorZ) {
   return s < 0 ? null : [origin[0] + dir[0] * s, origin[1] + dir[1] * s];
 }
 
-if (typeof module === 'object') module.exports = { routeToWorld, coneParams, poseAt, floorHit, yawDirection };
+if (typeof module === 'object') module.exports = { routeToWorld, coneParams, poseAt, floorHit, yawDirection, levelElevationMetres };

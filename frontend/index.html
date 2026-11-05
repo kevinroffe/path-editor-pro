@@ -33,6 +33,7 @@
 <script src="frontend/js/selection.js"></script>
 <script src="frontend/js/path3d.js"></script>
 <script src="frontend/js/tracks.js"></script>
+<script src="frontend/js/revit-session.js"></script>
 <style>
 @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
   src: url('frontend/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
@@ -2453,6 +2454,7 @@ function applyFloorPlan(data) {
   state.bounds = data.bounds; state.level = data.level;
   state.unitsToMetres = data.units_to_metres ?? 1.0;
   state.source = data.source ?? 'demo';
+  state.elevation = data.elevation;
   // Preserve IFC meshes already loaded — DXF has no meshes so don't wipe them.
   // Only DXF pairs with an IFC; standalone sources (qbiq, demo) clear the
   // backend's IFC caches, so drop the stale model here too.
@@ -2562,6 +2564,7 @@ async function exportRoute(fmt) {
     level: state.level, duration: cam.dur, start_pan: cam.startPan,
     smoothing: cam.smo, fov: cam.fov, fps: 30,
     uturn_radius: cam.utr, units_to_metres: state.unitsToMetres,
+    ...(levelElevationM() ? { elevation_m: levelElevationM() } : {}),
     ...(fmt === 'json' ? { video: state.video, ...(state.entrance ? { entrance: state.entrance } : {}) } : {}),
   };
   showLoading('Building your path…');
@@ -3000,7 +3003,7 @@ function build3DGeometry() {
     new THREE.MeshStandardMaterial({ color: P3D_GROUND, roughness: 1.0 })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(frame.cx, -0.01, frame.cz);
+  ground.position.set(frame.cx, -0.01 + levelElevationM(), frame.cz);
   ground.receiveShadow = true;
   addBuilt(ground);
 
@@ -3083,7 +3086,7 @@ function updateCameraFromT(t) {
   const pit  = f0.pitch + (f1.pitch - f0.pitch) * blend;
   const fz   = f0.z + (f1.z - f0.z) * blend;   // eye height in metres (house style)
 
-  threeCam.position.set(fx * u, fz, fy * u);
+  threeCam.position.set(fx * u, fz + levelElevationM(), fy * u);
 
   const yr = THREE.MathUtils.degToRad(yaw);
   const pr = THREE.MathUtils.degToRad(pit);
@@ -3114,6 +3117,8 @@ const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w
 /* Step 4 plays title cards, fades and music around the walk; step 3 plays the walk alone. */
 /* Step 4 shows the full timeline (intro, fades, outro); the Revit window shows it at every step. */
 const fullTimeline = () => state.step === 4 || hostMode(window.location.search) === 'revit';
+/* Metres the loaded level sits above storey 0 (Revit meshes carry absolute Z); 0 for every other source. */
+const levelElevationM = () => levelElevationMetres(state.source, state.elevation, state.unitsToMetres);
 
 function rebuildTimeline() {
   if (!p3.frames.length) return;

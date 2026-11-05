@@ -46,3 +46,17 @@ test('floorHit finds the floor point of a downward ray, and null otherwise', () 
   assert.equal(P.floorHit([0, 0, 10], [1, 0, 1], 0), null);     // pointing up
   assert.equal(P.floorHit([0, 0, 10], [1, 0, 0], 0), null);     // parallel to the floor
 });
+
+test('levelElevationMetres is the Revit level height in metres, and 0 for any other source or bad value', () => {
+  near(P.levelElevationMetres('revit', 13, 0.3048), 3.9624);
+  assert.equal(P.levelElevationMetres('qbiq', 13, 0.3048), 0);
+  assert.equal(P.levelElevationMetres('revit', undefined, 0.3048), 0);
+  assert.equal(P.levelElevationMetres('revit', NaN, 0.3048), 0);
+  assert.equal(P.levelElevationMetres('revit', 0, 0.3048), 0);
+});
+
+test('the route and the drag plane both sit at level elevation plus eye height', () => {
+  const elev = P.levelElevationMetres('revit', 13, 0.3048);
+  near(P.routeToWorld([[10, -20]], 0.3048, 1.57, elev)[0][2], 3.9624 + 1.57);
+  nearAll(P.floorHit([0, 0, 20], [1, 0, -1], elev + 1.57), [20 - (elev + 1.57), 0]);
+});

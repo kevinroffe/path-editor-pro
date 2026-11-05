@@ -15,6 +15,18 @@ namespace Qbiq.PathTool.Addin.Extraction
         public const double FeetToMetres = 0.3048;
         const double DefaultOpeningWidthFt = 3.0;
 
+        // Mesh types are the names the 3D view colours by. Roofs are left out in version one: from above they hide the plan.
+        static readonly (BuiltInCategory, string)[] MeshCategories =
+        {
+            (BuiltInCategory.OST_Walls, "wall"), (BuiltInCategory.OST_Floors, "floor"), (BuiltInCategory.OST_Ceilings, "ceiling"),
+            (BuiltInCategory.OST_Doors, "door"), (BuiltInCategory.OST_Windows, "window"),
+            (BuiltInCategory.OST_Columns, "column"), (BuiltInCategory.OST_StructuralColumns, "column"),
+            (BuiltInCategory.OST_StructuralFraming, "beam"), (BuiltInCategory.OST_Stairs, "stair"),
+            (BuiltInCategory.OST_Furniture, "furniture"), (BuiltInCategory.OST_FurnitureSystems, "furniture"),
+            (BuiltInCategory.OST_Casework, "furniture"), (BuiltInCategory.OST_LightingFixtures, "light"),
+            (BuiltInCategory.OST_GenericModel, "other"), (BuiltInCategory.OST_Railings, "other"),
+        };
+
         readonly Document doc;
 
         public RevitModelReader(Document doc) { this.doc = doc; }
@@ -55,6 +67,11 @@ namespace Qbiq.PathTool.Addin.Extraction
             foreach (var room in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
                          .WhereElementIsNotElementType().OfType<Room>().Where(r => r.LevelId == level.Id && InScope(r, phase)))
                 payload.Rooms.Add(ReadRoom(room, options));
+
+            var meshes = new MeshReader(doc);
+            foreach (var (category, type) in MeshCategories)
+                foreach (var element in OnLevel(category, level, phase)) meshes.AddElement(element, type);
+            payload.Meshes = meshes.Build();
 
             return payload;
         }

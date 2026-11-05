@@ -434,7 +434,13 @@
     if (!on && camTimer) { clearInterval(camTimer); camTimer = null; }
   }
   function followInRevit(t) {
-    if (!camOn || !p3.frames || !p3.frames.length) return;
+    if (!camOn) return;
+    if (!cameraAllowed(state.source, inRevit())) {                  // a JSON plan was loaded: it has no Revit coordinates
+      Host.postToHost({ type: 'cameraStop' });
+      setCamera(false, 'The Revit camera needs a model read from Revit.');
+      return;
+    }
+    if (!p3.frames || !p3.frames.length) return;
     const f = frameAt(p3.frames, t);
     const u = (state.unitsToMetres || 1) / FEET_M;                  // plan units -> Revit feet
     sendCamera(camThrottle.push(cameraMessage({ x: f.x * u, y: f.y * u, yaw: f.yaw }, levelElevationM() / FEET_M)));
@@ -444,7 +450,9 @@
     el('rv-cam').hidden = false;
     el('rv-cam').onclick = () => {
       if (camOn) { Host.postToHost({ type: 'cameraStop' }); setCamera(false); return; }
+      if (!cameraAllowed(state.source, inRevit())) { setCamera(false, 'The Revit camera needs a model read from Revit.'); return; }
       Host.postToHost({ type: 'cameraStart' });
+      camThrottle.reset();
       setCamera(true, 'Revit camera on: press play');
     };
     // Revit could not start or keep going (no 3D view, locked, isometric, ...): switch it off and say why

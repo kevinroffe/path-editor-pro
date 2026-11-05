@@ -51,3 +51,36 @@ test('frameAt interpolates the preview frames and clamps t', () => {
   assert.equal(R.frameAt([], 0.5), null);
   assert.equal(R.frameAt([{ x: 1, y: 2, yaw: 3 }], 0.5).x, 1);
 });
+
+test('a pose equal to the last one sent is not sent again (a paused video must not keep editing Revit)', () => {
+  let now = 0;
+  const t = R.makeThrottle(70, () => now);
+  assert.deepEqual(t.push({ x: 1, y: 2, yaw: 3, elevation: 0 }), { x: 1, y: 2, yaw: 3, elevation: 0 });
+  now = 500; assert.equal(t.push({ x: 1, y: 2, yaw: 3, elevation: 0 }), null);
+  now = 900; assert.equal(t.take(), null);
+  now = 1000; assert.deepEqual(t.push({ x: 1, y: 2, yaw: 4, elevation: 0 }), { x: 1, y: 2, yaw: 4, elevation: 0 });
+});
+
+test('a held pose that turns out equal to the last sent one is dropped', () => {
+  let now = 0;
+  const t = R.makeThrottle(70, () => now);
+  t.push({ x: 1, y: 2, yaw: 3, elevation: 0 });
+  now = 10; t.push({ x: 5, y: 5, yaw: 5, elevation: 0 });       // held
+  now = 20; t.push({ x: 1, y: 2, yaw: 3, elevation: 0 });       // back where it was: nothing to send
+  now = 200; assert.equal(t.take(), null);
+});
+
+test('reset makes the next pose go out even if it equals the last one (a new preview start)', () => {
+  let now = 0;
+  const t = R.makeThrottle(70, () => now);
+  t.push({ x: 1, y: 2, yaw: 3, elevation: 0 });
+  t.reset();
+  now = 500; assert.deepEqual(t.push({ x: 1, y: 2, yaw: 3, elevation: 0 }), { x: 1, y: 2, yaw: 3, elevation: 0 });
+});
+
+test('the Revit camera is only allowed for a model that came from Revit, inside Revit', () => {
+  assert.equal(R.cameraAllowed('revit', true), true);
+  assert.equal(R.cameraAllowed('json', true), false);
+  assert.equal(R.cameraAllowed('revit', false), false);
+  assert.equal(R.cameraAllowed(undefined, true), false);
+});

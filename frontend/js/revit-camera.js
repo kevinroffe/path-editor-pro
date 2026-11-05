@@ -3,11 +3,14 @@
 
 /* push(pose) returns the pose to send now, or null when it is held; take() returns the held (latest) pose once its time has come. */
 function makeThrottle(intervalMs, nowFn) {
-  let last = -Infinity, pending = null;
+  let last = -Infinity, pending = null, sent = null;
+  const same = (a, b) => !!a && !!b && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
   return {
+    /* A pose equal to the last one sent is never sent again: a paused video must not keep editing the Revit view. */
     push(pose) {
       const t = nowFn();
-      if (t - last >= intervalMs) { last = t; pending = null; return pose; }
+      if (same(pose, sent)) { pending = null; return null; }
+      if (t - last >= intervalMs) { last = t; pending = null; sent = pose; return pose; }
       pending = pose;
       return null;
     },
@@ -16,10 +19,19 @@ function makeThrottle(intervalMs, nowFn) {
       const t = nowFn();
       if (t - last < intervalMs) return null;
       const pose = pending;
-      pending = null; last = t;
+      pending = null;
+      if (same(pose, sent)) return null;
+      last = t; sent = pose;
       return pose;
     },
+    /* A new preview starts: the next pose goes out even if it equals the last one of the previous run. */
+    reset() { pending = null; sent = null; last = -Infinity; },
   };
+}
+
+/* The Revit camera only makes sense for a model that was read from Revit (a loaded JSON plan has no Revit coordinates). */
+function cameraAllowed(source, insideRevit) {
+  return source === 'revit' && !!insideRevit;
 }
 
 /* The message the add-in understands: plan position (feet), yaw (plan degrees) and the level's height in feet. */
@@ -37,4 +49,4 @@ function frameAt(frames, t) {
   return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, yaw: a.yaw + turn * k };
 }
 
-if (typeof module === 'object') module.exports = { makeThrottle, cameraMessage, frameAt };
+if (typeof module === 'object') module.exports = { makeThrottle, cameraMessage, frameAt, cameraAllowed };

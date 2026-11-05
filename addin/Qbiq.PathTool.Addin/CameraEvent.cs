@@ -16,49 +16,41 @@ namespace Qbiq.PathTool.Addin
         /// <summary>Called on Revit's thread when the preview cannot run or stops itself: (message).</summary>
         public Action<string> Failed;
 
-        readonly object gate = new object();
-        CameraMessage pending;
+        readonly CameraQueue queue = new CameraQueue();
         ViewOrientation3D saved;
         ElementId savedView;
         bool running;
 
-        /// <summary>Set the next thing to do (start, a pose, or stop) before raising the event; the latest message wins.</summary>
-        public void Set(CameraMessage message)
-        {
-            lock (gate)
-            {
-                // a stop must not be overwritten by a late pose, and a pose must not hide a start that has not run yet
-                if (pending != null && pending.Type == "cameraStop" && message.Type == "camera") return;
-                if (pending != null && pending.Type == "cameraStart" && message.Type == "camera") return;
-                pending = message;
-            }
-        }
+        /// <summary>Queue the next thing to do (start, a pose, or stop) before raising the event. Order is kept; piled-up poses become the latest.</summary>
+        public void Set(CameraMessage message) => queue.Enqueue(message);
 
         public void Execute(UIApplication app)
         {
-            CameraMessage m;
-            lock (gate) { m = pending; pending = null; }
-            if (m == null) return;
-            try
+            foreach (var m in queue.Drain())
             {
-                var uidoc = app.ActiveUIDocument;
-                if (uidoc == null) { Fail("Open a Revit project first."); return; }
-                switch (m.Type)
+                try
                 {
-                    case "cameraStart": Start(uidoc); break;
-                    case "cameraStop": Stop(uidoc.Document); break;
-                    default: Move(uidoc, m); break;
+                    var uidoc = app.ActiveUIDocument;
+                    if (uidoc == null) { running = false; Fail("Open a Revit project first."); return; }
+                    switch (m.Type)
+                    {
+                        case "cameraStart": Start(uidoc); break;
+                        case "cameraStop": Stop(uidoc.Document); break;
+                        default: Move(uidoc, m); break;
+                    }
                 }
-            }
-            catch (Exception e)
-            {
-                running = false;
-                Fail("The Revit camera could not be moved: " + e.Message);
+                catch (Exception e)
+                {
+                    running = false;
+                    Fail("The Revit camera could not be moved: " + e.Message);
+                    return;
+                }
             }
         }
 
         void Start(UIDocument uidoc)
         {
+            if (running) return;                                              // already previewing: keep the orientation saved the first time
             var view = uidoc.ActiveView as View3D;
             if (view == null) { Fail("Make a 3D view the active Revit view first (Enscape uses one too)."); return; }
             if (view.IsLocked) { Fail("The active 3D view is locked. Unlock it, or open another 3D view."); return; }

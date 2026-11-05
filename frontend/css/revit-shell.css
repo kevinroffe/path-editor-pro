@@ -40,3 +40,27 @@ body.host-revit .vtl { gap: 5px; }
 #rv-inspector input { width: 74px; text-align: right; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font: inherit; }
 #rv-inspector input[readonly] { background: var(--surface2); color: var(--text2); }
 .wp-row.rv-invalid { background: var(--amber-lt, #fbf1e0); }
+
+/* ── One screen: plan | 3D | panel, video bar below ───────────────────────────────────────────────────────── */
+body.host-revit { height: 100vh; }
+body.host-revit .rv-hidden { display: none !important; }
+body.host-revit .body {
+  display: grid; flex: 1; min-height: 0; overflow: hidden;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 400px;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+body.host-revit .preview-3d { grid-column: 1; grid-row: 1; display: flex !important; width: auto !important; min-width: 0; border-left: 0; border-right: 1px solid var(--border); }
+body.host-revit .canvas-area { grid-column: 2; grid-row: 1; display: flex !important; min-width: 0; }
+body.host-revit #rv-panel { grid-column: 3; grid-row: 1 / span 2; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); }
+body.host-revit #video-timeline { grid-column: 1 / span 2; grid-row: 2; max-height: 260px; overflow-y: auto; border-top: 1px solid var(--border2); }
+
+/* The old step panels become sections of the right panel. */
+.rv-sec { border-bottom: 1px solid var(--border); }
+.rv-sec-head { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--surface2); border: 0; border-bottom: 1px solid var(--border); font: 700 12px/1 inherit; font-family: inherit; letter-spacing: .05em; text-transform: uppercase; color: var(--text2); cursor: pointer; text-align: left; }
+.rv-sec-head i { width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .15s; margin-top: -3px; }
+.rv-sec.closed .rv-sec-head i { transform: rotate(-45deg); margin-top: 0; }
+.rv-sec.closed .step-panel { display: none !important; }
+body.host-revit #rv-panel .step-panel { display: flex !important; width: auto; border: 0; padding: 14px 16px 18px; overflow: visible; gap: 12px; }
+body.host-revit #rv-panel .sp-eyebrow { display: none; }
+body.host-revit #rv-panel .sp-title { font-size: 15px; margin-top: 0; }
+body.host-revit #rv-panel .sp-help { font-size: 12.5px; }

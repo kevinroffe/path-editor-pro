@@ -34,6 +34,7 @@
 <script src="frontend/js/path3d.js"></script>
 <script src="frontend/js/tracks.js"></script>
 <script src="frontend/js/revit-session.js"></script>
+<script src="frontend/js/layout-revit.js"></script>
 <style>
 @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
   src: url('frontend/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
@@ -1151,6 +1152,9 @@ const state = {
 };
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
+/* Plan editing is a step-2 feature and the video features a step-4 one in a browser tab; in the Revit window both are always on. */
+const editing = () => editingOn(state.step, hostMode(window.location.search));
+const videoActive = () => videoOn(state.step, hostMode(window.location.search));
 
 function safeStorage() { try { return window.localStorage; } catch { return null; } }
 state.brand = loadBrandPrefs(safeStorage());
@@ -1262,7 +1266,7 @@ function renderPlanLayer() {
   renderTourSelection();
 }
 
-const tourPicking = () => state.step === 2 && !!state.plan && !document.getElementById('hand-edit').open;
+const tourPicking = () => editing() && !!state.plan && !document.getElementById('hand-edit').open;
 
 /* Point-in-polygon (even-odd) in display space */
 function pointInPolygon(x, y, poly) {
@@ -1484,7 +1488,7 @@ function renderTourSelection() {
   d3.select('#tour-selection').remove();
   d3.select('#start-pin').remove();
   const layer = d3.select('#plan-layer');
-  if (layer.empty() || state.step !== 2) return;
+  if (layer.empty() || !editing()) return;
   const byId = new Map(state.plan.rooms.map(r => [r.id, r]));
   const sel = state.tourRooms.map((id, i) => ({ r: byId.get(id), n: i + 1 })).filter(d => d.r);
   const scale = 1 / Math.max(state.unitsToMetres * 100, 1e-9), rad = 30 * scale;
@@ -1613,7 +1617,7 @@ let _pendingClicks = [];
 /* Plan clicks act after a short wait, so the two clicks of a double-click never pick or draw. */
 function handleClick(e) {
   if (!state.loaded || e.button !== 0 || e.detail > 1) return;
-  if (state.step !== 2 && !(state.step === 4 && state.fadePick)) return;
+  if (!editing() && !(videoActive() && state.fadePick)) return;
   if (e.target?.classList.contains('wp-dot') && !state.fadePick) return;
   if (e.target?.closest?.('.start-marker')) return;
   const ev = { clientX: e.clientX, clientY: e.clientY, button: 0, target: e.target };
@@ -1638,7 +1642,7 @@ function actOnClick(e) {
 }
 
 /* ── Freehand ── */
-function fhStart(e) { if (state.step!==2||state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
+function fhStart(e) { if (!editing()||state.mode!=='freehand'||!state.loaded||e.button!==0||tourPicking()) return; state.freePts=[s2m(e)]; state.freeDrawing=true; }
 function fhMove(e)  { if (!state.freeDrawing) return; state.freePts.push(s2m(e)); drawFHPreview(); }
 function fhEnd()    { if (!state.freeDrawing) return; state.freeDrawing=false; finishFreehand(); clearFHPreview(); }
 function drawFHPreview() {
@@ -1929,7 +1933,7 @@ function debounceSpline() { clearTimeout(_st); _st = setTimeout(refreshSpline, 2
 
 /* ── Drag waypoint / click to select ── */
 function wpDragStart(e) {
-  if (state.step !== 2) return;
+  if (!editing()) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.index, 10);
   const startX = e.clientX, startY = e.clientY;
@@ -1963,7 +1967,7 @@ function wpDragStart(e) {
 
 /* ── Drag heading handle ── */
 function yawHandleDragStart(e) {
-  if (state.step !== 2) return;
+  if (!editing()) return;
   e.stopPropagation(); e.preventDefault();
   const idx = parseInt(e.target.dataset.wpindex, 10);
   const wp = state.waypoints[idx];
@@ -2499,6 +2503,8 @@ const stepState = () => ({ loaded: !!state.loaded, waypointCount: state.waypoint
 
 /* Open step n when its precondition holds; step 4 shows the 3D preview in place of the plan. */
 function goStep(n) {
+  // One screen in the Revit window: nothing to step through, just refresh what the steps used to draw.
+  if (hostMode(window.location.search) === 'revit') { renderTourSelection(); if (state.loaded) requestAnimationFrame(fitView); return; }
   if (n < 1 || n > STEPS.length || !canEnterStep(n, stepState())) return;
   state.step = n;
   document.body.dataset.step = n;
@@ -2646,8 +2652,8 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') goStep(state.step + 1);
     if (e.key === 'ArrowLeft')  goStep(state.step - 1);
   }
-  if (e.key === ' ' && state.step === 4 && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
-  if (state.step !== 2) return;
+  if (e.key === ' ' && videoActive() && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
+  if (!editing()) return;
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
   if (e.key==='f'&&!e.ctrlKey)             setMode('freehand');
@@ -3148,7 +3154,7 @@ function applyTimeline() {
   p3.t = p3.timeline.walkSeconds ? s.walkS / p3.timeline.walkSeconds : 0;
   updateCameraFromT(p3.t);
   document.getElementById('p3d-fade').style.opacity = Math.max(s.black, fadeOpacityAt(p3.t));
-  showTitleCard(state.step === 4 ? s.card : null);
+  showTitleCard(videoActive() ? s.card : null);
   updatePlaybackDisplay();
   placePlayhead();
 }
@@ -3375,7 +3381,7 @@ renderVideoPanel();
 
 /* Music plays in step 4 at normal speed, in time with the preview. */
 function syncMusic() {
-  const on = state.step === 4 && p3.playing && p3.timeline && p3.speed === 1 && !!window.AudioContext;
+  const on = videoActive() && p3.playing && p3.timeline && p3.speed === 1 && !!window.AudioContext;
   if (!on) { _music?.stop(); return; }
   const m = musicPlayer();
   m.setTheme(state.video.theme);

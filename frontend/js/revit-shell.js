@@ -23,6 +23,28 @@
     };
   }
 
+  /* ── one screen: plan | 3D | right panel, with the video bar below (no steps) ── */
+  (function layout() {
+    const body = document.querySelector('.body');
+    hiddenInRevit().forEach(id => { const node = el(id); if (node) node.classList.add('rv-hidden'); });
+    const panel = document.createElement('div');
+    panel.id = 'rv-panel';
+    for (const section of panelSections()) {
+      const node = el(section.id);
+      if (!node) continue;
+      const wrap = document.createElement('section');
+      wrap.className = 'rv-sec';
+      wrap.innerHTML = `<button type="button" class="rv-sec-head"><span>${esc(section.title)}</span><i></i></button>`;
+      wrap.firstChild.onclick = () => wrap.classList.toggle('closed');
+      wrap.appendChild(node);
+      panel.appendChild(wrap);
+    }
+    body.appendChild(panel);
+    body.appendChild(el('video-timeline'));            // full-width bar under the plan and the 3D view
+    state.step = 2;                                    // editing and the video features are always on (see editing() / videoActive())
+    document.body.dataset.step = 2;
+  })();
+
   /* ── header, banner, inspector ── */
   const header = document.querySelector('.header');
   header.insertAdjacentHTML('beforeend',
@@ -322,6 +344,11 @@
       if (state.loaded && state.waypoints.length >= 2 && previewSig() !== p3.framesSig) loadPreviewFrames();
     }, 700);
   }
+
+  // Playing needs the audio context started by a click; the wizard did that on entering step 4.
+  el('p3d-play').addEventListener('click', () => {
+    if (window.AudioContext) { musicPlayer().prime(); musicPlayer().setTheme(state.video.theme); }
+  });
 
   wrap('drawRoute', () => {
     overlayDirty = true;

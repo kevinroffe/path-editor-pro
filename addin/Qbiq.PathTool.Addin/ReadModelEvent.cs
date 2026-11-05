@@ -60,7 +60,8 @@ namespace Qbiq.PathTool.Addin
             }
             catch (Exception e)
             {
-                Done?.Invoke(null, Refresh, "Could not read the model: " + e.Message);
+                var where = (e.StackTrace ?? "").Split('\n').FirstOrDefault(l => l.Contains("Qbiq.PathTool"))?.Trim();
+                Done?.Invoke(null, Refresh, "Could not read the model: " + e.Message + (where != null ? "\n\n" + e.GetType().Name + " " + where : ""));
             }
         }
 

@@ -84,9 +84,19 @@ namespace Qbiq.PathTool.Addin.Extraction
         void AddElement(Element element, string type)
         {
             if (!MeshBudget.Allows(type, builder.VertexCount, VertexBudget)) return;
-            var geometry = element.get_Geometry(options);
-            if (geometry != null) Walk(geometry, type);
+            try
+            {
+                var geometry = element.get_Geometry(options);
+                if (geometry != null) Walk(geometry, type);
+            }
+            catch (System.Exception)
+            {
+                SkippedElements++;                       // one element Revit cannot give geometry for must not cost the whole model
+            }
         }
+
+        /// <summary>Elements whose geometry could not be read (Revit failed to build it); the rest of the model is still read.</summary>
+        public int SkippedElements;
 
         void Walk(GeometryElement geometry, string type)
         {
@@ -94,7 +104,11 @@ namespace Qbiq.PathTool.Addin.Extraction
             {
                 if (obj.Visibility != Visibility.Visible) continue;
                 if (obj is Solid solid) AddSolid(solid, type);
-                else if (obj is GeometryInstance instance) Walk(instance.GetInstanceGeometry(), type);   // family geometry, already transformed
+                else if (obj is GeometryInstance instance)
+                {
+                    var inner = instance.GetInstanceGeometry();                                          // family geometry, already transformed
+                    if (inner != null) Walk(inner, type);
+                }
             }
         }
 
@@ -103,8 +117,9 @@ namespace Qbiq.PathTool.Addin.Extraction
             if (solid == null || solid.Faces.Size == 0) return;
             foreach (Face face in solid.Faces)
             {
+                var mesh = face.Triangulate();           // null when Revit cannot facet this face ("Problems during faceting")
+                if (mesh == null) continue;
                 var look = LookOf(face.MaterialElementId);
-                var mesh = face.Triangulate();
                 var vertices = new List<double[]>(mesh.Vertices.Count);
                 foreach (var v in mesh.Vertices) vertices.Add(Metres(v));
                 var indices = new List<int>(mesh.NumTriangles * 3);

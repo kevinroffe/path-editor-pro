@@ -55,7 +55,7 @@ except ImportError:
     log.warning("ezdxf not installed — DXF upload disabled. Run: py -m pip install ezdxf")
 from route_processor import smooth_preview
 from export_layer    import to_json, to_enscape_xml
-from camera_style    import interpolate, plan_keyframes
+from camera_style    import interpolate, keyframe_plan_to_json, plan_keyframes
 from autopath        import find_multi_path
 from corridor_graph   import (build_walkable_polygon, build_corridor_graph,
                                route_multi, compute_bounds)
@@ -689,6 +689,17 @@ def export_xml():
         return _err(str(e))
     return app.response_class(out, mimetype="application/xml",
                               headers={"Content-Disposition": 'attachment; filename="enscape_walkpath.xml"'})
+
+
+@app.route("/api/camera-plan", methods=["POST"])
+def camera_plan():
+    """The house-style keyframe plan as JSON, for the timeline tracks (same body as /api/export/xml)."""
+    data = request.get_json(force=True)
+    wpts, cuts, settings = data.get("waypoints", []), data.get("cuts", []), data.get("settings", {})
+    try:
+        return jsonify(keyframe_plan_to_json(_camera_plan(wpts, cuts, settings)))
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
 
 
 # ── run ───────────────────────────────────────────────────────────────────────

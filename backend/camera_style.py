@@ -54,6 +54,20 @@ class KeyframePlan:
     pans: int = 0
 
 
+STILL_EPS_M = 0.005   # keyframes closer than this are the same spot: the camera is standing still
+
+
+def keyframe_plan_to_json(plan: KeyframePlan) -> dict:
+    """The plan for the timeline UI. still_s is how long the camera stays put after a keyframe (a pan, hold or cut gap)."""
+    u, out = plan.units_to_metres, []
+    for i, k in enumerate(plan.keyframes):
+        nxt = plan.keyframes[i + 1] if i + 1 < len(plan.keyframes) else None
+        still = nxt.t_s - k.t_s if nxt is not None and math.hypot(nxt.x - k.x, nxt.y - k.y) * u < STILL_EPS_M else 0.0
+        out.append({"t_s": k.t_s, "x": k.x, "y": k.y, "yaw": k.yaw, "hour": k.hour,
+                    "cut_after": k.cut_after, "still_s": still})
+    return {"keyframes": out, "units_to_metres": u, "warnings": list(plan.warnings), "pans": plan.pans}
+
+
 # ── interpolation ─────────────────────────────────────────────────────────────
 
 def _cr_point(p0, p1, p2, p3, u: float, alpha: float = 0.5) -> np.ndarray:

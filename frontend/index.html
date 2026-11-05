@@ -35,6 +35,7 @@
 <script src="frontend/js/tracks.js"></script>
 <script src="frontend/js/revit-session.js"></script>
 <script src="frontend/js/layout-revit.js"></script>
+<script src="frontend/js/crop.js"></script>
 <style>
 @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
   src: url('frontend/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
@@ -1153,7 +1154,7 @@ const state = {
 
 const cam = { dur: 30, smo: 1.0, fov: 90, utr: 3, startPan: false };
 /* Plan editing is a step-2 feature and the video features a step-4 one in a browser tab; in the Revit window both are always on. */
-const editing = () => editingOn(state.step, hostMode(window.location.search));
+const editing = () => editingOn(state.step, hostMode(window.location.search)) && !window.QbiqCropping;   // not while the area frame is up
 const videoActive = () => videoOn(state.step, hostMode(window.location.search));
 
 function safeStorage() { try { return window.localStorage; } catch { return null; } }
@@ -2652,7 +2653,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') goStep(state.step + 1);
     if (e.key === 'ArrowLeft')  goStep(state.step - 1);
   }
-  if (e.key === ' ' && videoActive() && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
+  if (e.key === ' ' && (videoActive() || hostMode(window.location.search) === 'revit') && !e.target.matches('button')) { e.preventDefault(); togglePlay3D(); }
   if (!editing()) return;
   if ((e.ctrlKey||e.metaKey)&&e.key==='z') { e.preventDefault(); undoLast(); }
   if (e.key==='w'&&!e.ctrlKey)             setMode('waypoint');
@@ -3121,8 +3122,8 @@ const walkOnlyTimeline = walk => ({ total: walk, walkSeconds: walk, blocks: [{ k
 const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w.cutAfter, w.stop?.pan, w.stop?.dwell_s, w.yawOffset, w.timeOfDay]), cam]);
 
 /* Step 4 plays title cards, fades and music around the walk; step 3 plays the walk alone. */
-/* Step 4 shows the full timeline (intro, fades, outro); the Revit window shows it at every step. */
-const fullTimeline = () => state.step === 4 || hostMode(window.location.search) === 'revit';
+/* Step 4 of a tab shows the full timeline (intro, fades, outro); the Revit window shows just the walk. */
+const fullTimeline = () => state.step === 4;
 /* Metres the loaded level sits above storey 0 (Revit meshes carry absolute Z); 0 for every other source. */
 const levelElevationM = () => levelElevationMetres(state.source, state.elevation, state.unitsToMetres);
 
@@ -3354,7 +3355,7 @@ function renderTimelineLanes() {
 
 function placePlayhead() {
   const tl = p3.timeline, ph = document.getElementById('vtl-playhead');
-  if (!tl || !fullTimeline()) return;
+  if (!tl || !(fullTimeline() || hostMode(window.location.search) === 'revit')) return;
   const sec = document.getElementById('video-timeline').getBoundingClientRect();
   const track = document.getElementById('vtl-video').getBoundingClientRect();
   const music = document.getElementById('vtl-music').getBoundingClientRect();

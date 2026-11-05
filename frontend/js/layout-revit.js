@@ -6,7 +6,7 @@ function panelSections() {
   return [
     { id: 'step-2', title: 'Tour & route' },
     { id: 'step-3', title: 'Camera style' },
-    { id: 'step-4', title: 'Video & export' },
+    { id: 'step-4', title: 'Save' },
   ];
 }
 
@@ -24,9 +24,9 @@ function editingOn(step, mode) {
   return mode === 'revit' || step === 2;
 }
 
-/* Playing the video with its music, title cards and fades is a step-4 feature in a tab; always on in the Revit window. */
+/* The video extras (intro and outro cards, music, fades) are a step-4 feature in a tab; the Revit window has none of them. */
 function videoOn(step, mode) {
-  return mode === 'revit' || step === 4;
+  return mode !== 'revit' && step === 4;
 }
 
 if (typeof module === 'object') module.exports = { panelSections, shouldShowStepChrome, hiddenInRevit, editingOn, videoOn };

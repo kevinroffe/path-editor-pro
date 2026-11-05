@@ -50,3 +50,18 @@ test('music lane spans the whole video, or is empty without a track', () => {
   assert.equal(withMusic.lanes[4].clips[0].endS, withMusic.durationS);
   assert.equal(T.buildTracks({ plan, fades: [], music: null }).lanes[4].clips.length, 0);
 });
+
+test('a plain timeline has no intro or outro and starts at zero', () => {
+  const t = T.buildTracks({ plan, fades: [], music: null, plain: true });
+  assert.equal(t.durationS, 10);
+  assert.deepEqual(t.lanes[0].clips.map(c => c.kind), ['walk']);
+  assert.deepEqual(t.lanes[1].clips.map(c => c.startS), [0, 4, 6, 10]);        // camera markers at their own seconds
+  assert.equal(t.lanes[3].clips[0].startS, 4);                                  // the pause starts at the keyframe
+  assert.equal(t.lanes[4].clips.length, 0);                                     // no music lane content
+});
+
+test('a plain timeline ignores fades and music', () => {
+  const t = T.buildTracks({ plan, fades: [{ outM: 1, inM: 3 }], music: { id: 'premium-lobby' }, plain: true });
+  assert.equal(t.durationS, 10);
+  assert.equal(t.lanes[4].clips.length, 0);
+});

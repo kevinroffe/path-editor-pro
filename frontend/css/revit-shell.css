@@ -64,3 +64,17 @@ body.host-revit #rv-panel .step-panel { display: flex !important; width: auto; b
 body.host-revit #rv-panel .sp-eyebrow { display: none; }
 body.host-revit #rv-panel .sp-title { font-size: 15px; margin-top: 0; }
 body.host-revit #rv-panel .sp-help { font-size: 12.5px; }
+
+/* ── area frame, level select, 3D toggles, no video extras ───────────────────────────────────────────────── */
+.rv-select { border: 1px solid var(--border2); background: var(--surface); border-radius: 8px; padding: 6px 8px; font: 600 12px/1 inherit; font-family: inherit; margin-left: auto; max-width: 160px; }
+.rv-select + .rv-btn { margin-left: 0; }
+.rv-select ~ .rv-chip { margin-left: 0; }
+.rv-tog { margin-left: 10px; font-size: 12px; font-weight: 600; color: var(--text2); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+#rv-crop-bar { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--blue-md); border-radius: 10px; box-shadow: 0 4px 14px rgba(30,36,48,.18); font-size: 12.5px; }
+#rv-crop-bar[hidden] { display: none; }
+#rv-crop-bar span { flex: 1 1 220px; color: var(--text); font-weight: 600; }
+body.host-revit .canvas-area { position: relative; }
+body.rv-cropping .canvas-area { cursor: crosshair; }
+/* The Revit window has no intro, outro, music, logo or fades: those sections and the music lane are not shown. */
+body.host-revit #step-4 .vp-sec { display: none !important; }
+body.host-revit #vtl-music { display: none; }

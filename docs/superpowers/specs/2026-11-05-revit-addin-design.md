@@ -235,3 +235,17 @@ Kevin: *"I don't need the 3D model, but I want everything the path shows in the 
 
 ### Out of scope (unchanged)
 Thumbnails, snap and zoom on the timeline; linked models; automatic Enscape hand-off.
+
+## Revision 4 (after the first real Revit run): the 3D preview comes back, beside the plan
+
+The user asked for "a window to see the preview of the video next to the 2D canvas". Revision 3 removed the 3D window; this puts a
+**preview pane** back, as a column between the plan and the right panel (plan | preview | panel, video bar under plan and preview).
+
+- The pane shows the walk from the camera's point of view (the page's own first-person three.js view of the Revit meshes), driven by
+  the same play head as the red "you are here" dot and the timeline. It has no intro, outro, title card, theme label, fade or music.
+- It is on by default. A header toggle **3D preview** turns it off (hiding the pane and going back to 2D-only reads, which are faster).
+  Turning it on when no 3D was read yet re-reads the same area with the 3D.
+- Reading: a read asks for the 3D whenever the preview is on or the plan is in Top view (`wantsMeshes`); levels changes keep the 3D as before.
+- Top view (the plan mode) and the experimental Revit camera are unchanged. The preview is an approximation of Enscape (no Enscape
+  lighting or materials); the accurate view stays Revit camera with Enscape's view sync.
+- Not in scope: dragging the pane's width, a full-screen preview, Enscape lighting.

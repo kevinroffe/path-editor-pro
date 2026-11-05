@@ -21,3 +21,6 @@ Thumbs.db
 
 # Local git worktrees used for isolated feature builds
 .worktrees/
+
+# Brainstorming / SDD scratch
+.superpowers/

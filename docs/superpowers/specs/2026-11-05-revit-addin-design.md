@@ -158,3 +158,61 @@ Kevin will pick and run the test project himself. **(Claude's call)** the bar to
 project that currently needs the DXF/IFC route, open it in Revit, press the button, get Auto-path, edit a point,
 adjust the timeline, save the XML, upload it to Enscape by hand, and Enscape plays the same route the window
 showed. And on one model with broken rooms, loading the JSON fixes it. Kevin may replace this with his own bar.
+
+---
+
+## Revision 2 — after Kevin's first look (2026-11-05)
+
+Kevin tried the first build and asked for four changes. Where this section disagrees with the text above, **this section wins**.
+
+### What Kevin asked for (his words, translated)
+
+1. See the **plan in full and the 3D in full**; textures may be light so the model stays light.
+2. The 3D model always comes from **the Revit 3D view that Enscape uses**. Kevin chose: *the active 3D view* (answer to "what exactly").
+3. **No steps.** One screen: a 3D window and one 2D canvas **side by side**, a **bar at the bottom** with the video timeline and the camera points (like a video editor), and on the **right** the editing panel with everything else.
+4. **Before starting, ask the user to crop** the plan area so the surroundings in the Revit file do not come in. Kevin chose: *a frame inside the window* (answer to "how").
+
+### The screen (one screen, no wizard)
+
+```
+header:  qbiq · Path Editor · level [Level 1 ▾] · Change area · Refresh model · Load JSON · Save path (XML)
+┌──────────────────────────┬──────────────────────────┬──────────────────┐
+│  3D view (orbit)         │  2D plan canvas          │  Right panel     │
+│  route, points, cones,   │  click to add points,    │  (sections, all  │
+│  camera-view inset       │  drag them, auto-path    │  open at once):  │
+│                          │                          │  Tour & route    │
+│                          │                          │  Selected point  │
+│                          │                          │  Camera style    │
+│                          │                          │  Video & music   │
+│                          │                          │  Export          │
+├──────────────────────────┴──────────────────────────┴──────────────────┤
+│ ▶ 0:18 / 0:42   Video │ Camera points │ Look-at │ Pauses │ Music      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+- The existing step panels become **sections of the right panel**, all visible, scrolling; the step dock and "next step" buttons are not shown in the Revit window. Browser mode keeps its wizard.
+- The bottom bar is **full width** with the transport controls and the lanes; the camera points (route waypoints) are markers on it that select the point and seek the video; keyframe markers seek.
+- 3D and plan are always both visible and share one selection (already built).
+
+### 3D model: the active Revit 3D view (replaces "per-level categories")
+
+- The add-in reads the model through **the active 3D view** (`FilteredElementCollector(doc, view3D.Id)` and `Options.View = view3D`): hidden categories, view filters, visibility/graphics, phase filter, design options and the section box are honoured, as in Enscape.
+- If the active view is not a 3D view: use the project's default `{3D}` view; if there is none, ask the user to open a 3D view. **(Claude's call)**
+- **The whole building**, not one level, inside the crop area. Roofs and ceilings are included (the 3D view has toggles to hide them while editing). **(Claude's call)**
+- Materials: colour and transparency from the Revit material; textures stay the tool's existing light procedural ones. Shell types (walls, floors, ceilings, roofs) are always kept; over the vertex budget detail goes first (as built).
+- The **2D plan, rooms, doors and routing still belong to one level**: the header's level selector (default: the active view's level if it is a plan, else the lowest). Changing the level re-reads the 2D part only.
+- Revision-1 mesh logic by level height band is no longer used for meshes (it stays for the 2D plan).
+
+### Crop: a frame inside the window, before loading
+
+1. The window opens and asks the add-in for a **quick overview**: the chosen level's 2D footprints only (walls, doors, rooms, columns — no 3D), uncropped.
+2. The page shows that plan with a **draggable, resizable rectangle** (default: the area holding most of the walls, so a distant site outline does not stretch it) and the text "Drag the frame around the area to use. Anything outside is ignored." Buttons: **Use this area**, **Use everything**.
+3. On confirm, the page sends the rectangle (model feet) and the add-in does the **full read inside it**: 2D elements and 3D meshes whose bounding box intersects the rectangle (all heights). Partly inside = kept whole. Then the usual load.
+4. **Change area** in the header repeats from step 2; the points already drawn are kept and flagged if outside the new area. The rectangle is remembered for **Refresh model**.
+
+### Out of scope (unchanged unless said)
+
+Linked models, stairs/multi-storey path connections, Revit versions other than 2024, automatic Enscape hand-off, and (still not built) video thumbnails, snap and zoom on the timeline — **the bottom bar's video lane is a plain strip this round; thumbnails are the next follow-up**. **(Claude's call, to keep this round focused.)**
+
+### How we will know it works (additions)
+
+Open a 3D view and a plan, press the button: the plan overview appears, drag a frame, **Use this area**; the screen shows 3D and plan side by side with the video bar below and the panel on the right, and **the 3D shows what Enscape shows** (hide a category in the view → it disappears from the tool after Refresh). Change the level: the plan changes, the 3D stays.

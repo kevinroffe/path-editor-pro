@@ -86,6 +86,7 @@
   Host.handlers.modelReading = () => showLoading('Reading the Revit model…');
   Host.handlers.modelLoaded = () => loadCurrent(false).finally(hideLoading);
   Host.handlers.modelRefreshed = () => loadCurrent(true).finally(hideLoading);
+  Host.handlers.modelFailed = () => hideLoading();
 
   if (new URLSearchParams(window.location.search).get('demo') === '1') {
     loadDemo().then(() => { ensure3D(); });            // development without Revit: the demo plan stands in for a model

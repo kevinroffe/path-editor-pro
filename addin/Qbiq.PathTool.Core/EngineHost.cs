@@ -38,6 +38,16 @@ namespace Qbiq.PathTool.Core
         public TimeSpan StartTimeout { get; set; } = TimeSpan.FromSeconds(30);
         public int ProcessId => process == null ? 0 : process.Id;
 
+        /// <summary>True while the engine process is running; false before Start, after Stop, or if it died.</summary>
+        public bool IsAlive
+        {
+            get
+            {
+                try { return process != null && !process.HasExited; }
+                catch (InvalidOperationException) { return false; }
+            }
+        }
+
         /// <param name="baseArgs">Arguments placed before --port/--key (a script path when the engine is an interpreter).</param>
         public EngineHost(string enginePath, string stateDir, string[] baseArgs = null)
         {

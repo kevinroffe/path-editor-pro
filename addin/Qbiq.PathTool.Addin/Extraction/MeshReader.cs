@@ -15,12 +15,16 @@ namespace Qbiq.PathTool.Addin.Extraction
 
         sealed class MaterialLook { public string Color; public double? Opacity; }
 
+        /// <summary>Over this many vertices only the building shell (walls, floors, ceilings) is still read.</summary>
+        public const int VertexBudget = 1500000;
+
         public MeshReader(Document doc) { this.doc = doc; }
 
         public int VertexCount => builder.VertexCount;
 
         public void AddElement(Element element, string type)
         {
+            if (!MeshBudget.Allows(type, builder.VertexCount, VertexBudget)) return;
             var geometry = element.get_Geometry(options);
             if (geometry != null) Walk(geometry, type);
         }
@@ -44,11 +48,17 @@ namespace Qbiq.PathTool.Addin.Extraction
             {
                 var look = LookOf(face.MaterialElementId);
                 var mesh = face.Triangulate();
+                var vertices = new List<double[]>(mesh.Vertices.Count);
+                foreach (var v in mesh.Vertices) vertices.Add(Metres(v));
+                var indices = new List<int>(mesh.NumTriangles * 3);
                 for (var i = 0; i < mesh.NumTriangles; i++)
                 {
                     var t = mesh.get_Triangle(i);
-                    builder.AddTriangle(type, look.Color, look.Opacity, Metres(t.get_Vertex(0)), Metres(t.get_Vertex(1)), Metres(t.get_Vertex(2)));
+                    indices.Add((int)t.get_Index(0));
+                    indices.Add((int)t.get_Index(1));
+                    indices.Add((int)t.get_Index(2));
                 }
+                builder.AddIndexed(type, look.Color, look.Opacity, vertices, indices);
             }
         }
 

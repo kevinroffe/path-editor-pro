@@ -10,8 +10,8 @@ namespace Qbiq.PathTool.Addin
 {
     public sealed class ReadModelEvent : IExternalEventHandler
     {
-        /// <summary>Called on Revit's thread with (payload JSON or null, refresh, error text or null).</summary>
-        public Action<string, bool, string> Done;
+        /// <summary>Called on Revit's thread with (payload or null, refresh, error text or null). Serialising is left to the caller so it runs off Revit's thread.</summary>
+        public Action<LevelPayload, bool, string> Done;
         public bool Refresh;
 
         public void Execute(UIApplication app)
@@ -23,7 +23,7 @@ namespace Qbiq.PathTool.Addin
                 var reader = new RevitModelReader(doc);
                 var level = LevelPicker.Choose(doc.ActiveView?.GenLevel?.Name, reader.LevelNames());
                 if (level == null) { Done?.Invoke(null, Refresh, "This model has no levels."); return; }
-                Done?.Invoke(PayloadJson.Serialize(reader.ReadLevel(level)), Refresh, null);
+                Done?.Invoke(reader.ReadLevel(level), Refresh, null);
             }
             catch (Exception e)
             {

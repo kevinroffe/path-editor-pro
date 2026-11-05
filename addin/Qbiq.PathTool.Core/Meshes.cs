@@ -19,6 +19,32 @@ namespace Qbiq.PathTool.Core
         public static string ToHex(byte r, byte g, byte b) => "#" + r.ToString("x2") + g.ToString("x2") + b.ToString("x2");
     }
 
+    /// <summary>Which element types are still read once the model is over its vertex budget.</summary>
+    public static class MeshBudget
+    {
+        /// <summary>The building shell (walls, floors, ceilings) is always kept; detail is kept only while under budget.</summary>
+        public static bool Allows(string type, int currentVertices, int budget) =>
+            type == "wall" || type == "floor" || type == "ceiling" || currentVertices < budget;
+    }
+
+    /// <summary>The height band of a level, in feet: elements that reach into it belong to it, including walls that span several levels.</summary>
+    public struct LevelBand
+    {
+        public const double DefaultStoreyFt = 15.0;
+        const double Margin = 0.1;      // keeps the slab below and the wall tops of the storey beneath out of the band
+
+        public double Low, High;
+
+        public static LevelBand For(double elevation, IEnumerable<double> allElevations)
+        {
+            var above = new List<double>();
+            foreach (var e in allElevations) if (e > elevation + 1e-9) above.Add(e);
+            above.Sort();
+            var top = above.Count > 0 ? above[0] : elevation + DefaultStoreyFt;
+            return new LevelBand { Low = elevation + Margin, High = top - Margin };
+        }
+    }
+
     /// <summary>Collects triangles and merges them into one mesh per (type, colour, opacity).</summary>
     public sealed class MeshBuilder
     {
@@ -48,6 +74,22 @@ namespace Qbiq.PathTool.Core
             foreach (var v in new[] { a, b, c }) mesh.Verts.AddRange(v);
             mesh.Faces.AddRange(new[] { first, first + 1, first + 2 });
             VertexCount += 3;
+        }
+
+        /// <summary>A triangulated face that already shares its vertices: indices into <paramref name="vertices"/>, three per triangle.</summary>
+        public void AddIndexed(string type, string color, double? opacity, IReadOnlyList<double[]> vertices, IReadOnlyList<int> indices)
+        {
+            var key = new Key { Type = type, Color = color, Opacity = opacity };
+            if (!meshes.TryGetValue(key, out var mesh))
+            {
+                mesh = new MeshPayload { Type = type, Color = color, Opacity = opacity };
+                meshes[key] = mesh;
+                order.Add(key);
+            }
+            var first = mesh.Verts.Count / 3;
+            foreach (var v in vertices) mesh.Verts.AddRange(v);
+            foreach (var i in indices) mesh.Faces.Add(first + i);
+            VertexCount += vertices.Count;
         }
 
         public List<MeshPayload> Build()

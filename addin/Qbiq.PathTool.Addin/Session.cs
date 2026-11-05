@@ -13,8 +13,6 @@ namespace Qbiq.PathTool.Addin
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Qbiq", "PathTool");
 
         static EngineHost host;
-        static EngineEndpoint endpoint;
-
         public static PathToolWindow Window;
 
         static string AddinDir => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -30,21 +28,28 @@ namespace Qbiq.PathTool.Addin
             return new EngineHost(packaged, StateDir);
         }
 
-        /// <summary>Starts the engine on first use. Runs the async start on the thread pool so Revit's UI thread is never re-entered.</summary>
-        public static EngineEndpoint EnsureEngine()
+        static Task<EngineEndpoint> starting;
+
+        /// <summary>
+        /// The engine, started on first use and restarted if it has died (antivirus, a crash). Returns at once with a task so
+        /// Revit's UI is never blocked while the engine comes up; the window shows "starting" until it completes.
+        /// </summary>
+        public static Task<EngineEndpoint> EnsureEngineAsync()
         {
-            if (endpoint != null) return endpoint;
+            if (starting != null && host != null && host.IsAlive) return starting;
+            host?.Stop();
             EngineHost.ReapOrphans(StateDir);
             host = CreateHost();
-            endpoint = Task.Run(() => host.StartAsync()).GetAwaiter().GetResult();
-            return endpoint;
+            var thisHost = host;
+            starting = Task.Run(() => thisHost.StartAsync());
+            return starting;
         }
 
         public static void Shutdown()
         {
             host?.Stop();
             host = null;
-            endpoint = null;
+            starting = null;
         }
     }
 }

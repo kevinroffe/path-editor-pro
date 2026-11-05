@@ -28,6 +28,7 @@ namespace Qbiq.PathTool.Addin.Extraction
         };
 
         readonly Document doc;
+        LevelBand band;                       // the height band of the level being read (see OnLevel)
 
         public RevitModelReader(Document doc) { this.doc = doc; }
 
@@ -43,6 +44,8 @@ namespace Qbiq.PathTool.Addin.Extraction
                 throw new ArgumentException("No level '" + levelName + "' in this model; available: " + string.Join(", ", LevelNames()));
 
             var phase = ActivePhase();
+            band = LevelBand.For(level.Elevation,
+                new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().Select(l => l.Elevation).ToList());
             var payload = new LevelPayload
             {
                 Level = new LevelInfo { Name = level.Name, Elevation = level.Elevation },
@@ -98,9 +101,20 @@ namespace Qbiq.PathTool.Addin.Extraction
             catch (Exception) { return true; }       // elements without a phase are always in scope
         }
 
-        IEnumerable<Element> OnLevel(BuiltInCategory category, Level level, ElementId phase) =>
-            new FilteredElementCollector(doc).OfCategory(category).WhereElementIsNotElementType()
-                .WherePasses(new ElementLevelFilter(level.Id)).Where(e => InScope(e, phase));
+        /// <summary>
+        /// Floors and ceilings belong to the level they are built on. Everything else belongs to every level its height
+        /// reaches into: a facade or core wall whose base is Level 1 and top is Level 5 must appear when Level 3 is read.
+        /// </summary>
+        IEnumerable<Element> OnLevel(BuiltInCategory category, Level level, ElementId phase)
+        {
+            var collector = new FilteredElementCollector(doc).OfCategory(category).WhereElementIsNotElementType();
+            if (category == BuiltInCategory.OST_Floors || category == BuiltInCategory.OST_Ceilings)
+                collector = collector.WherePasses(new ElementLevelFilter(level.Id));
+            else
+                collector = collector.WherePasses(new BoundingBoxIntersectsFilter(
+                    new Outline(new XYZ(-1e7, -1e7, band.Low), new XYZ(1e7, 1e7, band.High))));
+            return collector.Where(e => InScope(e, phase));
+        }
 
         // ---- geometry to polylines ----
 

@@ -20,9 +20,11 @@ namespace Qbiq.PathTool.Addin
             {
                 ToolTip = "Open the path editor with this model: Auto-path, edit path, video timeline.",
             });
-            panel.AddItem(new PushButtonData("QbiqDumpLevel", "Dump level\nJSON", assembly, typeof(DumpLevelCommand).FullName)
+            // A separate panel, so the check is not mistaken for part of the tool itself.
+            var diagnostics = application.CreateRibbonPanel(TabName, "Diagnostics");
+            diagnostics.AddItem(new PushButtonData("QbiqDumpLevel", "Dump level\nJSON", assembly, typeof(DumpLevelCommand).FullName)
             {
-                ToolTip = "Developer check: writes the current level as the payload JSON the path editor reads.",
+                ToolTip = "Check the extraction: writes the current level as the payload JSON the path editor reads.",
             });
             return Result.Succeeded;
         }

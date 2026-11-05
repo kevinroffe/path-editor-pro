@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!-- Revit add-in manifest. install.ps1 replaces __ASSEMBLY__ with the full path of Qbiq.PathTool.Addin.dll. -->
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Qbiq Path Tool</Name>
+    <Assembly>__ASSEMBLY__</Assembly>
+    <AddInId>8f0c4c52-3c1d-4a77-9d2e-5b9e0a6f4a11</AddInId>
+    <FullClassName>Qbiq.PathTool.Addin.App</FullClassName>
+    <VendorId>QBIQ</VendorId>
+    <VendorDescription>qbiq</VendorDescription>
+  </AddIn>
+</RevitAddIns>

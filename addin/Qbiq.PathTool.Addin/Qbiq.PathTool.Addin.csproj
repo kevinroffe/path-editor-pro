@@ -13,8 +13,13 @@
   <ItemGroup>
     <Reference Include="RevitAPI"><HintPath>$(RevitDir)RevitAPI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="RevitAPIUI"><HintPath>$(RevitDir)RevitAPIUI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Net.Http" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
     <ProjectReference Include="..\Qbiq.PathTool.Core\Qbiq.PathTool.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="QbiqPathTool.addin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

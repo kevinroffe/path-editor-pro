@@ -43,3 +43,16 @@ namespace Qbiq.PathTool.Core
         }
     }
 }
+
+namespace Qbiq.PathTool.Core
+{
+    public static class LevelPicker
+    {
+        /// <summary>The level to read: the active view's level when the model has it, else the lowest (names are in elevation order); null if none.</summary>
+        public static string Choose(string activeViewLevel, IReadOnlyList<string> levelNames)
+        {
+            if (levelNames.Count == 0) return null;
+            return activeViewLevel != null && levelNames.Contains(activeViewLevel) ? activeViewLevel : levelNames[0];
+        }
+    }
+}

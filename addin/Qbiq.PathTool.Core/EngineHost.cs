@@ -65,7 +65,7 @@ namespace Qbiq.PathTool.Core
             pidFile = Path.Combine(stateDir, "engine-" + parent + ".pid");
             File.WriteAllText(pidFile, process.Id + ":" + parent + ":" + process.StartTime.ToUniversalTime().Ticks);
 
-            await WaitUntilReady(endpoint);
+            await WaitUntilReady(endpoint).ConfigureAwait(false);
             return endpoint;
         }
 
@@ -84,11 +84,11 @@ namespace Qbiq.PathTool.Core
                     }
                     try
                     {
-                        if ((await http.GetAsync(endpoint.BaseUri)).StatusCode == HttpStatusCode.OK) return;
+                        if ((await http.GetAsync(endpoint.BaseUri).ConfigureAwait(false)).StatusCode == HttpStatusCode.OK) return;
                     }
                     catch (HttpRequestException) { }
                     catch (TaskCanceledException) { }
-                    await Task.Delay(150);
+                    await Task.Delay(150).ConfigureAwait(false);
                 }
             }
             Stop();

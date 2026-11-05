@@ -18,6 +18,7 @@ def _reset_app_globals():
     """Start every test with no cached plan, graphs or floor-plan geometry, so test order can't leak state."""
     if (app := sys.modules.get("app")) is not None:
         app._LAST_PLAN = None
+        app._LAST_REVIT_RESPONSE = None
         app._LAST_PLAN_GRAPH.clear()
         app._LAST_CIRC_GRAPH.clear()
         app._LAST_UNITS_TO_METRES = 1.0

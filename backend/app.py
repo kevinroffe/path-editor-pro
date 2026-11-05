@@ -40,6 +40,8 @@ from revit_extractor import extract_level
 from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import flipped, plan_to_json
+from plan_from_revit import build_revit_plan
+from revit_payload import parse_revit_payload, room_issues
 from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
 from plan_tour import build_tour, suggest_tour
 
@@ -70,6 +72,7 @@ _LAST_OBSTACLES = {"dxf": [], "ifc": []}
 _LAST_FOOTPRINT = {"dxf": [], "ifc": []}  # FLOOD-layer / room polygons — see _footprint_polylines
 _LAST_DOORS = {"dxf": [], "ifc": []}  # door locations, forced passable — see _door_polylines
 _LAST_PLAN = None  # display-space PlanModel of the last design-JSON upload, else None
+_LAST_REVIT_RESPONSE = None  # JSON body of the last /api/upload-revit response, served by /api/revit/current
 _LAST_UNITS_TO_METRES = 1.0  # from the DXF/demo canvas source, for Auto Path's clearance_m conversion
 
 # Corridor-graph routing needs walls kept SEPARATE from other obstacle
@@ -244,7 +247,7 @@ def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
-def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
+def _load_2d_geometry(geo, clear_ifc: bool, plan=None, extra: dict | None = None):
     """Cache a freshly extracted 2D floor plan for routing and return the
     upload-shaped JSON response. clear_ifc drops any previously loaded IFC
     so a standalone source (demo, qbiq) never inherits a stale project."""
@@ -286,6 +289,7 @@ def _load_2d_geometry(geo, clear_ifc: bool, plan=None):
             "furniture": geo.furniture,
             "meshes":    geo.meshes,
         },
+        **(extra or {}),
     })
 
 
@@ -385,6 +389,34 @@ def upload_qbiq_design():
     return _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None)
 
 
+@app.route("/api/upload-revit", methods=["POST"])
+def upload_revit():
+    """Accept one Revit level from the add-in (revit_payload.py) and load it like any other 2D source."""
+    global _LAST_REVIT_RESPONSE
+    data = request.get_json(silent=True)
+    try:
+        geo = parse_revit_payload(data)
+        issues = room_issues(data)
+        plan = build_revit_plan(data)
+    except ValueError as e:
+        return _err(str(e))
+    except Exception:
+        log.exception("Revit level load failed")
+        return _err("could not read the Revit level")
+    resp = _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None,
+                             extra={"room_issues": issues})
+    _LAST_REVIT_RESPONSE = resp.get_json()
+    return resp
+
+
+@app.route("/api/revit/current", methods=["GET"])
+def revit_current():
+    """The last Revit level loaded, in the shape /api/upload-revit returned (the window fetches it on load)."""
+    if _LAST_REVIT_RESPONSE is None:
+        return _err("no Revit level has been loaded", 404)
+    return jsonify(_LAST_REVIT_RESPONSE)
+
+
 @app.route("/api/upload-3d", methods=["POST"])
 def upload_3d():
     """Accept an IFC file and return 3D geometry only (no SVG, no canvas change)."""
@@ -464,7 +496,7 @@ def _is_point(v) -> bool:
 def auto_tour():
     """Auto walkthrough of the loaded design plan."""
     if (plan := _LAST_PLAN) is None:
-        return _err("Auto tour needs a qbiq design JSON to be loaded")
+        return _err("Auto tour needs rooms: place and enclose Rooms in Revit, or load a design JSON")
     data = request.get_json(force=True) or {}
     get_graph = partial(_plan_graph, plan)
     try:

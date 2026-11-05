@@ -55,6 +55,8 @@ namespace Qbiq.PathTool.Core
         public CropBox? Crop;
         /// <summary>A level change: re-read the 2D only and keep the 3D the engine already has.</summary>
         public bool KeepMeshes;
+        /// <summary>Read the 3D through the active 3D view too (only the Top view mode needs it); otherwise 2D only.</summary>
+        public bool Meshes;
 
         public static ReadRequest Parse(string json)
         {
@@ -63,7 +65,7 @@ namespace Qbiq.PathTool.Core
             catch (Exception e) { throw new ArgumentException("The request is not valid JSON: " + e.Message); }
             var type = (string)o["type"];
             if (type == null || !Types.Contains(type)) throw new ArgumentException("Unknown request type '" + type + "'.");
-            var request = new ReadRequest { Type = type, Level = (string)o["level"], KeepMeshes = (bool?)o["keep_meshes"] ?? false };
+            var request = new ReadRequest { Type = type, Level = (string)o["level"], KeepMeshes = (bool?)o["keep_meshes"] ?? false, Meshes = (bool?)o["meshes"] ?? false };
             if (o["crop"] is JObject c)
                 request.Crop = CropBox.Normalise((double)c["xmin"], (double)c["ymin"], (double)c["xmax"], (double)c["ymax"]);
             return request;

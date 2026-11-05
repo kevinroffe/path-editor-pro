@@ -46,9 +46,14 @@ function levelChangeRequest(cropping, loadedOnce, level, lastBox) {
   return { type: 'readModel', level, crop: lastBox, keep_meshes: true };
 }
 
+/* Switching to the Top view the first time: re-read the same area with the 3D (2D alone is the default). */
+function meshRequest(level, lastBox) {
+  return { type: 'readModel', level, crop: lastBox, meshes: true };
+}
+
 /* The header chip: which Revit 3D view the model comes from (the user hides categories there to shape the 3D). */
 function syncLabel(viewName) {
   return viewName ? `3D view: ${viewName}` : 'Synced with Revit ✓';
 }
 
-if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage, levelChangeRequest, syncLabel };
+if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage, levelChangeRequest, meshRequest, syncLabel };

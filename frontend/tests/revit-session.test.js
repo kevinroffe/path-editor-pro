@@ -60,3 +60,9 @@ test('syncLabel names the 3D view in use', () => {
   assert.equal(S.syncLabel(null), 'Synced with Revit ✓');
   assert.equal(S.syncLabel(''), 'Synced with Revit ✓');
 });
+
+test('asking for the top view the first time re-reads the area with the 3D', () => {
+  const box = { xmin: 0, ymin: 0, xmax: 10, ymax: 10 };
+  assert.deepEqual(S.meshRequest('Level 1', box), { type: 'readModel', level: 'Level 1', crop: box, meshes: true });
+  assert.deepEqual(S.meshRequest('Level 1', null), { type: 'readModel', level: 'Level 1', crop: null, meshes: true });
+});

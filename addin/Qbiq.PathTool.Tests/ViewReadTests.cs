@@ -101,3 +101,16 @@ namespace Qbiq.PathTool.Tests
         }
     }
 }
+
+namespace Qbiq.PathTool.Tests
+{
+    public class MeshesRequestTests
+    {
+        [Fact] public void A_read_asks_for_the_3D_only_when_it_says_so()
+        {
+            Assert.True(Qbiq.PathTool.Core.ReadRequest.Parse("{\"type\":\"readModel\",\"level\":\"L\",\"meshes\":true}").Meshes);
+            Assert.False(Qbiq.PathTool.Core.ReadRequest.Parse("{\"type\":\"readModel\",\"level\":\"L\"}").Meshes);
+            Assert.False(Qbiq.PathTool.Core.ReadRequest.Parse("{\"type\":\"overview\"}").Meshes);
+        }
+    }
+}

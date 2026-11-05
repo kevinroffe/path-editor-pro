@@ -19,6 +19,7 @@ namespace Qbiq.PathTool.Addin
 
         string lastLevel;
         CropBox? lastCrop;
+        bool wantMeshes;             // the user has the Top view open: refreshes read the 3D too
 
         bool Refresh => Request.Type == "refreshModel";
 
@@ -43,11 +44,12 @@ namespace Qbiq.PathTool.Addin
                     case "readModel":
                         lastLevel = level;
                         lastCrop = Request.Crop;
-                        payload = reader.ReadModel(level, lastCrop, !Request.KeepMeshes);
+                        if (Request.Meshes) wantMeshes = true;                // Top view asked for the 3D
+                        payload = reader.ReadModel(level, lastCrop, Request.Meshes && !Request.KeepMeshes);
                         break;
-                    default:                                                  // refreshModel: same level and area, everything again
+                    default:                                                  // refreshModel: same level and area again, 3D only if the Top view is open
                         lastLevel = level;
-                        payload = reader.ReadModel(level, lastCrop, true);
+                        payload = reader.ReadModel(level, lastCrop, wantMeshes);
                         break;
                 }
                 Done?.Invoke(payload, Refresh, null);

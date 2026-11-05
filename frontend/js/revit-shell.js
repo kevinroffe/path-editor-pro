@@ -1,20 +1,18 @@
-/* The Revit window: one screen (plan | 3D | panel, video bar below), the area frame, level choice, an orbit 3D view with the
-   path drawn on it, a camera-view inset, extra timeline lanes, a live "you are here" marker on the plan, and point selection
-   shared across views. Runs only under ?host=revit; in a browser tab this file does nothing. It builds on the page's own
-   globals (state, p3, threeScene, drawRoute, ...) and on host.js, tracks.js, selection.js, path3d.js, crop.js,
-   layout-revit.js and revit-session.js. */
+/* The Revit window: one screen (plan | panel, video bar below). The plan has two modes, Plan (the colored rooms) and Top view
+   (the 3D model from straight above), and carries everything the path means: points, a view cone at each point, pauses, and a
+   live "you are here" dot that follows the play head. Also: the area frame, level choice, timeline lanes, point selection.
+   Runs only under ?host=revit; in a browser tab this file does nothing. It builds on the page's own globals (state, p3,
+   svgEl, gRoot, drawRoute, ...) and on host.js, tracks.js, selection.js, crop.js, plan-view.js, topview.js, layout-revit.js
+   and revit-session.js. */
 (function () {
   'use strict';
   const Host = window.QbiqHost;
   if (!Host || Host.hostMode(window.location.search) !== 'revit') return;
   document.body.classList.add('host-revit');
 
-  const EYE = 1.57;                                   // house-style eye height in metres
   const SVG = 'http://www.w3.org/2000/svg';
-  const U = () => state.unitsToMetres || 1;
   const sel = createSelection();
   const el = id => document.getElementById(id);
-  const toThree = w => new THREE.Vector3(w[0], w[2], -w[1]);   // world (x, y, z-up) -> three (x, up, -y)
   const inRevit = () => !!(window.chrome && window.chrome.webview);
 
   function wrap(name, after) {
@@ -26,7 +24,10 @@
     };
   }
 
-  /* ── one screen: plan | 3D | right panel, with the video bar below (no steps) ── */
+  /* The page's render loop advances the video clock and updates the camera; with no 3D window there is nothing to draw. */
+  window.QbiqRevit = { render() {} };
+
+  /* ── one screen: plan | right panel, with the video bar below (no steps, no 3D window) ── */
   (function layout() {
     const body = document.querySelector('.body');
     hiddenInRevit().forEach(id => { const node = el(id); if (node) node.classList.add('rv-hidden'); });
@@ -43,7 +44,7 @@
       panel.appendChild(wrapper);
     }
     body.appendChild(panel);
-    body.appendChild(el('video-timeline'));            // full-width bar under the plan and the 3D view
+    body.appendChild(el('video-timeline'));            // full-width bar under the plan
     // No intro, outro, music or logo in the Revit window: the bar is the walk itself.
     el('vtl-music').parentElement.classList.add('rv-hidden');
     const note = document.querySelector('.vtl-note');
@@ -54,7 +55,7 @@
     document.body.dataset.step = 2;
   })();
 
-  /* ── header, banner, inspector, 3D toggles ── */
+  /* ── header, banner, inspector, mode switch, area bar ── */
   const header = document.querySelector('.header');
   header.insertAdjacentHTML('beforeend',
     '<select id="rv-level" class="rv-select" title="Level of the plan"></select>' +
@@ -64,14 +65,15 @@
     '<button type="button" class="rv-btn" id="rv-refresh">Refresh model</button>' +
     '<button type="button" class="rv-btn primary" id="rv-save" disabled>Save path (XML)</button>');
   header.insertAdjacentHTML('afterend', '<div class="rv-banner" id="rv-banner" hidden></div>');
-  el('p3d-fade').parentElement.insertAdjacentHTML('beforeend', '<div id="rv-inspector" hidden></div>');
-  document.querySelector('.p3d-bar').insertAdjacentHTML('beforeend',
-    '<label class="rv-tog"><input type="checkbox" id="rv-roofs"> Roofs</label><label class="rv-tog"><input type="checkbox" id="rv-ceilings"> Ceilings</label>');
-  document.querySelector('.canvas-area').insertAdjacentHTML('afterbegin',
+  const canvasArea = document.querySelector('.canvas-area');
+  canvasArea.insertAdjacentHTML('afterbegin',
     '<div id="rv-crop-bar" hidden><span id="rv-crop-text">Drag the frame around the area to use. Anything outside it is ignored.</span>' +
     '<button type="button" class="rv-btn primary" id="rv-crop-ok">Use this area</button>' +
     '<button type="button" class="rv-btn" id="rv-crop-all">Use everything</button>' +
-    '<button type="button" class="rv-btn" id="rv-crop-cancel" hidden>Cancel</button></div>');
+    '<button type="button" class="rv-btn" id="rv-crop-cancel" hidden>Cancel</button></div>' +
+    '<div id="rv-modes" role="group" aria-label="Plan mode"><button type="button" class="on" data-mode="plan">Plan</button>' +
+    '<button type="button" data-mode="top">Top view</button></div>' +
+    '<div id="rv-inspector" hidden></div>');
 
   el('rv-json').onclick = () => el('file-folder-input').click();
   el('rv-save').onclick = () => exportRoute('xml');
@@ -89,7 +91,8 @@
   let loadedOnce = false;                // after the first full load, later reads keep the user's points
   let lastBox = null;                    // the area in model feet that was last read; null = everything
 
-  function ensure3D() {
+  /* Starts the page's render loop (it advances the video clock) without showing any 3D. */
+  function ensureLoop() {
     if (!el('preview-3d').classList.contains('visible')) toggle3DPanel();
   }
 
@@ -124,7 +127,6 @@
     try { data = await fetchCurrent(); } catch (e) { toast(e.message, 'err'); return; }
     const snap = keepSession ? captureSession(state) : null;     // applyFloorPlan resets the route, tour picks, entrance and step
     applyFloorPlan(data);
-    fitted = false;
     if (snap) {
       const step = restoreSession(state, snap);
       if (step !== state.step) goStep(step);
@@ -138,7 +140,9 @@
     el('rv-sync').textContent = syncLabel(data.view_name);
     loadedOnce = true;
     showIssues(data.room_issues, data.level_notices);
-    ensure3D();
+    ensureLoop();
+    if (pendingTop && haveMeshes()) { pendingTop = false; mode = 'top'; }
+    applyMode();
   }
 
   async function showOverview() {
@@ -148,7 +152,9 @@
     applyFloorPlan(data);
     if (snap) { restoreSession(state, snap); renderRoute(); updateWpList(); }
     fillLevels(data);
-    ensure3D();
+    ensureLoop();
+    mode = 'plan';
+    applyMode();
     startCrop(data);
   }
 
@@ -156,7 +162,7 @@
   Host.handlers.modelOverview = () => showOverview().finally(hideLoading);
   Host.handlers.modelLoaded = () => loadCurrent(loadedOnce).finally(hideLoading);
   Host.handlers.modelRefreshed = () => loadCurrent(true).finally(hideLoading);
-  Host.handlers.modelFailed = () => hideLoading();
+  Host.handlers.modelFailed = () => { pendingTop = false; hideLoading(); };
 
   /* Ask the add-in; outside Revit (the demo page) there is nobody to ask, so the frame just closes. */
   function sendRead(message) {
@@ -168,6 +174,81 @@
   el('rv-level').onchange = () => sendRead(levelChangeRequest(!!window.QbiqCropping, loadedOnce, currentLevel(), lastBox));
   el('rv-area').onclick = () => (inRevit() ? Host.postToHost({ type: 'overview', level: currentLevel() })
     : startCrop({ crop_default: lastBox }));
+
+  /* ── the plan's two modes: Plan (rooms, colours) and Top view (the 3D from above, drawn once as a picture under the overlays) ── */
+  let mode = 'plan', pendingTop = false;
+
+  const haveMeshes = () => !!(state.geometry && state.geometry.meshes && state.geometry.meshes.length);
+
+  function underlayLayer() {
+    if (!gRoot) return null;
+    let g = el('rv-under');
+    if (!g || !g.isConnected) {
+      g = document.createElementNS(SVG, 'g');
+      g.id = 'rv-under';
+      g.setAttribute('pointer-events', 'none');
+      gRoot.insertBefore(g, gRoot.firstChild);         // under everything the page and this file draw
+    }
+    return g;
+  }
+
+  /* The model from straight above, cut at the level's height so ceilings and roofs do not hide the rooms, as one picture. */
+  function renderTopView(retry = true) {
+    // The page builds its 3D scene on an animation frame, which does not run in a background tab: build it now if it is missing.
+    if (typeof threeScene !== 'undefined' && !threeScene && typeof ensureScene === 'function') { try { ensureScene(); } catch (e) { console.error('revit-shell scene', e); } }
+    const b = state.bounds, g = underlayLayer();
+    if (!b || !g || !window.THREE || typeof threeRenderer === 'undefined' || !threeRenderer || !threeScene) {
+      if (retry) setTimeout(() => { if (mode === 'top') renderTopView(false); }, 400);          // the scene may still be starting
+      return;
+    }
+    const cam = topCamera(b, state.unitsToMetres || 1), size = imageSize(b, 2048), place = underlayPlacement(b);
+    const cut = clipHeight(levelElevationM(), CUT_M);
+    const ortho = new THREE.OrthographicCamera(-cam.width / 2, cam.width / 2, cam.height / 2, -cam.height / 2, 0.1, 1000);
+    ortho.position.set(cam.cx, cut + 200, cam.cz);                 // well above the cut, well inside the scene's far range
+    ortho.up.set(0, 0, -1);                            // screen up = -z, so plan y runs down the picture as in the SVG
+    ortho.lookAt(cam.cx, cut, cam.cz);
+    const off = hiddenTypes(), restore = [];
+    threeScene.traverse(o => {
+      if (!o.visible) return;
+      if ((o.isMesh && off.has(o.userData.meshType)) || o.isSprite) { restore.push(o); o.visible = false; }
+    });
+    const prev = threeRenderer.getSize(new THREE.Vector2()), ratio = threeRenderer.getPixelRatio();
+    threeRenderer.setPixelRatio(1);
+    threeRenderer.setSize(size.w, size.h, false);
+    const fog = threeScene.fog;
+    threeScene.fog = null;                                         // the scene's fog would paint a high camera's whole view as background
+    threeRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), cut)];
+    threeRenderer.render(threeScene, ortho);
+    threeScene.fog = fog;
+    const url = threeRenderer.domElement.toDataURL('image/png');
+    threeRenderer.clippingPlanes = [];
+    threeRenderer.setPixelRatio(ratio);
+    threeRenderer.setSize(prev.x, prev.y, false);
+    restore.forEach(o => { o.visible = true; });
+    g.innerHTML = `<image href="${url}" x="${place.x}" y="${place.y}" width="${place.width}" height="${place.height}" preserveAspectRatio="none"/>`;
+  }
+
+  function applyMode() {
+    document.querySelectorAll('#rv-modes button').forEach(btn => btn.classList.toggle('on', btn.dataset.mode === mode));
+    const under = underlayLayer(), top = mode === 'top' && haveMeshes();
+    if (top) renderTopView();
+    // The plan's own drawing (walls, doors, room fills) is every child of the root except the layers this file and the page's
+    // overlays own; Top view hides it so the picture shows, Plan mode shows it again.
+    const keep = new Set(['rv-under', 'rv-extras', 'rv-here', 'rv-crop', 'route-overlay']);
+    if (gRoot) for (const child of gRoot.children) if (!keep.has(child.id)) child.style.display = top ? 'none' : '';
+    if (under) under.style.display = top ? '' : 'none';
+  }
+
+  function setMode(next) {
+    if (next === 'top' && !haveMeshes()) {                 // the 3D is only read when it is first wanted
+      pendingTop = true;
+      sendRead(meshRequest(currentLevel(), lastBox));
+      return;
+    }
+    mode = next;
+    applyMode();
+  }
+  document.querySelectorAll('#rv-modes button').forEach(btn => { btn.onclick = () => setMode(btn.dataset.mode); });
 
   /* ── the area frame ── */
   let cropRect = null, cropBounds = null, drag = null;
@@ -255,22 +336,58 @@
     drag = null;
   }
 
+  const withMeshes = message => (mode === 'top' ? { ...message, meshes: true } : message);   // the Top view needs the 3D for a new area
+
   el('rv-crop-ok').onclick = () => {
     if (!isUsable(cropRect)) { toast('Drag a bigger frame around the area first', 'inf'); return; }
     lastBox = toModelBox(cropRect);
-    sendRead({ type: 'readModel', level: currentLevel(), crop: lastBox });
+    sendRead(withMeshes({ type: 'readModel', level: currentLevel(), crop: lastBox }));
   };
   el('rv-crop-all').onclick = () => {
     lastBox = null;
-    sendRead({ type: 'readModel', level: currentLevel() });
+    sendRead(withMeshes({ type: 'readModel', level: currentLevel() }));
   };
-  el('rv-crop-cancel').onclick = () => sendRead({ type: 'readModel', level: currentLevel(), crop: lastBox });   // back to the area it had
+  el('rv-crop-cancel').onclick = () => sendRead(withMeshes({ type: 'readModel', level: currentLevel(), crop: lastBox }));   // back to the area it had
 
   if (new URLSearchParams(window.location.search).get('demo') === '1') {
-    loadDemo().then(() => { ensure3D(); });            // development without Revit: the demo plan stands in for a model
+    loadDemo().then(() => { ensureLoop(); });          // development without Revit: the demo plan stands in for a model
   }
   if (new URLSearchParams(window.location.search).get('demo') === 'crop') {
-    loadDemo().then(() => { ensure3D(); startCrop({}); });
+    loadDemo().then(() => { ensureLoop(); startCrop({}); });
+  }
+
+  /* ── what the path means, on the plan: a view cone at every point, rings where the camera pauses ── */
+  let lastPlan = null;                    // the latest /api/camera-plan, for the pause rings
+
+  function extrasLayer() {
+    if (!gRoot) return null;
+    let g = el('rv-extras');
+    if (!g || !g.isConnected) {
+      g = document.createElementNS(SVG, 'g');
+      g.id = 'rv-extras';
+      g.setAttribute('pointer-events', 'none');
+      const route = el('route-overlay');
+      gRoot.insertBefore(g, route || null);             // just under the points, over the plan
+    }
+    return g;
+  }
+
+  function drawPlanExtras() {
+    const g = extrasLayer();
+    if (!g) return;
+    const wps = state.waypoints, len = coneLength(state.bounds), k = circleR();
+    const parts = [];
+    wps.forEach((w, i) => {
+      const f = nearestFrame(p3.frames, w.x, w.y);
+      if (!f) return;
+      const [apex, a, b] = viewCone(w.x, w.y, f.yaw, cam.fov, len);
+      const colour = i === state.selectedWp ? '#d99000' : w.invalid ? '#f0b429' : '#2f6bff';
+      parts.push(`<polygon points="${apex} ${a} ${b}" fill="${colour}" fill-opacity="${i === state.selectedWp ? 0.3 : 0.16}" stroke="${colour}" stroke-opacity=".7" stroke-width="${k * 0.12}"/>`);
+    });
+    for (const p of pauseKeyframes(lastPlan)) {
+      parts.push(`<circle cx="${p.x}" cy="${p.y}" r="${k * 2}" fill="none" stroke="#d99000" stroke-width="${k * 0.3}" stroke-dasharray="${k * 0.6} ${k * 0.5}"/>`);
+    }
+    g.innerHTML = parts.join('');
   }
 
   /* ── "you are here": a dot and view cone on the plan that follow the play head ── */
@@ -292,174 +409,19 @@
     if (!p3.frames || p3.frames.length < 2 || !state.bounds) { g.innerHTML = ''; return; }
     const n = p3.frames.length, raw = Math.min(1, Math.max(0, t)) * (n - 1);
     const i = Math.min(Math.floor(raw), n - 2), k = raw - i, a = p3.frames[i], b = p3.frames[i + 1];
-    const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k, yaw = lerpYaw(a.yaw, b.yaw, k) * Math.PI / 180;
-    const r = circleR() * 1.3, len = r * 6, half = (cam.fov / 2) * Math.PI / 180;
-    const tip = s => `${(x + len * Math.cos(yaw + s)).toFixed(3)},${(y + len * Math.sin(yaw + s)).toFixed(3)}`;
+    const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k, yaw = lerpYaw(a.yaw, b.yaw, k);
+    const r = circleR() * 1.3, [apex, c1, c2] = viewCone(x, y, yaw, cam.fov, r * 6);
     g.innerHTML =
-      `<polygon points="${x},${y} ${tip(-half)} ${tip(half)}" fill="#d64545" fill-opacity=".22" stroke="#d64545" stroke-opacity=".6" stroke-width="${r * 0.12}"/>` +
+      `<polygon points="${apex} ${c1} ${c2}" fill="#d64545" fill-opacity=".22" stroke="#d64545" stroke-opacity=".6" stroke-width="${r * 0.12}"/>` +
       `<circle cx="${x}" cy="${y}" r="${r}" fill="#d64545" stroke="#fff" stroke-width="${r * 0.3}"/>`;
   }
   wrap('updateCameraFromT', drawHere);
-
-  /* ── 3D: overview camera, path overlay, camera inset ── */
-  let overview = null, controls = null, group = null, markers = [], fitted = false, overlayDirty = true, lastBounds = null;
-
-  function ensureOverview(renderer) {
-    if (overview) return;
-    overview = new THREE.PerspectiveCamera(50, 1, 0.1, 5000);
-    controls = new THREE_ADDONS.OrbitControls(overview, renderer.domElement);
-    controls.enableDamping = false;
-    fitted = false;
-  }
-
-  function fit() {
-    const f = planFrame();
-    const r = Math.max(f.hw, f.hd);
-    const base = levelElevationM();                    // look at the loaded level, not at storey 0
-    overview.position.set(f.cx, base + r * 1.5, f.cz + r * 1.3);
-    controls.target.set(f.cx, base, f.cz);
-    controls.update();
-    fitted = true;
-  }
-
-  function frameAt(x, y) {
-    let best = null, bestD = Infinity;
-    for (const f of p3.frames) { const d = (f.x - x) ** 2 + (f.y - y) ** 2; if (d < bestD) { bestD = d; best = f; } }
-    return best;
-  }
-
-  function disposeGroup() {
-    if (!group) return;
-    group.traverse(o => { o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); });
-    group.parent && group.parent.remove(group);
-    group = null; markers = [];
-  }
-
-  function rebuildOverlay(scene) {
-    disposeGroup();
-    overlayDirty = false;
-    const wps = state.waypoints;
-    if (!wps.length) return;
-    group = new THREE.Group();
-    const segs = (state.splineSegments || []).filter(s => s.length > 1);
-    const line = (segs.length ? segs.flat() : wps.map(w => [w.x, w.y]));
-    const pts = routeToWorld(line, U(), EYE, levelElevationM()).map(toThree);
-    if (pts.length > 1) {
-      const curve = new THREE.CatmullRomCurve3(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 1e-6), false, 'centripetal');
-      group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(600, pts.length * 2), 0.07, 5, false),
-        new THREE.MeshBasicMaterial({ color: 0x2f6bff })));
-    }
-    const world = routeToWorld(wps.map(w => [w.x, w.y]), U(), EYE, levelElevationM());
-    const selected = state.selectedWp;
-    world.forEach((wp, i) => {
-      const colour = i === selected ? 0xd99000 : wps[i].invalid ? 0xf0b429 : i === 0 ? 0x31a354 : i === wps.length - 1 ? 0xd64545 : 0x2f6bff;
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(i === selected ? 0.3 : 0.22, 16, 12),
-        new THREE.MeshBasicMaterial({ color: colour, depthTest: false }));
-      ball.renderOrder = 10;
-      ball.position.copy(toThree(wp));
-      ball.userData.wp = i;
-      group.add(ball); markers.push(ball);
-      const f = frameAt(wps[i].x, wps[i].y);
-      if (f) {
-        const { apex, baseCorners } = coneParams(wp, f.yaw, cam.fov, 2.4);
-        const v = [apex, ...baseCorners].map(toThree);
-        const geo = new THREE.BufferGeometry().setFromPoints(
-          [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]].flatMap(t => t.map(k => v[k])));
-        group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false })));
-      }
-    });
-    scene.add(group);
-  }
-
-  /* Meshes of a type the user switched off (roofs and ceilings hide the inside from above). Returns what to restore. */
-  function hideSwitchedOff(scene) {
-    const off = new Set();
-    if (!el('rv-roofs').checked) off.add('roof');
-    if (!el('rv-ceilings').checked) off.add('ceiling');
-    const restore = [];
-    scene.traverse(o => {
-      if (o.isMesh && off.has(o.userData.meshType) && o.visible) { restore.push(o); o.visible = false; }
-    });
-    return restore;
-  }
-
-  window.QbiqRevit = {
-    /* The overview camera and point markers, for tests that drive the 3D view with synthetic pointer events. */
-    debug: () => ({ overview, markers, controls }),
-    /* Replaces the page's single render call: orbit overview, then the first-person camera as an inset. */
-    render(renderer, scene, fpCam) {
-      ensureOverview(renderer);
-      if (lastBounds !== state.bounds) { lastBounds = state.bounds; fitted = false; }
-      if (!fitted && state.bounds) fit();
-      if (overlayDirty || (group && group.parent !== scene)) rebuildOverlay(scene);
-      const size = renderer.getSize(new THREE.Vector2());
-      overview.aspect = size.x / size.y; overview.updateProjectionMatrix();
-      renderer.setScissorTest(false);
-      renderer.setViewport(0, 0, size.x, size.y);
-      const hidden = hideSwitchedOff(scene);
-      renderer.render(scene, overview);
-      hidden.forEach(o => { o.visible = true; });
-      if (!p3.frames.length) return;
-      const iw = Math.round(size.x * 0.28), ih = Math.round(iw * 9 / 16), x = size.x - iw - 12, y = 12;
-      const savedAspect = fpCam.aspect;
-      fpCam.aspect = iw / ih; fpCam.updateProjectionMatrix();
-      if (group) group.visible = false;
-      renderer.setScissorTest(true);
-      renderer.setViewport(x, y, iw, ih); renderer.setScissor(x, y, iw, ih);
-      renderer.render(scene, fpCam);
-      renderer.setScissorTest(false);
-      if (group) group.visible = true;
-      fpCam.aspect = savedAspect; fpCam.updateProjectionMatrix();
-    },
-  };
-
-  /* ── picking and dragging points in the 3D view ── */
-  let raycaster = null, dragging = null;          // THREE is only available once the module build has booted
-  function ray(e) {
-    raycaster = raycaster || new THREE.Raycaster();
-    const canvas = e.currentTarget, r = canvas.getBoundingClientRect();
-    raycaster.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), overview);
-    return raycaster.ray;
-  }
-  function pick(e) {
-    if (!overview || !markers.length) return null;
-    const hit = ray(e) && raycaster.intersectObjects(markers, false)[0];
-    return hit ? hit.object.userData.wp : null;
-  }
-  function onCanvasReady() {
-    const canvas = el('preview-canvas');
-    canvas.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
-      const i = pick(e);
-      if (i == null) return;
-      controls.enabled = false; dragging = i;
-      sel.select(`wp:${i}`);
-      canvas.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    }, true);
-    canvas.addEventListener('pointermove', e => {
-      if (dragging == null) return;
-      const r = ray(e), hit = floorHit([r.origin.x, -r.origin.z, r.origin.y], [r.direction.x, -r.direction.z, r.direction.y], EYE + levelElevationM());
-      if (!hit) return;
-      const w = state.waypoints[dragging];
-      w.x = hit[0] / U(); w.y = -hit[1] / U();
-      overlayDirty = true;
-    });
-    const end = e => {
-      if (dragging == null) return;
-      dragging = null; controls.enabled = true;
-      markHandEdited(); renderRoute(); updateWpList();
-    };
-    canvas.addEventListener('pointerup', end);
-    canvas.addEventListener('pointercancel', end);
-  }
-  onCanvasReady();
 
   /* ── selection shared with the page's own plan selection ── */
   sel.subscribe(id => {
     const i = id && id.startsWith('wp:') ? Number(id.slice(3)) : null;
     if (state.selectedWp !== i) { state.selectedWp = i; renderRoute(); }
-    overlayDirty = true;
+    drawPlanExtras();
     renderInspector();
     markLanes();
   });
@@ -471,7 +433,7 @@
     const dwell = w.stop ? w.stop.dwell_s : null;
     box.innerHTML = `<h4><span>Point ${i + 1}</span><span style="color:var(--text3)">${esc(w.stop?.label || '')}</span></h4>` +
       (w.invalid ? '<div class="rv-warn">Outside the walkable floor or area</div>' : '') +
-      `<div class="rv-fld">Eye height<input value="${EYE.toFixed(2)} m" readonly></div>` +
+      '<div class="rv-fld">Eye height<input value="1.57 m" readonly></div>' +
       `<div class="rv-fld">Look-at offset<input id="rv-yaw" type="number" step="5" value="${w.yawOffset || 0}"></div>` +
       (dwell != null ? `<div class="rv-fld">Pause (s)<input id="rv-dwell" type="number" step="0.5" min="0.5" max="10" value="${dwell}"></div>` : '');
     box.hidden = false;
@@ -500,9 +462,9 @@
   }
 
   function waypointMarkers(total) {
-    const tl = p3.timeline;
+    const tl = p3.timeline, u = state.unitsToMetres || 1;
     return state.waypoints.map((w, i) => {
-      const m = projectToRoute(p3.frames, p3.dists, U(), w.x, w.y);
+      const m = projectToRoute(p3.frames, p3.dists, u, w.x, w.y);
       const sec = timelineSecondAt(tl, walkTimeAtDistance(p3.dists, p3.duration, m));
       return `<i class="rv-wp${w.invalid ? ' bad' : ''}" data-wp="${i}" data-sec="${sec}" style="left:${pct(sec, total)}"></i>`;
     }).join('');
@@ -516,7 +478,9 @@
     const r = await fetch(`${API}/api/camera-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ waypoints: state.waypoints.map(wpWire), cuts: cutIndices(), settings }) });
     if (!r.ok || seq !== laneSeq) return;
-    const tracks = buildTracks({ plan: await r.json(), frames: p3.frames, plain: true });
+    lastPlan = await r.json();
+    drawPlanExtras();
+    const tracks = buildTracks({ plan: lastPlan, frames: p3.frames, plain: true });
     const [, camera, lookat, pauses] = tracks.lanes;
     const total = p3.timeline.total;
     ensureLaneHost().innerHTML = laneHtml('Camera', camera, total) + laneHtml('Look-at', lookat, total) + laneHtml('Pauses', pauses, total);
@@ -547,9 +511,10 @@
   }
 
   wrap('drawRoute', () => {
-    overlayDirty = true;
     el('rv-save').disabled = state.waypoints.length < 2;
+    if (!state.waypoints.length) { lastPlan = null; const h = el('rv-here'); if (h) h.innerHTML = ''; }
     pageToSelection();
+    drawPlanExtras();
     schedulePreview();
   });
   wrap('renderTimelineLanes', renderLanes);

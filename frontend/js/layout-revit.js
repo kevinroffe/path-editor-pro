@@ -1,7 +1,8 @@
 /* The Revit window is one screen instead of four steps: the plan, the 3D view, the video bar and one right-hand panel that
    holds the old step panels as sections. These are the pure decisions behind that; revit-shell.js does the DOM work. */
 
-/* The step panels that become sections of the right panel, top to bottom. Step 1 (load) is replaced by the header controls. */
+/* The step panels that become sections of the right panel, top to bottom. Step 1 (load) is replaced by the header controls.
+   The 3D preview panel is not shown at all: the plan carries everything the path means. */
 function panelSections() {
   return [
     { id: 'step-2', title: 'Tour & route' },
@@ -16,7 +17,7 @@ function shouldShowStepChrome(mode) {
 }
 
 function hiddenInRevit() {
-  return ['step-1', 'dock', 'resize-handle'];
+  return ['step-1', 'dock', 'resize-handle', 'preview-3d'];
 }
 
 /* Plan editing (clicking points, picking rooms) is a step-2 feature in a tab; in the Revit window it is always on. */

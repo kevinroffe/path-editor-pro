@@ -117,3 +117,14 @@ def test_far_from_origin_xml_exact(client):
     r = client.post("/api/export/xml", json=body)
     x, _, z = _positions(r.data.decode())[0]
     assert (x, z) == pytest.approx(((far + 10) * U, -(far + 20.5) * U), abs=0.001)
+
+
+def test_response_meshes_are_reduced_to_the_budget(client, monkeypatch):
+    monkeypatch.setenv("QBIQ_MAX_MESH_VERTICES", "100")
+    p = payload()
+    cube = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1]
+    p["meshes"] += [{"type": "furniture", "verts": [c + i * 3 * (n % 3 == 0) for n, c in enumerate(cube)],
+                     "faces": [0, 1, 2], "color": f"#00{i:04x}", "opacity": None} for i in range(30)]
+    meshes = _post(client, p).get_json()["geometry"]["meshes"]
+    assert sum(len(m["verts"]) // 3 for m in meshes) <= 100
+    assert any(m["type"] == "floor" for m in meshes)

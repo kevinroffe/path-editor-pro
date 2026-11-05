@@ -42,6 +42,7 @@ from svg_generator   import generate_svg
 from qbiq_extractor  import extract_qbiq, extract_qbiq_design_with_plan
 from plan_model import flipped, plan_to_json
 from plan_from_revit import build_revit_plan
+from mesh_reduce import reduce_meshes
 from revit_payload import parse_revit_payload, room_issues
 from plan_routing import CorridorBlocked, corridor_graph_for, first_graph, route_on_plan
 from plan_tour import build_tour, suggest_tour
@@ -409,6 +410,7 @@ def upload_revit():
     data = request.get_json(silent=True)
     try:
         geo = parse_revit_payload(data)
+        geo.meshes = reduce_meshes(geo.meshes, int(os.environ.get("QBIQ_MAX_MESH_VERTICES", "400000")))
         issues = room_issues(data)
         plan = build_revit_plan(data)
     except ValueError as e:

@@ -14,6 +14,7 @@ GET  /                    — serve frontend
 """
 
 from __future__ import annotations
+import hmac
 import math
 import os
 import sys
@@ -219,6 +220,18 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = Flask(__name__, static_folder=str(FRONTEND_DIR))
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 CORS(app)
+
+
+@app.before_request
+def _require_engine_key():
+    """When the add-in starts the engine it sets QBIQ_ENGINE_KEY; every API call must then carry it.
+    The page and its assets stay open so the window can load and read the key from its URL."""
+    key = os.environ.get("QBIQ_ENGINE_KEY")
+    if not key or request.method == "OPTIONS" or request.path == "/" or request.path.startswith("/frontend/"):
+        return None
+    if not hmac.compare_digest(request.headers.get("X-Qbiq-Key", ""), key):
+        return jsonify({"error": "missing or wrong engine key"}), 403
+    return None
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

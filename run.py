@@ -27,7 +27,18 @@ def main():
     parser = argparse.ArgumentParser(description='Revit Walkthrough Tool')
     parser.add_argument('--port', type=int, default=5000)
     parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--key', default=None, help='require this value in the X-Qbiq-Key header on every API call')
+    parser.add_argument('--allow-remote', action='store_true', help='allow --host other than 127.0.0.1')
     args = parser.parse_args()
+
+    if args.host != '127.0.0.1' and not args.allow_remote:
+        sys.exit(f"Refusing to listen on {args.host}: the engine is local only. Pass --allow-remote to override.")
+    if args.key:
+        os.environ['QBIQ_ENGINE_KEY'] = args.key
+    os.environ['PYTHONUTF8'] = '1'
+    for stream in (sys.stdout, sys.stderr):   # the banner has non-ASCII characters; a cp1255/cp1252 console would crash on it
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
 
     check_deps()
 

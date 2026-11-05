@@ -1,11 +1,14 @@
 # engine.spec — PyInstaller build of the headless engine the Revit add-in starts (qbiq-engine.exe).
 # Derived from qbiq.spec (the desktop exe): same data and hidden imports, no tkinter window.
-from PyInstaller.utils.hooks import collect_all, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 block_cipher = None
 
 ifc_datas, ifc_binaries, ifc_hidden = collect_all('ifcopenshell')
 ezdxf_datas = collect_data_files('ezdxf')
+# Imported as `from shapely import wkt` etc.: PyInstaller's analysis does not always see these submodules.
+shapely_hidden = collect_submodules('shapely')
+networkx_hidden = collect_submodules('networkx')
 
 a = Analysis(
     ['engine_main.py'],
@@ -38,7 +41,7 @@ a = Analysis(
         'ifcopenshell.util',
         'ifcopenshell.util.element',
         'svgwrite',
-    ] + ifc_hidden,
+    ] + ifc_hidden + shapely_hidden + networkx_hidden,
     hookspath=[],
     runtime_hooks=[],
     excludes=['matplotlib', 'PyQt5', 'PyQt6', 'PySide2', 'PySide6', 'IPython', 'jupyter', 'pytest', 'tkinter'],

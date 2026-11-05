@@ -76,6 +76,7 @@ _LAST_FOOTPRINT = {"dxf": [], "ifc": []}  # FLOOD-layer / room polygons — see 
 _LAST_DOORS = {"dxf": [], "ifc": []}  # door locations, forced passable — see _door_polylines
 _LAST_PLAN = None  # display-space PlanModel of the last design-JSON upload, else None
 _LAST_REVIT_RESPONSE = None  # JSON body of the last /api/upload-revit response, served by /api/revit/current
+_LAST_REVIT_MESHES: list = []  # the 3D of the last full Revit load; a level change (keep_meshes) reuses it
 _LAST_UNITS_TO_METRES = 1.0  # from the DXF/demo canvas source, for Auto Path's clearance_m conversion
 
 # Corridor-graph routing needs walls kept SEPARATE from other obstacle
@@ -422,12 +423,16 @@ def _building_outline(geo) -> list:
 @app.route("/api/upload-revit", methods=["POST"])
 def upload_revit():
     """Accept one Revit level from the add-in (revit_payload.py) and load it like any other 2D source."""
-    global _LAST_REVIT_RESPONSE
+    global _LAST_REVIT_RESPONSE, _LAST_REVIT_MESHES
     data = request.get_json(silent=True)
     notices = []
     try:
         geo = parse_revit_payload(data)
         geo.meshes = reduce_meshes(geo.meshes, int(os.environ.get("QBIQ_MAX_MESH_VERTICES", "400000")))
+        if geo.meshes:
+            _LAST_REVIT_MESHES = geo.meshes          # a full load: remember its 3D
+        elif data.get("keep_meshes"):
+            geo.meshes = _LAST_REVIT_MESHES          # a level change: 2D only, the 3D stays
         issues = room_issues(data)
         plan = build_revit_plan(data)
     except ValueError as e:
@@ -442,7 +447,9 @@ def upload_revit():
         has_rooms = any(r.get("placed") and r.get("enclosed") and r.get("polygon") for r in data.get("rooms") or [])
         notices.append("no_corridor" if has_rooms else "no_rooms")
     resp = _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None,
-                             extra={"room_issues": issues, "level_notices": notices})
+                             extra={"room_issues": issues, "level_notices": notices,
+                                    "levels": data.get("levels") or [geo.level_name], "view_name": data.get("view_name"),
+                                    "overview": bool(data.get("overview")), "crop_default": data.get("crop_default")})
     _LAST_REVIT_RESPONSE = resp.get_json()
     return resp
 

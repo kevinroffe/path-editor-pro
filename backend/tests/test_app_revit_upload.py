@@ -179,3 +179,64 @@ def test_too_large_a_payload_is_a_json_error(client, monkeypatch):
     resp = _post(client)
     assert resp.status_code == 413
     assert "too large" in resp.get_json()["error"]
+
+
+def _with(**extra):
+    p = payload()
+    p.update(extra)
+    return p
+
+
+def test_levels_view_name_and_overview_are_echoed(client):
+    body = _post(client, _with(levels=["Level 1", "Level 2"], current_level="Level 1", view_name="{3D}", overview=True,
+                               crop_default={"xmin": 0, "ymin": 0, "xmax": 60, "ymax": 40})).get_json()
+    assert body["levels"] == ["Level 1", "Level 2"]
+    assert body["view_name"] == "{3D}"
+    assert body["overview"] is True
+    assert body["crop_default"] == {"xmin": 0, "ymin": 0, "xmax": 60, "ymax": 40}
+
+
+def test_the_new_fields_default_sensibly_when_absent(client):
+    body = _post(client).get_json()
+    assert body["levels"] == ["Level 1"] and body["overview"] is False
+    assert body["view_name"] is None and body["crop_default"] is None
+
+
+def test_an_overview_without_meshes_loads(client):
+    p = _with(overview=True)
+    p["meshes"] = []
+    resp = _post(client, p)
+    assert resp.status_code == 200 and resp.get_json()["geometry"]["meshes"] == []
+
+
+def test_keep_meshes_reuses_the_last_3d_when_a_level_changes(client):
+    first = _post(client).get_json()
+    assert first["geometry"]["meshes"]
+    change = _with(keep_meshes=True)
+    change["meshes"] = []
+    again = _post(client, change).get_json()
+    assert again["geometry"]["meshes"] == first["geometry"]["meshes"]
+
+
+def test_an_overview_does_not_discard_the_loaded_3d(client):
+    first = _post(client).get_json()
+    overview = _with(overview=True)
+    overview["meshes"] = []
+    assert _post(client, overview).get_json()["geometry"]["meshes"] == []          # an overview shows no 3D
+    keep = _with(keep_meshes=True)
+    keep["meshes"] = []
+    assert _post(client, keep).get_json()["geometry"]["meshes"] == first["geometry"]["meshes"]
+
+
+def test_keep_meshes_without_a_previous_load_is_just_empty(client):
+    keep = _with(keep_meshes=True)
+    keep["meshes"] = []
+    resp = _post(client, keep)
+    assert resp.status_code == 200 and resp.get_json()["geometry"]["meshes"] == []
+
+
+def test_a_cropped_empty_level_is_a_clear_error(client):
+    p = payload()
+    p["walls"], p["meshes"] = [], []
+    resp = _post(client, p)
+    assert resp.status_code == 400 and "no geometry" in resp.get_json()["error"]

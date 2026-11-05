@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Qbiq.PathTool.Addin</RootNamespace>
+    <AssemblyName>Qbiq.PathTool.Addin</AssemblyName>
+    <!-- Revit 2024 loads add-ins on .NET Framework 4.8. The Revit API comes from the install folder. -->
+    <RevitDir Condition="'$(RevitDir)' == ''">C:\Program Files\Autodesk\Revit 2024\</RevitDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI"><HintPath>$(RevitDir)RevitAPI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="RevitAPIUI"><HintPath>$(RevitDir)RevitAPIUI.dll</HintPath><Private>false</Private></Reference>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <ProjectReference Include="..\Qbiq.PathTool.Core\Qbiq.PathTool.Core.csproj" />
+  </ItemGroup>
+
+</Project>

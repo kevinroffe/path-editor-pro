@@ -24,3 +24,7 @@ Thumbs.db
 
 # Brainstorming / SDD scratch
 .superpowers/
+
+# .NET build output
+addin/**/bin/
+addin/**/obj/

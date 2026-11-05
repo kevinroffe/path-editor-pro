@@ -25,6 +25,7 @@ from functools import partial
 import uuid
 from pathlib import Path
 
+from shapely.geometry import LineString, MultiLineString, Point
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -689,6 +690,26 @@ def export_xml():
         return _err(str(e))
     return app.response_class(out, mimetype="application/xml",
                               headers={"Content-Disposition": 'attachment; filename="enscape_walkpath.xml"'})
+
+
+WALL_CLEARANCE_M = 0.15   # without a plan, a point closer than this to a wall, column or furniture edge is blocked
+
+
+@app.route("/api/points-valid", methods=["POST"])
+def points_valid():
+    """Which of the given canvas points are still walkable in the loaded level (used after a model refresh)."""
+    points = (request.get_json(silent=True) or {}).get("points")
+    if not isinstance(points, list) or not all(_is_point(pt) for pt in points):
+        return _err("points must be a list of [x, y]")
+    if (plan := _LAST_PLAN) is not None:
+        walkable = plan.walkable.buffer(0.01 / plan.units_to_metres)
+        return jsonify({"valid": [bool(walkable.covers(Point(pt))) for pt in points]})
+    lines = [LineString(pl) for pl in _LAST_OBSTACLES["dxf"] + _LAST_OBSTACLES["ifc"] if len(pl) >= 2]
+    if not lines:
+        return jsonify({"valid": [True] * len(points)})
+    blocked = MultiLineString(lines)
+    limit = WALL_CLEARANCE_M / (_LAST_UNITS_TO_METRES or 1.0)
+    return jsonify({"valid": [blocked.distance(Point(pt)) > limit for pt in points]})
 
 
 @app.route("/api/camera-plan", methods=["POST"])

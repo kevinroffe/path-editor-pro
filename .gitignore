@@ -28,3 +28,4 @@ Thumbs.db
 # .NET build output
 addin/**/bin/
 addin/**/obj/
+addin/out/

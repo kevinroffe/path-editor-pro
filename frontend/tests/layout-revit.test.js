@@ -15,8 +15,8 @@ test('the step chrome is hidden in the Revit window and shown in a browser tab',
   assert.equal(L.shouldShowStepChrome('browser'), true);
 });
 
-test('the load step, step dock, resize handle and the 3D panel are not shown in the Revit window', () => {
-  assert.deepEqual(L.hiddenInRevit(), ['step-1', 'dock', 'resize-handle', 'preview-3d']);
+test('the load step, step dock and resize handle are not shown in the Revit window; the 3D preview pane is', () => {
+  assert.deepEqual(L.hiddenInRevit(), ['step-1', 'dock', 'resize-handle']);
 });
 
 test('panelSections returns a fresh list each time', () => {

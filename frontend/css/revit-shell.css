@@ -14,7 +14,6 @@ body.host-revit .header .brand-name, body.host-revit .header .plan-name { white-
 .rv-banner .rv-btn { margin-left: auto; }
 
 /* 3D view gets the room; the plan stays beside it for adding points. */
-body.host-revit .preview-3d.visible { width: 62%; }
 body.host-revit .canvas-area { min-width: 280px; }
 
 /* Timeline with all its lanes, at every step. */
@@ -49,8 +48,15 @@ body.host-revit .body {
   grid-template-columns: minmax(0, 1fr) 400px;
   grid-template-rows: minmax(0, 1fr) auto;
 }
-/* No 3D window: the plan fills the left side. (The 3D scene is still built off screen: the Top view mode draws it once as a picture.) */
+/* The 3D preview pane is a column between the plan and the panel while it is on; off, the plan fills the left side. (The 3D scene
+   exists either way: the Top view mode draws it once as a picture.) */
 body.host-revit .preview-3d { display: none !important; }
+body.host-revit.rv-preview-on .body { grid-template-columns: minmax(0, 1fr) minmax(280px, 30%) 400px; }
+body.host-revit.rv-preview-on .preview-3d { display: flex !important; grid-column: 2; grid-row: 1; width: auto !important; min-width: 0; transition: none; border-left: 1px solid var(--border); }
+body.host-revit.rv-preview-on #rv-panel { grid-column: 3; }
+body.host-revit.rv-preview-on #video-timeline { grid-column: 1 / span 2; }
+body.host-revit .p3d-bar, body.host-revit .title-card, body.host-revit #p3d-hud-theme, body.host-revit #p3d-fade { display: none !important; }
+body.host-revit .p3d-canvas-wrap { flex: 1; min-height: 0; position: relative; }
 body.host-revit .canvas-area { grid-column: 1; grid-row: 1; display: flex !important; min-width: 0; }
 body.host-revit #rv-panel { grid-column: 2; grid-row: 1 / span 2; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); }
 body.host-revit #video-timeline { grid-column: 1; grid-row: 2; max-height: 260px; overflow-y: auto; border-top: 1px solid var(--border2); }

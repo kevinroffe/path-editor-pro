@@ -66,3 +66,11 @@ test('asking for the top view the first time re-reads the area with the 3D', () 
   assert.deepEqual(S.meshRequest('Level 1', box), { type: 'readModel', level: 'Level 1', crop: box, meshes: true });
   assert.deepEqual(S.meshRequest('Level 1', null), { type: 'readModel', level: 'Level 1', crop: null, meshes: true });
 });
+
+test('a read asks for the 3D when the preview pane is on or the plan is in Top view', () => {
+  const S = require('../js/revit-session.js');
+  assert.equal(S.wantsMeshes('plan', true), true);
+  assert.equal(S.wantsMeshes('top', false), true);
+  assert.equal(S.wantsMeshes('top', true), true);
+  assert.equal(S.wantsMeshes('plan', false), false);
+});

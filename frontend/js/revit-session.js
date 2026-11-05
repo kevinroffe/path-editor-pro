@@ -51,9 +51,14 @@ function meshRequest(level, lastBox) {
   return { type: 'readModel', level, crop: lastBox, meshes: true };
 }
 
+/* A read asks for the 3D when the preview pane is open or the plan is in Top view; otherwise 2D alone is the faster default. */
+function wantsMeshes(mode, previewOn) {
+  return mode === 'top' || !!previewOn;
+}
+
 /* The header chip: which Revit 3D view the model comes from (the user hides categories there to shape the 3D). */
 function syncLabel(viewName) {
   return viewName ? `3D view: ${viewName}` : 'Synced with Revit ✓';
 }
 
-if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage, levelChangeRequest, meshRequest, syncLabel };
+if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage, levelChangeRequest, meshRequest, wantsMeshes, syncLabel };

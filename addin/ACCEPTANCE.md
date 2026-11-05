@@ -1,4 +1,4 @@
-# Acceptance run — Revit add-in (version 3: 2D plan carries everything, Top view, experimental Revit camera)
+# Acceptance run — Revit add-in (version 4: 2D plan + 3D preview pane beside it, Top view, experimental Revit camera)
 
 Run on the project you choose, in Revit 2024. Tick each item and write what you see. Anything that fails goes in "Problems".
 Nothing here has been run in Revit yet: it was built and tested without Revit (engine, window page in a browser, add-in
@@ -22,8 +22,10 @@ Project: ______________________  Enscape version: ______  Date: ________
 - [ ] Surroundings you cut out (neighbouring buildings, site) are **not** in the plan or the Top view.
 - [ ] **Use everything** also works. **Change area** (header) shows the frame again; your points are kept and marked amber if outside.
 
-## 3. The one-screen editor (2D only)
-- [ ] The **2D plan** fills the left, the **right panel** has Tour & route, Camera style and Save, and the **video bar** runs across the bottom. There is no 3D window, no steps and no "next" buttons.
+## 3. The one-screen editor
+- [ ] The **2D plan** is on the left, the **3D preview pane** next to it, the **right panel** (Tour & route, Camera style, Save) on the right, and the **video bar** across the bottom under the plan and preview. No steps, no "next" buttons, no intro/outro/music.
+- [ ] The first load after **Use this area** also reads the 3D (a big model takes a while: ______ s). Once a route exists, **Play** (or scrubbing the bar) shows the walk from the camera's point of view in the preview pane, in step with the red dot on the plan.
+- [ ] The **3D preview** button in the header hides and shows the pane (hidden = faster 2D-only reads). It shows the Revit meshes with the model's colours, not Enscape's lighting.
 - [ ] **Plan | Top view** switch (top of the plan): **Plan** shows the coloured rooms; **Top view** shows the Revit model from straight above, cut at about 2.6 m above the level, with the route drawn on it.
 - [ ] Top view follows the **active Revit 3D view** (hide a category, press **Refresh model**, it disappears). The first time it takes a moment; switching back to Plan is instant.
 - [ ] The **level** list in the header changes the plan and the Top view of that level.

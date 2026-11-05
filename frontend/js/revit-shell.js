@@ -14,6 +14,7 @@
   const sel = createSelection();
   const el = id => document.getElementById(id);
   const inRevit = () => !!(window.chrome && window.chrome.webview);
+  let previewOn = true;                  // the 3D preview pane beside the plan (header toggle); off = faster 2D-only reads
 
   function wrap(name, after) {
     const original = window[name];
@@ -24,8 +25,8 @@
     };
   }
 
-  /* The page's render loop advances the video clock and updates the camera; with no 3D window there is nothing to draw. */
-  window.QbiqRevit = { render() {} };
+  /* The page's render loop advances the video clock and updates the camera; it only draws while the preview pane is open. */
+  window.QbiqRevit = { render(renderer, scene, camera) { if (previewOn) renderer.render(scene, camera); } };
 
   /* ── one screen: plan | right panel, with the video bar below (no steps, no 3D window) ── */
   (function layout() {
@@ -61,6 +62,7 @@
     '<select id="rv-level" class="rv-select" title="Level of the plan"></select>' +
     '<button type="button" class="rv-btn" id="rv-area">Change area</button>' +
     '<span class="rv-chip" id="rv-sync">Synced with Revit ✓</span>' +
+    '<button type="button" class="rv-btn primary" id="rv-prev" aria-pressed="true" title="Show or hide the 3D preview next to the plan">3D preview</button>' +
     '<button type="button" class="rv-btn" id="rv-json">Load JSON instead</button>' +
     '<button type="button" class="rv-btn" id="rv-cam" aria-pressed="false" hidden title="Experimental: moves the active Revit 3D view along the path while you play">Revit camera</button>' +
     '<span class="rv-chip" id="rv-cam-note" hidden></span>' +
@@ -338,7 +340,7 @@
     drag = null;
   }
 
-  const withMeshes = message => (mode === 'top' ? { ...message, meshes: true } : message);   // the Top view needs the 3D for a new area
+  const withMeshes = message => (wantsMeshes(mode, previewOn) ? { ...message, meshes: true } : message);   // the preview pane and the Top view need the 3D
 
   el('rv-crop-ok').onclick = () => {
     if (!isUsable(cropRect)) { toast('Drag a bigger frame around the area first', 'inf'); return; }
@@ -416,6 +418,22 @@
       `<circle cx="${x}" cy="${y}" r="${r}" fill="#d64545" stroke="#fff" stroke-width="${r * 0.3}"/>`;
   }
   wrap('updateCameraFromT', drawHere);
+
+  /* ── the 3D preview pane (first-person view along the path, beside the plan) ── */
+  document.body.classList.add('rv-preview-on');
+  const empty = el('p3d-empty');
+  if (empty) empty.innerHTML = '<div>Draw at least two points<br>to see the walk here</div>';
+  const refit = () => { if (previewOn && typeof resize3D === 'function' && el('preview-3d').classList.contains('visible')) resize3D(); };
+  if (window.ResizeObserver) new ResizeObserver(refit).observe(el('preview-3d'));
+  function setPreview(on) {
+    previewOn = on;
+    document.body.classList.toggle('rv-preview-on', on);
+    el('rv-prev').classList.toggle('primary', on);
+    el('rv-prev').setAttribute('aria-pressed', String(on));
+    if (on && inRevit() && loadedOnce && !haveMeshes()) sendRead(meshRequest(currentLevel(), lastBox));   // the 3D was not read yet
+    requestAnimationFrame(refit);
+  }
+  el('rv-prev').onclick = () => setPreview(!previewOn);
 
   /* ── EXPERIMENTAL Revit camera: the active Revit 3D view follows the play head (about 15 poses a second) ── */
   const FEET_M = 0.3048;

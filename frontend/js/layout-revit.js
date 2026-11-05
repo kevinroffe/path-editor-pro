@@ -2,7 +2,7 @@
    holds the old step panels as sections. These are the pure decisions behind that; revit-shell.js does the DOM work. */
 
 /* The step panels that become sections of the right panel, top to bottom. Step 1 (load) is replaced by the header controls.
-   The 3D preview panel is not shown at all: the plan carries everything the path means. */
+   The 3D preview pane is its own column between the plan and this panel (see revit-shell.css). */
 function panelSections() {
   return [
     { id: 'step-2', title: 'Tour & route' },
@@ -17,7 +17,7 @@ function shouldShowStepChrome(mode) {
 }
 
 function hiddenInRevit() {
-  return ['step-1', 'dock', 'resize-handle', 'preview-3d'];
+  return ['step-1', 'dock', 'resize-handle'];
 }
 
 /* Plan editing (clicking points, picking rooms) is a step-2 feature in a tab; in the Revit window it is always on. */

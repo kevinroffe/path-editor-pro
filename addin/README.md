@@ -28,6 +28,16 @@ closes. Nothing leaves your computer.
 `qbiq-engine.exe` is a PyInstaller program that opens a localhost port. Some antivirus tools flag that pattern; if the
 window stays empty, allow `%AppData%\Autodesk\Revit\Addins\2024\QbiqPathTool\engine\qbiq-engine.exe`.
 
+## Checking a rebuilt engine
+
+A PyInstaller bundle can silently miss a module (the engine once shipped without `shapely.wkt` and died on start). After
+every rebuild copy `addin\out\engine` to a short path (for example `C:\Users\Public\q`; very long paths break DLL
+loading) and run:
+
+    powershell -File addin\smoke-engine.ps1 -EngineDir C:\Users\Public\q
+
+It starts the exe, then checks the page, the key, a Revit level upload, Auto-path and the level elevation in the Enscape XML.
+
 ## Build
 
 `build-all.bat` (needs the .NET SDK, and Python with `requirements.txt` + `pyinstaller`) writes `addin\out`.

@@ -24,4 +24,8 @@
     <ProjectReference Include="..\Qbiq.PathTool.Core\Qbiq.PathTool.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="fake_engine.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

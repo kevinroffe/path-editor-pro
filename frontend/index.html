@@ -10,13 +10,14 @@
   if (prefix) { const base = document.createElement('base'); base.href = `${prefix}/`; document.head.appendChild(base); }
 })();
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="frontend/js/host.js"></script>
+<script src="frontend/vendor/d3.min.js"></script>
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
-    "mediabunny": "https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs"
+    "three": "./frontend/vendor/three/three.module.js",
+    "three/addons/": "./frontend/vendor/three/addons/",
+    "mediabunny": "./frontend/vendor/mediabunny.min.mjs"
   }
 }
 </script>
@@ -30,7 +31,8 @@
 <script src="frontend/js/room-colours.js"></script>
 <script src="frontend/js/materials3d.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url('frontend/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {

@@ -216,3 +216,22 @@ Linked models, stairs/multi-storey path connections, Revit versions other than 2
 ### How we will know it works (additions)
 
 Open a 3D view and a plan, press the button: the plan overview appears, drag a frame, **Use this area**; the screen shows 3D and plan side by side with the video bar below and the panel on the right, and **the 3D shows what Enscape shows** (hide a category in the view → it disappears from the tool after Refresh). Change the level: the plan changes, the 3D stays.
+
+---
+
+## Revision 3 — no 3D model in the tool; the 2D plan shows everything; a Revit-camera preview (spike)
+
+Kevin: *"I don't need the 3D model, but I want everything the path shows in the 3D (where it looks, the points, etc.) on the 2D. And the video preview must be accurate like Enscape or the Revit 3D model — how?"* He approved: **do both** (the 2D plan, and a spike of playing the path in Revit's own 3D view). Where this section disagrees with earlier text, **this section wins**.
+
+### A. The 3D window goes; the plan carries everything
+- The Revit window has **no 3D view and reads no 3D geometry** (faster reads, much smaller uploads). Layout: **plan (large) | right panel**, the video bar under the plan. The "3D from the active view" read and its roofs/ceilings toggles are retired for the window (the code stays for the diagnostics button only).
+- On the plan, besides the route and numbered points the page already draws: a **view cone at every point** (where the camera looks, sized by the field of view, the selected point highlighted), **pause marks** where the camera stands still, and the live **"you are here"** dot and cone that follows the play head. Dragging points and turning the look direction on the plan keep working.
+- The point inspector sits on the plan.
+
+### B. Accuracy of the video preview (what is and is not possible)
+- **Enscape's own interpolation between keyframes is not documented**; our preview emulates it (learned from 312 hand-made paths), so only Enscape itself plays *exactly* like Enscape. The XML carries exact position and look-at per keyframe.
+- **Spike (experimental):** a header button **Revit camera** drives the **active Revit 3D view's camera** along the path, in step with the play head, so the user sees the real model through the path. Revit's `View3D.SetOrientation` is a temporary orientation (documented as not saved in the document); it fails if the view is locked; the field of view cannot be set directly (it follows the view's crop region). The add-in restores the view's original orientation when the preview is turned off. **Claude's calls:** the view driven is the active view if it is a 3D view, otherwise the user is told to open one; the pose is eye height 1.57 m above the level; pose updates are throttled to about 15 a second; any error turns the preview off with a message. Whether this works in the user's Revit is exactly what the spike is for; it is not claimed to work until he runs it.
+- The only exact preview is Enscape: Save path (XML) stays the hand-off.
+
+### Out of scope (unchanged)
+Thumbnails, snap and zoom on the timeline; linked models; automatic Enscape hand-off.

@@ -30,6 +30,9 @@
 <script src="frontend/js/music.js"></script>
 <script src="frontend/js/room-colours.js"></script>
 <script src="frontend/js/materials3d.js"></script>
+<script src="frontend/js/selection.js"></script>
+<script src="frontend/js/path3d.js"></script>
+<script src="frontend/js/tracks.js"></script>
 <style>
 @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
   src: url('frontend/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
@@ -815,6 +818,7 @@ body[data-step="4"].picking-fade .preview-3d.visible { display: none; }
 body.picking-entrance .canvas-area { cursor: crosshair; }
 .dock-next:disabled { background: rgba(255,255,255,.14); color: rgba(255,255,255,.55); cursor: not-allowed; }
 </style>
+<link rel="stylesheet" href="frontend/css/revit-shell.css">
 </head>
 <body>
 
@@ -3059,7 +3063,7 @@ function render3DLoop(now) {
 
   if (threeRenderer && threeScene && threeCam) {
     syncCeiling();
-    threeRenderer.render(threeScene, threeCam);
+    (window.QbiqRevit ? window.QbiqRevit.render : (r, sc, c) => r.render(sc, c))(threeRenderer, threeScene, threeCam);
   }
 }
 
@@ -3108,11 +3112,14 @@ const walkOnlyTimeline = walk => ({ total: walk, walkSeconds: walk, blocks: [{ k
 const previewSig = () => JSON.stringify([routeKey(), state.waypoints.map(w => [w.cutAfter, w.stop?.pan, w.stop?.dwell_s, w.yawOffset, w.timeOfDay]), cam]);
 
 /* Step 4 plays title cards, fades and music around the walk; step 3 plays the walk alone. */
+/* Step 4 shows the full timeline (intro, fades, outro); the Revit window shows it at every step. */
+const fullTimeline = () => state.step === 4 || hostMode(window.location.search) === 'revit';
+
 function rebuildTimeline() {
   if (!p3.frames.length) return;
   p3.dists = routeDistances(p3.frames, state.unitsToMetres || 1);
-  if (state.step === 4) checkFadesForRoute();
-  p3.timeline = state.step === 4
+  if (fullTimeline()) checkFadesForRoute();
+  p3.timeline = fullTimeline()
     ? buildTimeline({ dists: p3.dists, walkSeconds: p3.duration, fades: state.video.fades })
     : walkOnlyTimeline(p3.duration);
   p3.tl = Math.min(p3.tl, p3.timeline.total);
@@ -3336,7 +3343,7 @@ function renderTimelineLanes() {
 
 function placePlayhead() {
   const tl = p3.timeline, ph = document.getElementById('vtl-playhead');
-  if (!tl || state.step !== 4) return;
+  if (!tl || !fullTimeline()) return;
   const sec = document.getElementById('video-timeline').getBoundingClientRect();
   const track = document.getElementById('vtl-video').getBoundingClientRect();
   const music = document.getElementById('vtl-music').getBoundingClientRect();
@@ -3460,5 +3467,6 @@ window.addEventListener('resize', () => {
   if (document.getElementById('preview-3d').classList.contains('visible')) resize3D();
 });
 </script>
+<script src="frontend/js/revit-shell.js"></script>
 </body>
 </html>

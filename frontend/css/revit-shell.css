@@ -1,0 +1,42 @@
+/* The Revit window (?host=revit): option B layout on top of the existing page. Nothing here applies in a browser tab. */
+
+body.host-revit .header { gap: 10px; flex-wrap: nowrap; }
+body.host-revit .header .brand-name, body.host-revit .header .plan-name { white-space: nowrap; }
+.rv-chip { white-space: nowrap; margin-left: auto; padding: 3px 10px; border-radius: 12px; background: var(--green-lt); color: var(--green); font-size: 12px; font-weight: 600; }
+.rv-btn { white-space: nowrap; border: 1px solid var(--border2); background: var(--surface); color: var(--text); border-radius: 8px; padding: 6px 12px; font: 600 12px/1 inherit; font-family: inherit; cursor: pointer; }
+.rv-btn:hover { background: var(--surface2); }
+.rv-btn.primary { background: var(--blue); border-color: var(--blue-dk); color: #fff; }
+.rv-btn.primary:hover { background: var(--blue-dk); }
+.rv-btn:disabled { opacity: .45; cursor: default; }
+
+.rv-banner { display: flex; align-items: center; gap: 12px; padding: 8px 18px; background: var(--amber-lt, #fbf1e0); border-bottom: 1px solid #ecd9ae; color: #7a5200; font-size: 12.5px; }
+.rv-banner[hidden] { display: none; }
+.rv-banner .rv-btn { margin-left: auto; }
+
+/* 3D view gets the room; the plan stays beside it for adding points. */
+body.host-revit .preview-3d.visible { width: 62%; }
+body.host-revit .canvas-area { min-width: 280px; }
+
+/* Timeline with all its lanes, at every step. */
+body.host-revit .vtl-lane, body.host-revit .vtl-note { display: flex !important; }
+body.host-revit .vtl-playhead { display: block !important; }
+body.host-revit .vtl { gap: 5px; }
+.rv-track { position: relative; height: 22px; display: block; }
+.rv-clip { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; min-width: 3px; }
+.rv-clip.look { background: #8aa7e8; opacity: .75; }
+.rv-clip.look:nth-child(even) { background: #a79be0; }
+.rv-clip.pause { background: var(--amber); }
+.rv-key { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: rotate(45deg); border-radius: 2px; background: var(--text3); }
+.rv-wp { position: absolute; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; transform: rotate(45deg); border-radius: 3px; background: var(--blue); cursor: pointer; border: 1.5px solid #fff; }
+.rv-wp.sel { background: var(--amber); }
+.rv-wp.bad { box-shadow: 0 0 0 2px var(--amber); }
+
+/* Selected point inspector, floating over the 3D view. */
+#rv-inspector { position: absolute; top: 12px; right: 12px; width: 218px; background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; box-shadow: 0 4px 14px rgba(30,36,48,.18); font-size: 12.5px; z-index: 5; }
+#rv-inspector[hidden] { display: none; }
+#rv-inspector h4 { margin: 0; padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+#rv-inspector .rv-warn { margin: 8px 12px 0; padding: 4px 8px; border-radius: 6px; background: var(--amber-lt, #fbf1e0); color: #7a5200; font-size: 11.5px; }
+#rv-inspector .rv-fld { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; }
+#rv-inspector input { width: 74px; text-align: right; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font: inherit; }
+#rv-inspector input[readonly] { background: var(--surface2); color: var(--text2); }
+.wp-row.rv-invalid { background: var(--amber-lt, #fbf1e0); }

@@ -25,7 +25,7 @@ from functools import partial
 import uuid
 from pathlib import Path
 
-from shapely.geometry import LineString, MultiLineString, Point
+from shapely.geometry import LineString, MultiLineString, MultiPoint, Point
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -258,6 +258,11 @@ def _camera_plan(wpts: list, cuts: list, s: dict):
 def _err(msg: str, code: int = 400):
     return jsonify({"error": msg}), code
 
+
+@app.errorhandler(413)
+def _too_large(_e):
+    return _err(f"The request is too large (limit {MAX_UPLOAD_MB} MB). Try a smaller level or fewer element types.", 413)
+
 def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
@@ -404,11 +409,22 @@ def upload_qbiq_design():
     return _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None)
 
 
+def _building_outline(geo) -> list:
+    """The convex hull of the walls and rooms as one polygon: the footprint routing stays inside, without
+    treating the space between rooms (the corridor) as blocked."""
+    pts = [p for poly in geo.walls + geo.spaces for p in poly]
+    if len(pts) < 3:
+        return []
+    hull = MultiPoint(pts).convex_hull
+    return [[tuple(c) for c in hull.exterior.coords]] if hull.geom_type == "Polygon" else []
+
+
 @app.route("/api/upload-revit", methods=["POST"])
 def upload_revit():
     """Accept one Revit level from the add-in (revit_payload.py) and load it like any other 2D source."""
     global _LAST_REVIT_RESPONSE
     data = request.get_json(silent=True)
+    notices = []
     try:
         geo = parse_revit_payload(data)
         geo.meshes = reduce_meshes(geo.meshes, int(os.environ.get("QBIQ_MAX_MESH_VERTICES", "400000")))
@@ -419,8 +435,14 @@ def upload_revit():
     except Exception:
         log.exception("Revit level load failed")
         return _err("could not read the Revit level")
+    if plan is None:
+        # Without a corridor the rooms must not become the walkable footprint: everything outside them would be
+        # blocked, including the real corridor, and Auto-path would fail or cut through rooms.
+        geo.spaces = _building_outline(geo)
+        has_rooms = any(r.get("placed") and r.get("enclosed") and r.get("polygon") for r in data.get("rooms") or [])
+        notices.append("no_corridor" if has_rooms else "no_rooms")
     resp = _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None,
-                             extra={"room_issues": issues})
+                             extra={"room_issues": issues, "level_notices": notices})
     _LAST_REVIT_RESPONSE = resp.get_json()
     return resp
 

@@ -128,3 +128,54 @@ def test_response_meshes_are_reduced_to_the_budget(client, monkeypatch):
     meshes = _post(client, p).get_json()["geometry"]["meshes"]
     assert sum(len(m["verts"]) // 3 for m in meshes) <= 100
     assert any(m["type"] == "floor" for m in meshes)
+
+
+def test_xml_adds_the_level_elevation_to_the_eye_height(client):
+    _post(client)
+    body = {"waypoints": [[10, -20, 0, "", None], [50, -20, 0, "", None]], "cuts": [],
+            "settings": {"duration": 10, "units_to_metres": U, "elevation_m": 13 * U}}
+    r = client.post("/api/export/xml", json=body)
+    assert r.status_code == 200
+    assert _positions(r.data.decode())[0][1] == pytest.approx(13 * U + 1.57, abs=0.002)   # a level 13 ft up, not storey 0
+
+
+def test_xml_without_an_elevation_keeps_the_plain_eye_height(client):
+    _post(client)
+    body = {"waypoints": [[10, -20, 0, "", None], [50, -20, 0, "", None]], "cuts": [],
+            "settings": {"duration": 10, "units_to_metres": U}}
+    assert _positions(client.post("/api/export/xml", json=body).data.decode())[0][1] == pytest.approx(1.57, abs=0.002)
+
+
+def test_bad_elevation_is_a_400(client):
+    _post(client)
+    body = {"waypoints": [[10, -20, 0, "", None], [50, -20, 0, "", None]], "cuts": [],
+            "settings": {"duration": 10, "units_to_metres": U, "elevation_m": "high"}}
+    assert client.post("/api/export/xml", json=body).status_code == 400
+
+
+def test_rooms_without_a_corridor_give_a_notice_and_do_not_confine_routing(client):
+    p = payload()
+    p["rooms"] = [r for r in p["rooms"] if r["name"] != "Corridor"]
+    p["doors"] = []                       # nothing touches the gap, so no corridor can be inferred
+    body = _post(client, p).get_json()
+    assert body["plan"] is None
+    assert body["level_notices"] == ["no_corridor"]
+    outline = body["geometry"]["spaces"]       # not the rooms (they would block the real corridor): the building outline
+    assert len(outline) == 1 and min(x for x, _ in outline[0]) == 0 and max(x for x, _ in outline[0]) == 60
+    resp = client.post("/api/autopath", json={"start": [5, -20], "end": [55, -20]})
+    assert resp.status_code == 200
+    assert all(-24.5 <= w[1] <= -15.5 for w in resp.get_json()["waypoints"])
+
+
+def test_no_rooms_at_all_gives_its_own_notice(client):
+    p = payload()
+    p["rooms"] = []
+    assert _post(client, p).get_json()["level_notices"] == ["no_rooms"]
+    assert _post(client).get_json()["level_notices"] == []
+
+
+def test_too_large_a_payload_is_a_json_error(client, monkeypatch):
+    monkeypatch.setitem(app_module.app.config, "MAX_CONTENT_LENGTH", 1000)
+    resp = _post(client)
+    assert resp.status_code == 413
+    assert "too large" in resp.get_json()["error"]

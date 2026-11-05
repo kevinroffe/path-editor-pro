@@ -53,3 +53,17 @@ def test_huge_payload_is_bounded_and_fast():
     out = reduce_meshes(tiny + big, max_vertices=400_000)
     assert time.perf_counter() - t < 5
     assert nverts(out) <= 400_000
+
+
+def test_over_budget_drops_lights_and_furniture_before_doors_and_windows():
+    meshes = [box("wall", 3, color="#a00000"), box("door", 1, color="#a10000"), box("window", 1, color="#a20000"),
+              box("furniture", 1, color="#a30000"), box("light", 1, color="#a40000")]
+    out = reduce_meshes(meshes, max_vertices=24)       # 5 boxes = 40 vertices: three must go
+    assert sorted(m["type"] for m in out) == ["door", "wall", "window"]
+
+
+def test_merged_material_groups_are_dropped_by_type_not_by_size():
+    big_furniture = box("furniture", 10, color="#b00000")          # one merged mesh spanning the floor
+    small_door = box("door", 0.9, color="#b10000")
+    out = reduce_meshes([big_furniture, small_door, box("floor", 20, color="#b20000")], max_vertices=16)
+    assert sorted(m["type"] for m in out) == ["door", "floor"]

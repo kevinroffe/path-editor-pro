@@ -135,6 +135,7 @@
     }
     endCrop();
     fillLevels(data);
+    el('rv-sync').textContent = syncLabel(data.view_name);
     loadedOnce = true;
     showIssues(data.room_issues, data.level_notices);
     ensure3D();
@@ -164,7 +165,7 @@
     toast('Demo page: no Revit to read from', 'inf');
   }
 
-  el('rv-level').onchange = () => sendRead({ type: 'readModel', level: currentLevel(), crop: lastBox, keep_meshes: true });
+  el('rv-level').onchange = () => sendRead(levelChangeRequest(!!window.QbiqCropping, loadedOnce, currentLevel(), lastBox));
   el('rv-area').onclick = () => (inRevit() ? Host.postToHost({ type: 'overview', level: currentLevel() })
     : startCrop({ crop_default: lastBox }));
 
@@ -205,7 +206,7 @@
     if (!window.QbiqCropping || e.button !== 0 || !svgEl) return;
     const p = planPoint(e);
     const handle = hitTest(cropRect, p, circleR() * 1.6);
-    drag = handle ? { handle, start: p, rect: { ...cropRect } } : { handle: 'new', start: p };
+    drag = handle ? { handle, start: p, rect: { ...cropRect } } : { handle: 'new', start: p, before: { ...cropRect } };
     try { svgEl.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic or already-released pointer: dragging still works */ }
     e.stopPropagation(); e.preventDefault();
   }
@@ -219,7 +220,10 @@
     drawCrop();
   }
 
-  function onCropUp() { drag = null; }
+  function onCropUp() {
+    if (drag && drag.handle === 'new') { cropRect = keepIfUsable(cropRect, drag.before); drawCrop(); }   // a click must not lose the frame
+    drag = null;
+  }
 
   function startCrop(data) {
     if (!svgEl || !state.bounds) return;

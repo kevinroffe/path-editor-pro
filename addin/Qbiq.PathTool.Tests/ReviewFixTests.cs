@@ -41,8 +41,9 @@ namespace Qbiq.PathTool.Tests
 
     public class MeshBudgetTests
     {
-        [Fact] public void The_shell_is_always_kept() => Assert.True(MeshBudget.Allows("wall", 9_000_000, 1_000_000));
-        [Fact] public void Floors_and_ceilings_are_shell_too() => Assert.All(new[] { "floor", "ceiling" }, t => Assert.True(MeshBudget.Allows(t, 9_000_000, 1_000_000)));
+        [Fact] public void The_shell_is_kept_past_the_budget() => Assert.True(MeshBudget.Allows("wall", 2_900_000, 1_000_000));
+        [Fact] public void Floors_ceilings_and_roofs_are_shell_too() => Assert.All(new[] { "floor", "ceiling", "roof" }, t => Assert.True(MeshBudget.Allows(t, 2_900_000, 1_000_000)));
+        [Fact] public void Even_the_shell_stops_at_three_times_the_budget() => Assert.All(new[] { "wall", "floor", "ceiling", "roof" }, t => Assert.False(MeshBudget.Allows(t, 3_000_000, 1_000_000)));
         [Fact] public void Detail_is_kept_while_under_budget() => Assert.True(MeshBudget.Allows("furniture", 10, 1_000_000));
         [Fact] public void Detail_stops_once_over_budget() => Assert.False(MeshBudget.Allows("furniture", 1_000_000, 1_000_000));
     }

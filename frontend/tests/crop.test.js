@@ -68,3 +68,10 @@ test('fromModelBox is the inverse', () => {
   const rect = { x0: 10, y0: -30, x1: 40, y1: -10 };
   assert.deepEqual(C.fromModelBox(C.toModelBox(rect)), rect);
 });
+
+test('a plain click that makes no usable frame keeps the frame the user had', () => {
+  const before = { x0: 0, y0: -25, x1: 40, y1: 0 };
+  assert.deepEqual(C.keepIfUsable({ x0: 12, y0: -8, x1: 12, y1: -8 }, before), before);           // a click: zero area
+  const dragged = { x0: 5, y0: -20, x1: 25, y1: -5 };
+  assert.deepEqual(C.keepIfUsable(dragged, before), dragged);                                       // a real drag wins
+});

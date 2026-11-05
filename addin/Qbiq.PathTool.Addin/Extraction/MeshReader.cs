@@ -31,6 +31,7 @@ namespace Qbiq.PathTool.Addin.Extraction
         {
             BuiltInCategory.OST_Topography, BuiltInCategory.OST_Site, BuiltInCategory.OST_Planting, BuiltInCategory.OST_Entourage,
             BuiltInCategory.OST_Roads, BuiltInCategory.OST_Parking,
+            BuiltInCategory.OST_RvtLinks,       // linked Revit models are out of version one: never pulled in whole through the view
         };
 
         static readonly string[] ShellFirst = { "wall", "floor", "ceiling", "roof" };

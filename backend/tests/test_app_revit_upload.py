@@ -240,3 +240,17 @@ def test_a_cropped_empty_level_is_a_clear_error(client):
     p["walls"], p["meshes"] = [], []
     resp = _post(client, p)
     assert resp.status_code == 400 and "no geometry" in resp.get_json()["error"]
+
+
+def test_an_overview_of_a_level_with_no_walls_still_loads_with_the_level_list(client):
+    p = _with(overview=True, levels=["Foundation", "Level 1"], current_level="Foundation")
+    p["walls"], p["doors"], p["rooms"], p["meshes"], p["columns"], p["furniture"] = [], [], [], [], [], []
+    resp = _post(client, p)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["levels"] == ["Foundation", "Level 1"] and body["overview"] is True
+
+
+def test_the_too_large_message_points_at_a_smaller_area(client, monkeypatch):
+    monkeypatch.setitem(app_module.app.config, "MAX_CONTENT_LENGTH", 1000)
+    assert "smaller area" in _post(client).get_json()["error"]

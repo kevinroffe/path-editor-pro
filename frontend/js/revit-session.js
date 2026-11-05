@@ -38,4 +38,17 @@ function bannerMessage(issues, notices) {
   return parts.length ? parts.join(' ') : null;
 }
 
-if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage };
+/* What a level change asks the add-in for. While the frame is up, or before any model was loaded, the user has not framed
+   that level yet, so it asks for the overview (the frame shows on the new level). After a load it re-reads the 2D in the same
+   area and keeps the 3D the engine already has. */
+function levelChangeRequest(cropping, loadedOnce, level, lastBox) {
+  if (cropping || !loadedOnce) return { type: 'overview', level };
+  return { type: 'readModel', level, crop: lastBox, keep_meshes: true };
+}
+
+/* The header chip: which Revit 3D view the model comes from (the user hides categories there to shape the 3D). */
+function syncLabel(viewName) {
+  return viewName ? `3D view: ${viewName}` : 'Synced with Revit ✓';
+}
+
+if (typeof module === 'object') module.exports = { captureSession, restoreSession, bannerMessage, levelChangeRequest, syncLabel };

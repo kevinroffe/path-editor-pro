@@ -3358,10 +3358,13 @@ function placePlayhead() {
   if (!tl || !(fullTimeline() || hostMode(window.location.search) === 'revit')) return;
   const sec = document.getElementById('video-timeline').getBoundingClientRect();
   const track = document.getElementById('vtl-video').getBoundingClientRect();
-  const music = document.getElementById('vtl-music').getBoundingClientRect();
+  // down to the last visible lane: the music lane, or (Revit window, where it is hidden) the extra lanes under the video lane
+  const musicBox = document.getElementById('vtl-music').getBoundingClientRect();
+  const extra = document.getElementById('rv-lanes');
+  const bottom = musicBox.height ? musicBox.bottom : (extra ? extra.getBoundingClientRect().bottom : track.bottom);
   ph.style.left = `${track.left - sec.left + track.width * (p3.tl / tl.total)}px`;
   ph.style.top = `${track.top - sec.top - 4}px`;
-  ph.style.height = `${music.bottom - track.top + 8}px`;
+  ph.style.height = `${Math.max(0, bottom - track.top + 8)}px`;
 }
 
 /* Click or drag on the lanes to scrub. */

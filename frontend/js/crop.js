@@ -54,6 +54,11 @@ function applyDrag(rect, handle, dx, dy, bounds) {
   return clampRect(normaliseRect({ x: x0, y: y0 }, { x: x1, y: y1 }), bounds);
 }
 
+/* A plain click (no drag) leaves a zero-area frame: keep the frame the user had instead of throwing it away. */
+function keepIfUsable(rect, previous) {
+  return isUsable(rect) ? rect : previous;
+}
+
 /* Plan space to Revit model space: y is negated, so the corners swap. */
 function toModelBox(rect) {
   return { xmin: rect.x0, ymin: -rect.y1, xmax: rect.x1, ymax: -rect.y0 };
@@ -63,4 +68,4 @@ function fromModelBox(box) {
   return { x0: box.xmin, y0: -box.ymax, x1: box.xmax, y1: -box.ymin };
 }
 
-if (typeof module === 'object') module.exports = { normaliseRect, clampRect, isUsable, hitTest, applyDrag, toModelBox, fromModelBox };
+if (typeof module === 'object') module.exports = { normaliseRect, clampRect, isUsable, hitTest, applyDrag, keepIfUsable, toModelBox, fromModelBox };

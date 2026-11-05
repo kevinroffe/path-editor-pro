@@ -97,7 +97,7 @@ namespace Qbiq.PathTool.Tests
         [Fact]
         public void Roofs_are_part_of_the_always_kept_shell()
         {
-            Assert.True(MeshBudget.Allows("roof", 9_000_000, 1_000_000));
+            Assert.True(MeshBudget.Allows("roof", 2_900_000, 1_000_000));
         }
     }
 }

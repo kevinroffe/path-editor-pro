@@ -59,7 +59,10 @@ namespace Qbiq.PathTool.Addin.Extraction
         {
             var all = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>().Where(v => !v.IsTemplate).ToList();
             var active = doc.ActiveView as View3D;
-            switch (ViewChoice.Choose(active != null && !active.IsTemplate, all.Select(v => v.Name).ToList()))
+            // A perspective camera view cannot be read the way a parallel 3D view can (geometry and collectors by view), so
+            // such a view falls back to the project's {3D}; the header shows which view was used.
+            var usable = active != null && !active.IsTemplate && !active.IsPerspective;
+            switch (ViewChoice.Choose(usable, all.Where(v => !v.IsPerspective).Select(v => v.Name).ToList()))
             {
                 case ViewSource.Active: return active;
                 case ViewSource.Default: return all.First(v => v.Name == ViewChoice.DefaultViewName);

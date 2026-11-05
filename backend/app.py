@@ -262,7 +262,7 @@ def _err(msg: str, code: int = 400):
 
 @app.errorhandler(413)
 def _too_large(_e):
-    return _err(f"The request is too large (limit {MAX_UPLOAD_MB} MB). Try a smaller level or fewer element types.", 413)
+    return _err(f"The request is too large (limit {MAX_UPLOAD_MB} MB). Use Change area to frame a smaller area, or hide categories in the 3D view.", 413)
 
 def _allowed(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS

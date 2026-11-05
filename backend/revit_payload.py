@@ -39,7 +39,9 @@ def parse_revit_payload(payload: dict) -> LevelGeometry:
     _check(payload)
     polylines = {k: [[tuple(p) for p in poly] for poly in payload.get(k) or []] for k in _POLYLINE_KEYS}
     meshes = payload.get("meshes") or []
-    if not polylines["walls"] and not meshes:
+    # An overview of a level with no walls (a foundation or site level) is still useful: the page gets the level list
+    # and the user can pick another level. Any other read of an empty level is an error.
+    if not polylines["walls"] and not meshes and not payload.get("overview"):
         raise ValueError("level has no geometry")
     level = payload.get("level") or {}
     return LevelGeometry(

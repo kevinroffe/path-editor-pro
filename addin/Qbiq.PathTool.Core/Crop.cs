@@ -53,6 +53,8 @@ namespace Qbiq.PathTool.Core
         public string Type;
         public string Level;
         public CropBox? Crop;
+        /// <summary>A level change: re-read the 2D only and keep the 3D the engine already has.</summary>
+        public bool KeepMeshes;
 
         public static ReadRequest Parse(string json)
         {
@@ -61,7 +63,7 @@ namespace Qbiq.PathTool.Core
             catch (Exception e) { throw new ArgumentException("The request is not valid JSON: " + e.Message); }
             var type = (string)o["type"];
             if (type == null || !Types.Contains(type)) throw new ArgumentException("Unknown request type '" + type + "'.");
-            var request = new ReadRequest { Type = type, Level = (string)o["level"] };
+            var request = new ReadRequest { Type = type, Level = (string)o["level"], KeepMeshes = (bool?)o["keep_meshes"] ?? false };
             if (o["crop"] is JObject c)
                 request.Crop = CropBox.Normalise((double)c["xmin"], (double)c["ymin"], (double)c["xmax"], (double)c["ymax"]);
             return request;

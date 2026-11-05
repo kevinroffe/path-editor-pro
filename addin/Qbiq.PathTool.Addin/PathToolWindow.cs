@@ -74,22 +74,19 @@ namespace Qbiq.PathTool.Addin
             }
             web.CoreWebView2.WebMessageReceived += (s, e) =>
             {
-                if (MessageType(e.WebMessageAsJson) == "refreshModel") RequestRead(true);
+                ReadRequest request;
+                try { request = ReadRequest.Parse(e.WebMessageAsJson); }
+                catch (ArgumentException) { return; }                // not one of our messages: ignore it
+                RequestRead(request);
             };
             web.CoreWebView2.DownloadStarting += OnDownload;
             web.CoreWebView2.NavigationCompleted += (s, e) =>
             {
                 if (!e.IsSuccess) return;
                 status.Visibility = Visibility.Collapsed;
-                if (!firstLoadRequested) { firstLoadRequested = true; RequestRead(false); }
+                if (!firstLoadRequested) { firstLoadRequested = true; RequestRead(new ReadRequest { Type = "overview" }); }
             };
             web.Source = new Uri(endpoint.BaseUri, "?host=revit&key=" + endpoint.Key);
-        }
-
-        static string MessageType(string json)
-        {
-            try { return (string)JObject.Parse(json)["type"]; }
-            catch (Exception) { return null; }
         }
 
         void Post(string json)
@@ -97,9 +94,9 @@ namespace Qbiq.PathTool.Addin
             if (web.CoreWebView2 != null) web.CoreWebView2.PostWebMessageAsJson(json);
         }
 
-        void RequestRead(bool refresh)
+        void RequestRead(ReadRequest request)
         {
-            handler.Refresh = refresh;
+            handler.Request = request;
             Post("{\"type\":\"modelReading\"}");                      // the page shows "Reading the Revit model…"
             readEvent.Raise();
         }
@@ -137,7 +134,9 @@ namespace Qbiq.PathTool.Addin
                     }
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        if (Session.Window == this) Post(refresh ? "{\"type\":\"modelRefreshed\"}" : "{\"type\":\"modelLoaded\"}");
+                        if (Session.Window != this) return;
+                        Post(payload.Overview ? "{\"type\":\"modelOverview\"}"
+                            : refresh ? "{\"type\":\"modelRefreshed\"}" : "{\"type\":\"modelLoaded\"}");
                     });
                 }
                 catch (Exception e)

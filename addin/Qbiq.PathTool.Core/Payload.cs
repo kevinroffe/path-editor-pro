@@ -31,6 +31,17 @@ namespace Qbiq.PathTool.Core
         [JsonProperty("opacity")] public double? Opacity { get; set; }
     }
 
+    /// <summary>A rectangle as the page and the add-in exchange it, in Revit model feet.</summary>
+    public class CropRect
+    {
+        [JsonProperty("xmin")] public double XMin { get; set; }
+        [JsonProperty("ymin")] public double YMin { get; set; }
+        [JsonProperty("xmax")] public double XMax { get; set; }
+        [JsonProperty("ymax")] public double YMax { get; set; }
+
+        public static CropRect From(CropBox box) => new CropRect { XMin = box.XMin, YMin = box.YMin, XMax = box.XMax, YMax = box.YMax };
+    }
+
     public class LevelPayload
     {
         public const int CurrentSchema = 1;
@@ -45,6 +56,17 @@ namespace Qbiq.PathTool.Core
         [JsonProperty("furniture")] public List<List<double[]>> Furniture { get; set; } = new List<List<double[]>>();
         [JsonProperty("rooms")] public List<RoomPayload> Rooms { get; set; } = new List<RoomPayload>();
         [JsonProperty("meshes")] public List<MeshPayload> Meshes { get; set; } = new List<MeshPayload>();
+
+        // Optional fields (left out of the JSON when unused, so old payloads and the golden fixture stay as they are).
+        [JsonProperty("levels", NullValueHandling = NullValueHandling.Ignore)] public List<string> Levels { get; set; }
+        [JsonProperty("current_level", NullValueHandling = NullValueHandling.Ignore)] public string CurrentLevel { get; set; }
+        [JsonProperty("view_name", NullValueHandling = NullValueHandling.Ignore)] public string ViewName { get; set; }
+        /// <summary>No meshes in this payload on purpose: the engine keeps the 3D it already has (a level change re-reads 2D only).</summary>
+        [JsonProperty("keep_meshes", DefaultValueHandling = DefaultValueHandling.Ignore)] public bool KeepMeshes { get; set; }
+        /// <summary>The quick 2D look the page shows while the user frames the area.</summary>
+        [JsonProperty("overview", DefaultValueHandling = DefaultValueHandling.Ignore)] public bool Overview { get; set; }
+        /// <summary>Where the frame starts: the area holding most of the geometry.</summary>
+        [JsonProperty("crop_default", NullValueHandling = NullValueHandling.Ignore)] public CropRect CropDefault { get; set; }
     }
 
     public static class PayloadJson

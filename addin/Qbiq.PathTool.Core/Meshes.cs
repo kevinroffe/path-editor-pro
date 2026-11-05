@@ -22,9 +22,9 @@ namespace Qbiq.PathTool.Core
     /// <summary>Which element types are still read once the model is over its vertex budget.</summary>
     public static class MeshBudget
     {
-        /// <summary>The building shell (walls, floors, ceilings) is always kept; detail is kept only while under budget.</summary>
+        /// <summary>The building shell (walls, floors, ceilings, roofs) is always kept; detail is kept only while under budget.</summary>
         public static bool Allows(string type, int currentVertices, int budget) =>
-            type == "wall" || type == "floor" || type == "ceiling" || currentVertices < budget;
+            type == "wall" || type == "floor" || type == "ceiling" || type == "roof" || currentVertices < budget;
     }
 
     /// <summary>The height band of a level, in feet: elements that reach into it belong to it, including walls that span several levels.</summary>

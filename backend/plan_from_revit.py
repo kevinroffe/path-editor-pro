@@ -3,11 +3,13 @@
 Revit has no 'circulation' polygon or space types, so both are inferred from Room names and geometry:
   * rooms named like a corridor form the corridor; if none is named, the corridor is the floor between the
     rooms (their convex hull minus their union), keeping the pieces that touch a door;
-  * a room's space type comes from SPACE_TYPE_KEYWORDS applied to its name (first match; none if unknown);
+  * a room's space type is its name when that is a qbiq space type (qbiq models name Rooms that way), else
+    SPACE_TYPE_KEYWORDS applied to its name (first match; none if unknown);
   * the entrance is the Reception stop, if the level has one.
 Coordinates stay in Revit model units with the true origin: enscape_offset is always None.
 """
 import logging
+import re
 
 from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import polylabel, unary_union
@@ -17,20 +19,30 @@ from plan_model import PlanModel, PlanRoom
 
 log = logging.getLogger(__name__)
 
-# First match wins, so "open office" is an open workspace and not an Office.
+QBIQ_SPACE_TYPES = ("Open Space WorkStation", "Conference", "Kitchen", "Comfort Zone", "Reception", "Phone Booth",
+                    "Executive Office", "Storage Room", "IT Room", "Print Hub", "Other")
+_QBIQ_BY_KEY = {t.lower(): t for t in QBIQ_SPACE_TYPES}
+
+# First match wins, so "open office" is an open workspace and "executive office" is not a plain Office.
 SPACE_TYPE_KEYWORDS = {
     "conference": "Conference",
     "meeting": "Conference",
+    "boardroom": "Conference",
     "kitchen": "Kitchen",
     "pantry": "Kitchen",
     "reception": "Reception",
     "lobby": "Reception",
+    "comfort": "Comfort Zone",
+    "lounge": "Comfort Zone",
+    "phone": "Phone Booth",
+    "booth": "Phone Booth",
     "storage": "Storage Room",
     "it room": "IT Room",
     "server": "IT Room",
     "print": "Print Hub",
     "open": "Open Space WorkStation",
     "workstation": "Open Space WorkStation",
+    "executive": "Executive Office",
     "office": "Office",
 }
 CORRIDOR_WORDS = ("corridor", "hallway", "hall", "circulation", "passage")
@@ -38,7 +50,13 @@ DOOR_TOUCH_M = 0.5   # a door belongs to a room when its midpoint is this close 
 
 
 def _space_type(name: str):
-    low = (name or "").lower()
+    """qbiq space type of a Room name: the name itself when it is one (case, spacing and a trailing number ignored),
+    a qbiq 'Office - ...' subtype as is, else the first keyword it contains; None when nothing matches."""
+    clean = re.sub(r"\s+\d+$", "", " ".join((name or "").split()))
+    if (low := clean.lower()) in _QBIQ_BY_KEY:
+        return _QBIQ_BY_KEY[low]
+    if low.startswith("office - "):
+        return clean
     return next((t for k, t in SPACE_TYPE_KEYWORDS.items() if k in low), None)
 
 

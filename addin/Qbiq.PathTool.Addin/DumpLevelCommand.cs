@@ -31,6 +31,8 @@ namespace Qbiq.PathTool.Addin
                     "Walls " + payload.Walls.Count + ", doors " + payload.Doors.Count + ", windows " + payload.Windows.Count + ",\n" +
                     "columns " + payload.Columns.Count + ", furniture " + payload.Furniture.Count + "\n" +
                     "Rooms " + payload.Rooms.Count + " (" + problems + " with problems)\n" +
+                    (payload.RoomScan?.Summary() ?? "") + "\n" +
+                    (payload.MeshScan?.Summary() ?? "") + "\n" +
                     "Meshes " + payload.Meshes.Count + ", vertices " + payload.Meshes.Sum(m => m.Verts.Count / 3) + "\n\n" + path);
                 return Result.Succeeded;
             }

@@ -67,6 +67,10 @@ namespace Qbiq.PathTool.Core
         [JsonProperty("overview", DefaultValueHandling = DefaultValueHandling.Ignore)] public bool Overview { get; set; }
         /// <summary>Where the frame starts: the area holding most of the geometry.</summary>
         [JsonProperty("crop_default", NullValueHandling = NullValueHandling.Ignore)] public CropRect CropDefault { get; set; }
+        /// <summary>How the level's rooms were chosen and why others were left out.</summary>
+        [JsonProperty("room_scan", NullValueHandling = NullValueHandling.Ignore)] public RoomScan RoomScan { get; set; }
+        /// <summary>How the 3D read went per mesh type (only on reads that include the 3D).</summary>
+        [JsonProperty("mesh_scan", NullValueHandling = NullValueHandling.Ignore)] public MeshScan MeshScan { get; set; }
     }
 
     public static class PayloadJson

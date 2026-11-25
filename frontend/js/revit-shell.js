@@ -25,6 +25,9 @@
     };
   }
 
+  /* No "What the camera will see" snapshots in the Revit window: the strip is hidden, so do not render a picture per room. */
+  window.renderCameraStrip = function () { el('camera-strip').hidden = true; };
+
   /* The page's render loop advances the video clock and updates the camera; it only draws while the preview pane is open. */
   window.QbiqRevit = { render(renderer, scene, camera) { if (previewOn) renderer.render(scene, camera); } };
 
@@ -59,14 +62,14 @@
   /* ── header, banner, inspector, mode switch, area bar ── */
   const header = document.querySelector('.header');
   header.insertAdjacentHTML('beforeend',
+    '<button type="button" class="rv-btn" id="rv-undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>' +
+    '<button type="button" class="rv-btn" id="rv-redo" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>' +
     '<select id="rv-level" class="rv-select" title="Level of the plan"></select>' +
     '<button type="button" class="rv-btn" id="rv-area">Change area</button>' +
     '<span class="rv-chip" id="rv-sync">Synced with Revit ✓</span>' +
     '<button type="button" class="rv-btn primary" id="rv-prev" aria-pressed="true" title="Show or hide the 3D preview next to the plan">3D preview</button>' +
-    '<button type="button" class="rv-btn" id="rv-json">Load JSON instead</button>' +
     '<button type="button" class="rv-btn" id="rv-cam" aria-pressed="false" hidden title="Experimental: moves the active Revit 3D view along the path while you play">Revit camera</button>' +
     '<span class="rv-chip" id="rv-cam-note" hidden></span>' +
-    '<button type="button" class="rv-btn" id="rv-refresh">Refresh model</button>' +
     '<button type="button" class="rv-btn primary" id="rv-save" disabled>Save path (XML)</button>');
   header.insertAdjacentHTML('afterend', '<div class="rv-banner" id="rv-banner" hidden></div>');
   const canvasArea = document.querySelector('.canvas-area');
@@ -79,16 +82,55 @@
     '<button type="button" data-mode="top">Top view</button></div>' +
     '<div id="rv-inspector" hidden></div>');
 
-  el('rv-json').onclick = () => el('file-folder-input').click();
   el('rv-save').onclick = () => exportRoute('xml');
-  el('rv-refresh').onclick = () => (inRevit() ? Host.postToHost({ type: 'refreshModel' }) : loadCurrent(true));
+
+  /* ── undo / redo: the route, tour picks and entrance, recorded a moment after each change (a drag is one step) ── */
+  const history = createHistory();
+  const routeState = () => JSON.stringify(captureSession(state));
+  let recordTimer = null;
+  function markUndo() { el('rv-undo').disabled = !history.canUndo(); el('rv-redo').disabled = !history.canRedo(); }
+  function recordSoon() {
+    clearTimeout(recordTimer);
+    recordTimer = setTimeout(() => { if (state.loaded && history.record(routeState())) markUndo(); }, 400);
+  }
+  function resetHistory() { clearTimeout(recordTimer); history.reset(routeState()); markUndo(); }
+  function restoreRoute(saved) {
+    if (saved == null) return;
+    clearTimeout(recordTimer);
+    restoreSession(state, JSON.parse(saved));
+    sel.select(null);
+    renderRoute(); updateWpList(); renderTourSelection(); renderPickList(); renderTourStats();
+    markUndo();
+  }
+  const undo = () => restoreRoute(history.undo());
+  const redo = () => restoreRoute(history.redo());
+  function deleteSelected() {
+    const i = state.selectedWp;
+    if (i == null || !state.waypoints[i]) return;
+    sel.select(null);
+    deleteWp(i);
+  }
+  el('rv-undo').onclick = undo;
+  el('rv-redo').onclick = redo;
+  window.undoLast = undo;                                  // the page's own Undo button
+  wrap('applyFloorPlan', resetHistory);
+  // Before the page's own keys (which undo by dropping the last point and delete the last point on Delete).
+  window.addEventListener('keydown', e => {
+    if (e.target.matches && e.target.matches('input, textarea, select, [contenteditable], [contenteditable] *')) return;
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    const act = mod && k === 'z' ? (e.shiftKey ? redo : undo) : mod && k === 'y' ? redo
+      : !mod && (e.key === 'Delete' || e.key === 'Backspace') ? deleteSelected : null;
+    if (!act) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    act();
+  }, true);
 
   function showIssues(issues, notices) {
     const banner = el('rv-banner'), message = bannerMessage(issues, notices);
     if (!message) { banner.hidden = true; return; }
-    banner.innerHTML = `<span>${esc(message)}</span><button type="button" class="rv-btn" id="rv-json2">Load JSON instead</button>`;
+    banner.innerHTML = `<span>${esc(message)}</span>`;
     banner.hidden = false;
-    el('rv-json2').onclick = () => el('file-folder-input').click();
   }
 
   /* ── loading the model ── */
@@ -147,6 +189,7 @@
     ensureLoop();
     if (pendingTop && haveMeshes()) { pendingTop = false; mode = 'top'; }
     applyMode();
+    resetHistory();                                        // a refreshed model starts its history at the route it kept
   }
 
   async function showOverview() {
@@ -191,7 +234,9 @@
       g = document.createElementNS(SVG, 'g');
       g.id = 'rv-under';
       g.setAttribute('pointer-events', 'none');
-      gRoot.insertBefore(g, gRoot.firstChild);         // under everything the page and this file draw
+      // Over the plan's background rectangle (when it comes first), under everything else the page and this file draw.
+      const bg = gRoot.firstElementChild && gRoot.firstElementChild.tagName === 'rect' ? gRoot.firstElementChild : null;
+      gRoot.insertBefore(g, bg ? bg.nextSibling : gRoot.firstChild);
     }
     return g;
   }
@@ -202,7 +247,7 @@
     if (typeof threeScene !== 'undefined' && !threeScene && typeof ensureScene === 'function') { try { ensureScene(); } catch (e) { console.error('revit-shell scene', e); } }
     const b = state.bounds, g = underlayLayer();
     if (!b || !g || !window.THREE || typeof threeRenderer === 'undefined' || !threeRenderer || !threeScene) {
-      if (retry) setTimeout(() => { if (mode === 'top') renderTopView(false); }, 400);          // the scene may still be starting
+      if (retry) setTimeout(() => { if (planLayers(mode, haveMeshes()).underlay) renderTopView(false); }, 400);   // the scene may still be starting
       return;
     }
     const cam = topCamera(b, state.unitsToMetres || 1), size = imageSize(b, 2048), place = underlayPlacement(b);
@@ -234,14 +279,23 @@
 
   function applyMode() {
     document.querySelectorAll('#rv-modes button').forEach(btn => btn.classList.toggle('on', btn.dataset.mode === mode));
-    const under = underlayLayer(), top = mode === 'top' && haveMeshes();
-    if (top) renderTopView();
+    const under = underlayLayer(), view = planLayers(mode, haveMeshes());
+    if (view.underlay) renderTopView();
     // The plan's own drawing (walls, doors, room fills) is every child of the root except the layers this file and the page's
-    // overlays own; Top view hides it so the picture shows, Plan mode shows it again.
+    // overlays own; Top view hides it so the picture shows, Plan mode shows it again (over the picture when there is one).
     const keep = new Set(['rv-under', 'rv-extras', 'rv-here', 'rv-crop', 'route-overlay']);
-    if (gRoot) for (const child of gRoot.children) if (!keep.has(child.id)) child.style.display = top ? 'none' : '';
-    if (under) under.style.display = top ? '' : 'none';
+    if (gRoot) for (const child of gRoot.children) {
+      if (!keep.has(child.id)) child.style.display = view.hidePlan || view.hide.includes(child.id) ? 'none' : '';
+    }
+    const colours = el('room-colours');
+    if (colours) colours.style.opacity = view.roomOpacity;
+    if (under) { under.style.display = view.underlay ? '' : 'none'; under.style.opacity = view.underlayOpacity; }
   }
+
+  wrap('renderRoomColours', () => {
+    const colours = el('room-colours');
+    if (colours) colours.style.opacity = planLayers(mode, haveMeshes()).roomOpacity;
+  });
 
   function setMode(next) {
     if (next === 'top' && !haveMeshes()) {                 // the 3D is only read when it is first wanted
@@ -493,13 +547,15 @@
     const dwell = w.stop ? w.stop.dwell_s : null;
     box.innerHTML = `<h4><span>Point ${i + 1}</span><span style="color:var(--text3)">${esc(w.stop?.label || '')}</span></h4>` +
       (w.invalid ? '<div class="rv-warn">Outside the walkable floor or area</div>' : '') +
-      '<div class="rv-fld">Eye height<input value="1.57 m" readonly></div>' +
-      `<div class="rv-fld">Look-at offset<input id="rv-yaw" type="number" step="5" value="${w.yawOffset || 0}"></div>` +
-      (dwell != null ? `<div class="rv-fld">Pause (s)<input id="rv-dwell" type="number" step="0.5" min="0.5" max="10" value="${dwell}"></div>` : '');
+      `<div class="rv-fld">Look-at offset (°)<input id="rv-yaw" type="number" step="5" value="${w.yawOffset || 0}"></div>` +
+      (dwell != null ? `<div class="rv-fld">Pause (s)<input id="rv-dwell" type="number" step="0.5" min="0.5" max="10" value="${dwell}"></div>` : '') +
+      '<div class="rv-actions"><span>Drag the point on the plan to move it</span>' +
+      '<button type="button" class="rv-btn danger" id="rv-del" title="Delete this point (Delete key)">Delete point</button></div>';
     box.hidden = false;
-    const apply = () => { markHandEdited(); debounceSpline(); schedulePreview(); };
+    const apply = () => { markHandEdited(); debounceSpline(); schedulePreview(); recordSoon(); };
     el('rv-yaw').onchange = ev => { w.yawOffset = Number(ev.target.value) || 0; apply(); };
     if (dwell != null) el('rv-dwell').onchange = ev => { setWpDwell(i, ev.target.value); apply(); };
+    el('rv-del').onclick = deleteSelected;
   }
 
   /* ── timeline lanes: camera, look-at, pauses (the video lane is the page's own) ── */
@@ -576,6 +632,7 @@
     pageToSelection();
     drawPlanExtras();
     schedulePreview();
+    recordSoon();
   });
   wrap('renderTimelineLanes', renderLanes);
   wrap('updateWpList', () => {

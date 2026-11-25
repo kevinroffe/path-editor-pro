@@ -4,7 +4,7 @@ from pathlib import Path
 
 from shapely.geometry import Point
 
-from plan_from_revit import SPACE_TYPE_KEYWORDS, build_revit_plan
+from plan_from_revit import SPACE_TYPE_KEYWORDS, _space_type, build_revit_plan
 
 FIXTURE = Path(__file__).parent / "fixtures" / "revit_level.json"
 U = 0.3048
@@ -39,6 +39,25 @@ def test_space_type_from_english_names():
     got = {r.id: r.space_type for r in plan.rooms}
     assert got == {"r2": "Conference", "r3": "Kitchen", "r4": "Office", "r5": "Reception", "r6": "Storage Room"}
     assert SPACE_TYPE_KEYWORDS["conference"] == "Conference"
+
+
+def test_qbiq_space_type_names_map_to_themselves():
+    """qbiq models name each Revit Room by its qbiq space type; those must not fall through the keyword list."""
+    names = ["Comfort Zone", "Phone Booth", "Executive Office", "Office - Non Receiving Guests", "Other",
+             "Open Space WorkStation", "Print Hub", "IT Room", "Storage Room", "Conference", "Reception", "Kitchen"]
+    assert {n: _space_type(n) for n in names} == {n: n for n in names}
+
+
+def test_qbiq_names_ignore_case_spacing_and_a_trailing_number():
+    assert _space_type("comfort  zone") == "Comfort Zone"
+    assert _space_type("Print Hub 217") == "Print Hub"
+
+
+def test_keywords_cover_lounges_booths_and_executive_offices():
+    assert _space_type("Staff Lounge") == "Comfort Zone"
+    assert _space_type("Phone Room 2") == "Phone Booth"
+    assert _space_type("Executive office CEO") == "Executive Office"
+    assert _space_type("Open Office") == "Open Space WorkStation"
 
 
 def test_unknown_room_has_none_space_type_and_does_not_crash():

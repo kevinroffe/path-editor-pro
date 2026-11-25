@@ -17,7 +17,7 @@ function shouldShowStepChrome(mode) {
 }
 
 function hiddenInRevit() {
-  return ['step-1', 'dock', 'resize-handle'];
+  return ['step-1', 'dock', 'resize-handle', 'camera-strip'];
 }
 
 /* Plan editing (clicking points, picking rooms) is a step-2 feature in a tab; in the Revit window it is always on. */

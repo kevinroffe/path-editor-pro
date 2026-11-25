@@ -1,24 +1,15 @@
-// Which Revit 3D view the model is read through. Enscape renders the active 3D view, so the tool reads the same one:
-// hidden categories, view filters and the section box then apply exactly as they do there.
-using System.Collections.Generic;
-using System.Linq;
-
+// Where the 3D model is read from. A 3D view the user is working in is read as it shows (hidden categories, filters, section box
+// apply, as in Enscape). From any other view (a floor plan, a sheet) the whole model is read at Fine detail: falling back to the
+// project's {3D} view would silently inherit whatever that view hides, such as the furniture.
 namespace Qbiq.PathTool.Core
 {
-    public enum ViewSource { Active, Default, None }
+    public enum ViewSource { Active, WholeModel }
 
     public static class ViewChoice
     {
-        public const string DefaultViewName = "{3D}";
+        /// <summary>What the header shows when no 3D view was used.</summary>
+        public const string WholeModelName = "whole model";
 
-        public const string NoViewMessage =
-            "Open a 3D view in Revit and try again. The path tool takes its 3D model from the active 3D view, as Enscape does.";
-
-        /// <summary>The active view when it is a 3D view; else the project's default 3D view if it has one; else none.</summary>
-        public static ViewSource Choose(bool activeIsView3D, IReadOnlyList<string> view3DNames, string defaultName = DefaultViewName)
-        {
-            if (activeIsView3D) return ViewSource.Active;
-            return defaultName != null && view3DNames.Contains(defaultName) ? ViewSource.Default : ViewSource.None;
-        }
+        public static ViewSource Choose(bool activeIsView3D) => activeIsView3D ? ViewSource.Active : ViewSource.WholeModel;
     }
 }

@@ -38,4 +38,13 @@ function hiddenTypes() {
   return new Set(['roof', 'ceiling', 'light']);
 }
 
-if (typeof module === 'object') module.exports = { CUT_M, underlayPlacement, topCamera, imageSize, clipHeight, hiddenTypes };
+/* What the plan canvas shows in a mode. With the 3D read, Plan mode puts the design picture (walls, real furniture) under the
+   room colours (both lightened, so the furniture reads and the colours stay clear) and drops the furniture boxes and floor
+   fills; Top view shows the picture alone. */
+function planLayers(mode, haveMeshes) {
+  if (mode === 'top' && haveMeshes) return { underlay: true, underlayOpacity: 1, hidePlan: true, hide: [], roomOpacity: 1 };
+  if (haveMeshes) return { underlay: true, underlayOpacity: 0.55, hidePlan: false, hide: ['layer-furniture', 'layer-spaces'], roomOpacity: 0.4 };
+  return { underlay: false, underlayOpacity: 1, hidePlan: false, hide: [], roomOpacity: 1 };
+}
+
+if (typeof module === 'object') module.exports = { CUT_M, underlayPlacement, topCamera, imageSize, clipHeight, hiddenTypes, planLayers };

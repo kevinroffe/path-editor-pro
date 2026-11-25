@@ -119,6 +119,11 @@ def test_far_from_origin_xml_exact(client):
     assert (x, z) == pytest.approx(((far + 10) * U, -(far + 20.5) * U), abs=0.001)
 
 
+def test_default_mesh_budget_matches_the_add_ins_so_furniture_it_read_is_not_dropped(monkeypatch):
+    monkeypatch.delenv("QBIQ_MAX_MESH_VERTICES", raising=False)
+    assert app_module._max_mesh_vertices() == 1_500_000
+
+
 def test_response_meshes_are_reduced_to_the_budget(client, monkeypatch):
     monkeypatch.setenv("QBIQ_MAX_MESH_VERTICES", "100")
     p = payload()
@@ -200,6 +205,20 @@ def test_the_new_fields_default_sensibly_when_absent(client):
     body = _post(client).get_json()
     assert body["levels"] == ["Level 1"] and body["overview"] is False
     assert body["view_name"] is None and body["crop_default"] is None
+    assert body["room_scan"] is None and body["mesh_scan"] is None
+
+
+def test_mesh_scan_is_echoed_so_missing_3d_can_be_explained(client):
+    scan = {"types": {"furniture": {"elements": 311, "read": 40, "read_at_fine": 0, "empty": 271, "failed": 0}}}
+    assert _post(client, _with(mesh_scan=scan)).get_json()["mesh_scan"] == scan
+
+
+def test_room_scan_is_echoed_so_a_missing_room_can_be_explained(client):
+    scan = {"total": 35, "used": 0, "other_level": 0, "other_phase": 0, "outside_frame": 35, "phase": "New Construction",
+            "by_height": False, "by_phase": {"New Construction": 35}}
+    body = _post(client, _with(room_scan=scan)).get_json()
+    assert body["room_scan"] == scan
+    assert client.get("/api/revit/current").get_json()["room_scan"] == scan
 
 
 def test_an_overview_without_meshes_loads(client):

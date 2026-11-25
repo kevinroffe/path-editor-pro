@@ -63,6 +63,12 @@ from corridor_graph   import (build_walkable_polygon, build_corridor_graph,
 
 ALLOWED_EXTENSIONS = {".rvt", ".ifc", ".dxf"}
 MAX_UPLOAD_MB = 500
+DEFAULT_MAX_MESH_VERTICES = 1_500_000   # the add-in's own MeshReader.VertexBudget: what it read is shown, not dropped again
+
+
+def _max_mesh_vertices() -> int:
+    """3D vertex budget of a Revit load (QBIQ_MAX_MESH_VERTICES overrides it)."""
+    return int(os.environ.get("QBIQ_MAX_MESH_VERTICES", DEFAULT_MAX_MESH_VERTICES))
 
 # Cached server-side so /api/autopath doesn't need physical obstacle geometry
 # (which can be tens of MB of JSON on a real architectural DXF) re-sent on
@@ -428,7 +434,7 @@ def upload_revit():
     notices = []
     try:
         geo = parse_revit_payload(data)
-        geo.meshes = reduce_meshes(geo.meshes, int(os.environ.get("QBIQ_MAX_MESH_VERTICES", "400000")))
+        geo.meshes = reduce_meshes(geo.meshes, _max_mesh_vertices())
         if geo.meshes:
             _LAST_REVIT_MESHES = geo.meshes          # a full load: remember its 3D
         elif data.get("keep_meshes"):
@@ -449,7 +455,11 @@ def upload_revit():
     resp = _load_2d_geometry(geo, clear_ifc=True, plan=flipped(plan) if plan else None,
                              extra={"room_issues": issues, "level_notices": notices,
                                     "levels": data.get("levels") or [geo.level_name], "view_name": data.get("view_name"),
-                                    "overview": bool(data.get("overview")), "crop_default": data.get("crop_default")})
+                                    "overview": bool(data.get("overview")), "crop_default": data.get("crop_default"),
+                                    "room_scan": data.get("room_scan"), "mesh_scan": data.get("mesh_scan")})
+    for key in ("room_scan", "mesh_scan"):
+        if data.get(key):
+            log.info("Revit level %s: %s %s", geo.level_name, key, data[key])
     _LAST_REVIT_RESPONSE = resp.get_json()
     return resp
 

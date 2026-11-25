@@ -42,3 +42,16 @@ test('a plan with no bounds gives no picture', () => {
   assert.equal(T.topCamera(null, 1), null);
   assert.equal(T.imageSize(null, 2048), null);
 });
+
+test('Plan mode with the 3D read shows the design picture under semi-transparent room colours, without furniture boxes', () => {
+  assert.deepEqual(T.planLayers('plan', true),
+    { underlay: true, underlayOpacity: 0.55, hidePlan: false, hide: ['layer-furniture', 'layer-spaces'], roomOpacity: 0.4 });
+});
+
+test('Plan mode without the 3D keeps the plain plan: boxes for furniture, solid room colours', () => {
+  assert.deepEqual(T.planLayers('plan', false), { underlay: false, underlayOpacity: 1, hidePlan: false, hide: [], roomOpacity: 1 });
+});
+
+test('Top view shows only the picture and the overlays', () => {
+  assert.deepEqual(T.planLayers('top', true), { underlay: true, underlayOpacity: 1, hidePlan: true, hide: [], roomOpacity: 1 });
+});

@@ -1,7 +1,8 @@
 // Reads the open Revit model as the contract payload (see Qbiq.PathTool.Core/Payload.cs).
 // Read-only: no Transaction is ever opened. Coordinates are Revit's internal units (feet) and internal origin.
 //   2D (plan, routing): one level, elements whose height reaches into it, inside the crop.
-//   3D: the whole building through the active Revit 3D view (as Enscape renders it), inside the crop.
+//   3D: the whole building, inside the crop: through the active 3D view when the user is in one (as Enscape renders it),
+//       else the whole model at Fine detail (see ViewChoice).
 // Version-one scope: the active view's phase, the primary design option; linked models are ignored.
 using System;
 using System.Collections.Generic;
@@ -45,29 +46,28 @@ namespace Qbiq.PathTool.Addin.Extraction
             var payload = Read2D(levelName, area);
             if (includeMeshes)
             {
-                var view = Find3DView();
-                payload.ViewName = view.Name;
-                payload.Meshes = new MeshReader(doc, view).Read(area);
+                var view = Active3DView();
+                var phase = DesignPhase(payload.RoomScan?.Phase);
+                payload.ViewName = view?.Name ?? ViewChoice.WholeModelName;
+                var meshes = new MeshReader(doc, view, e => InScope(e, phase));
+                payload.Meshes = meshes.Read(area);
+                payload.MeshScan = meshes.Scan;
             }
             else payload.KeepMeshes = true;
             return payload;
         }
 
-        // ---- the 3D view ----
+        // ---- where the 3D comes from ----
 
-        View3D Find3DView()
+        /// <summary>
+        /// The active view when it is a parallel 3D view, else null (the whole model is read). A perspective camera view cannot be
+        /// read the way a parallel one can (geometry and collectors by view), so it reads the whole model too; the header says which.
+        /// </summary>
+        View3D Active3DView()
         {
-            var all = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>().Where(v => !v.IsTemplate).ToList();
             var active = doc.ActiveView as View3D;
-            // A perspective camera view cannot be read the way a parallel 3D view can (geometry and collectors by view), so
-            // such a view falls back to the project's {3D}; the header shows which view was used.
             var usable = active != null && !active.IsTemplate && !active.IsPerspective;
-            switch (ViewChoice.Choose(usable, all.Where(v => !v.IsPerspective).Select(v => v.Name).ToList()))
-            {
-                case ViewSource.Active: return active;
-                case ViewSource.Default: return all.First(v => v.Name == ViewChoice.DefaultViewName);
-                default: throw new ModelReadException(ViewChoice.NoViewMessage);
-            }
+            return ViewChoice.Choose(usable) == ViewSource.Active ? active : null;
         }
 
         // ---- the 2D plan of one level ----
@@ -105,16 +105,35 @@ namespace Qbiq.PathTool.Addin.Extraction
             foreach (var cat in new[] { BuiltInCategory.OST_Furniture, BuiltInCategory.OST_FurnitureSystems, BuiltInCategory.OST_Casework })
                 foreach (var item in OnLevel(cat, phase)) AddBox(payload.Furniture, item);
 
+            var rooms = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().OfType<Room>().Where(InPrimaryOption).ToDictionary(r => r.UniqueId);
+            var scan = RoomScope.Choose(rooms.Values.Select(r => Candidate(r, level)).ToList(), (doc.GetElement(phase) as Phase)?.Name);
+            payload.RoomScan = scan;
             var options = new SpatialElementBoundaryOptions();
-            foreach (var room in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
-                         .WhereElementIsNotElementType().OfType<Room>()
-                         .Where(r => r.LevelId == level.Id && InScope(r, phase) && InCrop(r)))
-                payload.Rooms.Add(ReadRoom(room, options));
+            foreach (var id in scan.Chosen)
+                payload.Rooms.Add(ReadRoom(rooms[id], options));
 
             return payload;
         }
 
+        RoomCandidate Candidate(Room room, Level level)
+        {
+            var box = room.get_BoundingBox(null);
+            return new RoomCandidate
+            {
+                Id = room.UniqueId,
+                OnLevel = room.LevelId == level.Id,
+                InLevelBand = box != null && box.Max.Z > band.Low && box.Min.Z < band.High,
+                Phase = (doc.GetElement(room.get_Parameter(BuiltInParameter.ROOM_PHASE)?.AsElementId() ?? ElementId.InvalidElementId) as Phase)?.Name,
+                InCrop = InCrop(room),
+            };
+        }
+
         // ---- scope: phase, design option, crop ----
+
+        /// <summary>The phase the level's rooms are in (where the design lives), else the active view's phase.</summary>
+        ElementId DesignPhase(string roomPhase) =>
+            doc.Phases.Cast<Phase>().FirstOrDefault(p => p.Name == roomPhase)?.Id ?? ActivePhase();
 
         ElementId ActivePhase()
         {
@@ -123,9 +142,11 @@ namespace Qbiq.PathTool.Addin.Extraction
             return doc.Phases.Size == 0 ? ElementId.InvalidElementId : doc.Phases.get_Item(doc.Phases.Size - 1).Id;
         }
 
+        static bool InPrimaryOption(Element e) => e.DesignOption == null || e.DesignOption.IsPrimary;
+
         static bool InScope(Element e, ElementId phase)
         {
-            if (e.DesignOption != null && !e.DesignOption.IsPrimary) return false;
+            if (!InPrimaryOption(e)) return false;
             if (phase == ElementId.InvalidElementId) return true;
             try
             {
@@ -173,15 +194,18 @@ namespace Qbiq.PathTool.Addin.Extraction
             });
         }
 
-        /// <summary>The opening as a segment across its host wall, centred on the family instance.</summary>
+        /// <summary>
+        /// The opening as a segment across its host wall, centred on the family instance. A door panel in a curtain (glass) wall
+        /// has no insertion point and usually no door width, so its box centre and its panel width (or box size along the wall) stand in.
+        /// </summary>
         static void AddOpening(List<List<double[]>> into, FamilyInstance fi, BuiltInParameter widthParameter)
         {
-            var at = (fi.Location as LocationPoint)?.Point;
+            var box = fi.get_BoundingBox(null);
+            var at = (fi.Location as LocationPoint)?.Point ?? (box == null ? null : (box.Min + box.Max) / 2);
             if (at == null) return;
-            var width = (fi.get_Parameter(widthParameter) ?? fi.Symbol?.get_Parameter(widthParameter))?.AsDouble() ?? 0;
-            if (width <= 0) width = DefaultOpeningWidthFt;
+            var width = WidthOf(fi, widthParameter) ?? WidthOf(fi, BuiltInParameter.CURTAIN_WALL_PANELS_WIDTH) ?? 0;
 
-            var along = XYZ.BasisX;
+            var along = box != null && box.Max.Y - box.Min.Y > box.Max.X - box.Min.X ? XYZ.BasisY : XYZ.BasisX;
             var curve = ((fi.Host as Wall)?.Location as LocationCurve)?.Curve;
             if (curve != null)
             {
@@ -192,8 +216,17 @@ namespace Qbiq.PathTool.Addin.Extraction
                     if (tangent.GetLength() > 1e-9) along = tangent.Normalize();
                 }
             }
+            if (width <= 0 && box != null && fi.Location is not LocationPoint)
+                width = Math.Abs((box.Max.X - box.Min.X) * along.X) + Math.Abs((box.Max.Y - box.Min.Y) * along.Y);
+            if (width <= 0) width = DefaultOpeningWidthFt;
             var half = along * (width / 2);
             into.Add(new List<double[]> { Pt(at - half), Pt(at + half) });
+        }
+
+        static double? WidthOf(FamilyInstance fi, BuiltInParameter parameter)
+        {
+            var width = (fi.get_Parameter(parameter) ?? fi.Symbol?.get_Parameter(parameter))?.AsDouble() ?? 0;
+            return width > 0 ? width : (double?)null;
         }
 
         // ---- rooms ----

@@ -38,6 +38,10 @@ body.host-revit .vtl { gap: 5px; }
 #rv-inspector .rv-fld { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; }
 #rv-inspector input { width: 74px; text-align: right; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font: inherit; }
 #rv-inspector input[readonly] { background: var(--surface2); color: var(--text2); }
+#rv-inspector .rv-actions { display: flex; align-items: center; gap: 8px; padding: 8px 12px 10px; border-top: 1px solid var(--border); margin-top: 4px; }
+#rv-inspector .rv-actions span { flex: 1; color: var(--text3); font-size: 11px; line-height: 1.3; }
+.rv-btn.danger { color: #b42318; border-color: #f1c4bf; }
+.rv-btn.danger:hover { background: #fdecea; }
 .wp-row.rv-invalid { background: var(--amber-lt, #fbf1e0); }
 
 /* ── One screen: plan | 3D | panel, video bar below ───────────────────────────────────────────────────────── */
@@ -69,6 +73,7 @@ body.host-revit #video-timeline { grid-column: 1; grid-row: 2; max-height: 260px
 .rv-sec.closed .step-panel { display: none !important; }
 body.host-revit #rv-panel .step-panel { display: flex !important; width: auto; border: 0; padding: 14px 16px 18px; overflow: visible; gap: 12px; }
 body.host-revit #rv-panel .sp-eyebrow { display: none; }
+body.host-revit #step-2 > div:first-child { display: none; }
 body.host-revit #rv-panel .sp-title { font-size: 15px; margin-top: 0; }
 body.host-revit #rv-panel .sp-help { font-size: 12.5px; }
 

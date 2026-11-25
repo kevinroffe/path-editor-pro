@@ -7,14 +7,9 @@ namespace Qbiq.PathTool.Tests
 {
     public class ViewChoiceTests
     {
-        static readonly string[] Views = { "{3D}", "Exterior", "Interior walkthrough" };
-
-        [Fact] public void An_active_3D_view_is_used() => Assert.Equal(ViewSource.Active, ViewChoice.Choose(true, Views));
-        [Fact] public void Without_an_active_3D_view_the_default_3D_view_is_used() => Assert.Equal(ViewSource.Default, ViewChoice.Choose(false, Views));
-        [Fact] public void No_3D_view_at_all_gives_none() => Assert.Equal(ViewSource.None, ViewChoice.Choose(false, new string[0]));
-        [Fact] public void Other_3D_views_without_a_default_give_none() => Assert.Equal(ViewSource.None, ViewChoice.Choose(false, new[] { "Exterior" }));
-        [Fact] public void None_comes_with_an_instruction() => Assert.Contains("Open a 3D view", ViewChoice.NoViewMessage);
-        [Fact] public void An_active_3D_view_wins_even_if_the_list_is_empty() => Assert.Equal(ViewSource.Active, ViewChoice.Choose(true, new string[0]));
+        [Fact] public void An_active_3D_view_is_used() => Assert.Equal(ViewSource.Active, ViewChoice.Choose(true));
+        [Fact] public void Without_an_active_3D_view_the_whole_model_is_read() => Assert.Equal(ViewSource.WholeModel, ViewChoice.Choose(false));
+        [Fact] public void The_whole_model_has_a_name_for_the_header() => Assert.Equal("whole model", ViewChoice.WholeModelName);
     }
 
     public class OverviewAndCropReadTests
